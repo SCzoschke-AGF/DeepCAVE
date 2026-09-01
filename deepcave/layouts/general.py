@@ -37,8 +37,17 @@ from dash.exceptions import PreventUpdate
 from deepcave import app, c, notification, queue, rc, run_handler
 from deepcave.layouts import Layout
 from deepcave.runs import NotMergeableError
+from deepcave.runs.converters.optuna import OptunaRun
 from deepcave.runs.run import Run
+from deepcave.utils.hash import string_to_hash
 from deepcave.utils.layout import help_button
+from deepcave.utils.optuna import (
+    SNAPSHOT_FILENAME,
+    create_optuna_snapshot,
+    get_optuna_snapshot_path,
+    list_optuna_studies,
+    resolve_optuna_database,
+)
 from deepcave.utils.util import short_string
 
 
@@ -55,6 +64,8 @@ class GeneralLayout(Layout):
     def register_callbacks(self) -> None:
         """Register if there were any callbacks."""
         self._callback_working_directory_changed()
+        self._callback_discover_optuna_studies()
+        self._callback_update_optuna_button()
         self._callback_display_available_runs()
         self._callback_display_selected_runs()
         self._callback_manage_run()
@@ -71,6 +82,7 @@ class GeneralLayout(Layout):
             # (if someone is pressing on a directory)
             # Only works with "ALL"
             Input({"type": "general-dynamic-change-directory", "index": ALL}, "n_clicks"),
+            Input("general-optuna-import-trigger", "data"),
             State({"type": "general-dynamic-available-run-path", "index": ALL}, "data"),
         ]
 
@@ -88,6 +100,7 @@ class GeneralLayout(Layout):
             _,
             working_dir: str,
             dynamic_n_clicks: List[Optional[int]],
+            _optuna_import_trigger: int,
             dynamic_working_dirs: List[str],
         ):
             """
@@ -121,6 +134,87 @@ class GeneralLayout(Layout):
                 self.get_converter_text(converter),
                 run_handler.get_available_run_paths(),
             )
+
+    def _callback_discover_optuna_studies(self) -> None:
+        """Discover studies whenever the SQLite database path changes."""
+        outputs = [
+            Output("general-optuna-study-dropdown", "options"),
+            Output("general-optuna-study-dropdown", "value"),
+            Output("general-optuna-database-status", "children"),
+            Output("general-optuna-database-status", "className"),
+        ]
+        inputs = [
+            Input("general-optuna-database-input", "value"),
+            Input("general-working-directory-input", "value"),
+            State("general-optuna-study-dropdown", "value"),
+        ]
+
+        @app.callback(outputs, inputs)  # type: ignore
+        def callback(database_value: str, working_dir: str, selected_study: Optional[str]):
+            """Populate the study dropdown from a local Optuna database."""
+            if database_value is None or working_dir is None:
+                return [], None, "", ""
+
+            try:
+                database = resolve_optuna_database(database_value, Path(working_dir))
+                study_names = list_optuna_studies(database)
+            except Exception as exception:
+                return [], None, str(exception), "text-danger"
+
+            if len(study_names) == 0:
+                return [], None, f"No Optuna studies found in {database}.", "text-warning"
+
+            options = [
+                {
+                    "label": short_string(study_name, 60, mode="suffix"),
+                    "value": study_name,
+                }
+                for study_name in study_names
+            ]
+            if selected_study not in study_names:
+                selected_study = study_names[0] if len(study_names) == 1 else None
+
+            noun = "study" if len(study_names) == 1 else "studies"
+            message = f"{len(study_names)} Optuna {noun} in {database}"
+            return options, selected_study, message, "text-muted"
+
+    def _callback_update_optuna_button(self) -> None:
+        """Update the Optuna import button based on the selected snapshot."""
+        outputs = [
+            Output("general-optuna-load-button", "children"),
+            Output("general-optuna-load-button", "disabled"),
+            Output("general-optuna-selected-study", "children"),
+        ]
+        inputs = [
+            Input("general-optuna-database-input", "value"),
+            Input("general-optuna-study-dropdown", "value"),
+            Input("general-working-directory-input", "value"),
+            Input("general-optuna-import-trigger", "data"),
+        ]
+
+        @app.callback(outputs, inputs)  # type: ignore
+        def callback(
+            database_value: str,
+            study_name: Optional[str],
+            working_dir: str,
+            _optuna_import_trigger: int,
+        ):
+            """Choose the load or refresh state for the import button."""
+            if database_value is None or study_name is None or working_dir is None:
+                return "Load Optuna Study", True, ""
+
+            try:
+                database = resolve_optuna_database(database_value, Path(working_dir))
+                if study_name not in list_optuna_studies(database):
+                    return "Load Optuna Study", True, study_name
+                run_path = get_optuna_snapshot_path(database, study_name, Path(working_dir))
+            except Exception:
+                return "Load Optuna Study", True, study_name
+
+            if (run_path / SNAPSHOT_FILENAME).is_file():
+                return "Refresh from Optuna", False, study_name
+
+            return "Load Optuna Study", False, study_name
 
     def _callback_display_available_runs(self) -> None:
         """Display available runs."""
@@ -267,20 +361,35 @@ class GeneralLayout(Layout):
             Output({"type": "general-dynamic-add-run", "index": ALL}, "n_clicks"),
             Output({"type": "general-dynamic-remove-run", "index": ALL}, "n_clicks"),
             Output("general-selected-runs", "data"),
+            Output("general-optuna-import-trigger", "data"),
+            Output("general-optuna-load-button", "n_clicks"),
         ]
 
         inputs = [
             Input({"type": "general-dynamic-add-run", "index": ALL}, "n_clicks"),
             Input({"type": "general-dynamic-remove-run", "index": ALL}, "n_clicks"),
+            Input("general-optuna-load-button", "n_clicks"),
         ]
 
         states = [
             State({"type": "general-dynamic-available-run-path", "index": ALL}, "data"),
             State({"type": "general-dynamic-selected-run-path", "index": ALL}, "data"),
+            State("general-optuna-database-input", "value"),
+            State("general-optuna-study-dropdown", "value"),
+            State("general-optuna-import-trigger", "data"),
         ]
 
         @app.callback(outputs, inputs, states)  # type: ignore
-        def callback(add_n_clicks, remove_n_clicks, available_run_paths, selected_run_paths):
+        def callback(
+            add_n_clicks,
+            remove_n_clicks,
+            optuna_n_clicks,
+            available_run_paths,
+            selected_run_paths,
+            database_value,
+            study_name,
+            optuna_import_trigger,
+        ):
             """Add and remove runs."""
             # Add run path
             for n_click, run_path in zip(add_n_clicks, available_run_paths):
@@ -294,6 +403,53 @@ class GeneralLayout(Layout):
                 if n_click is not None:
                     run_handler.remove_run(run_path)
 
+            if optuna_n_clicks is not None:
+                try:
+                    if database_value is None or study_name is None:
+                        raise ValueError("Select a SQLite database and an Optuna study first.")
+
+                    working_dir = run_handler.get_working_directory()
+                    database = resolve_optuna_database(database_value, working_dir)
+                    target_path = get_optuna_snapshot_path(database, study_name, working_dir)
+                    target_path_str = str(target_path)
+                    run_id = string_to_hash(f"{OptunaRun.prefix}:{target_path}")
+
+                    if queue.has_active_jobs_for_run(run_id):
+                        notification.update(
+                            "The Optuna run still has pending or running jobs. "
+                            "Wait for them or cancel them before refreshing.",
+                            "warning",
+                        )
+                    else:
+                        result = create_optuna_snapshot(database, study_name, working_dir)
+                        queue.delete_inactive_jobs_for_run(run_id)
+
+                        if target_path_str in run_handler.get_selected_run_paths():
+                            if target_path_str in run_handler.runs:
+                                run_handler.update()
+                                success = target_path_str in run_handler.runs
+                            else:
+                                success = run_handler.update_runs()
+                        else:
+                            success = run_handler.add_run(target_path_str)
+
+                        if success:
+                            run_handler.update_groups()
+                            c.set("last_inputs", value={})
+                            optuna_import_trigger = (optuna_import_trigger or 0) + 1
+                            action = "refreshed" if result.refreshed else "loaded"
+                            notification.update(
+                                f'Optuna study "{study_name}" {action}: '
+                                f"{result.imported_trials} trials imported, "
+                                f"{result.skipped_trials} unfinished trials skipped.",
+                                "success",
+                            )
+                        else:
+                            notification.update("The imported Optuna run could not be selected.")
+                except Exception as exception:
+                    self.logger.exception("Could not import Optuna study.")
+                    notification.update(str(exception))
+
             # Reset clicks
             add_n_clicks = [None for _ in add_n_clicks]
             remove_n_clicks = [None for _ in remove_n_clicks]
@@ -301,7 +457,13 @@ class GeneralLayout(Layout):
             # Remove last inputs
             c.set("last_inputs", value={})
 
-            return add_n_clicks, remove_n_clicks, run_handler.get_selected_run_paths()
+            return (
+                add_n_clicks,
+                remove_n_clicks,
+                run_handler.get_selected_run_paths(),
+                optuna_import_trigger or 0,
+                None,
+            )
 
     def _callback_display_groups(self) -> None:
         """Responsible of displaying the groups."""
@@ -519,6 +681,35 @@ class GeneralLayout(Layout):
             dbc.Input(id="general-working-directory-input", placeholder="", type="text"),
             dbc.FormText(id="general-converter-label"),
             dcc.Store(id="general-available-runs", data={}),
+            dcc.Store(id="general-optuna-import-trigger", data=0),
+            dbc.Card(
+                [
+                    dbc.CardHeader("Load Optuna Study"),
+                    dbc.CardBody(
+                        [
+                            dbc.Label("SQLite database"),
+                            dbc.Input(
+                                id="general-optuna-database-input",
+                                type="text",
+                                value="optuna.db",
+                                debounce=True,
+                            ),
+                            dbc.FormText(id="general-optuna-database-status"),
+                            dbc.Label("Study", className="mt-3"),
+                            dcc.Dropdown(id="general-optuna-study-dropdown", options=[]),
+                            dbc.FormText(id="general-optuna-selected-study"),
+                            dbc.Button(
+                                "Load Optuna Study",
+                                id="general-optuna-load-button",
+                                color="primary",
+                                className="mt-3",
+                                disabled=True,
+                            ),
+                        ]
+                    ),
+                ],
+                className="mt-3 mb-3",
+            ),
             html.Div(id="general-available-runs-container", className="mt-2"),
             html.Hr(),
             # Selected Runs

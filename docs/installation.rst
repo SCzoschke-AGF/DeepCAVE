@@ -1,13 +1,15 @@
 Installation
 ============
 
-DeepCAVE needs `redis-server <https://flaviocopes.com/redis-installation/>`_ to be installed
-for the interactive mode, which can be done via:
+DeepCAVE needs a reachable Redis server for the interactive mode. For a source checkout, the
+included Docker Compose service is recommended:
 
 .. code:: bash
 
-    brew install redis  # MacOS
-    sudo apt-get install redis-server  # Linux
+    docker compose up -d redis
+
+It exposes Redis only on ``127.0.0.1:6379`` and disables persistence to prevent stale queue jobs.
+A system-wide ``redis-server`` installation is also supported. See :doc:`redis` for both options.
 
 The following commands install DeepCAVE. We recommend using anaconda, as this way `swig` can be
 installed directly. If you use a different environment, make sure that
@@ -76,45 +78,4 @@ to your ``~/.bash_profile`` to enable multi-processing.
 Redis Server
 ^^^^^^^^^^^^
 
-If you have problems installing `redis-server`, please try the following steps:
-
-1. First, check if `redis-server` is available:
-
-    .. code:: bash
-
-        redis-server
-
-2. If you see something like ``/usr/sbin/redis-server``, then you simply have to expand your path:
-
-    .. code:: bash
-
-        export PATH=$PATH:/usr/sbin
-
-    Consider adding this to your ``~/.bashrc`` file.
-    Check if `redis-server` works now.
-
-3. If no `redis-server` was found, try to install it:
-
-    .. code:: bash
-
-        sudo apt-get install redis-server  # Linux
-        brew install redis  # Mac
-
-4. If there was no `redis-server` found and you do not have admin access, do the following inside the DeepCAVE root folder:
-
-    .. code:: bash
-
-        file="redis-6.2.6"
-        filename=$file".tar.gz"
-
-        mkdir -p vendors
-        cd vendors
-        wget https://download.redis.io/releases/$filename
-        tar -xzvf $filename
-        rm $filename
-        cd $file
-        make
-        make install
-        export PATH=$PATH:`pwd`
-        cd ../../
-
+See :doc:`redis` for Docker and system-wide installation instructions.

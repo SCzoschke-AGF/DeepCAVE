@@ -1,49 +1,51 @@
-Install Redis Server
-====================
+Run Redis
+=========
 
-`redis-server` is required to make DeepCAVE run in interactive mode. This page gives information
-how to get `redis-server` installed.
+DeepCAVE requires a Redis server for its background job queue. At startup it sends ``PING`` to
+the configured ``REDIS_ADDRESS`` and ``REDIS_PORT``. The server can run in Docker, on the host, or
+on another trusted system.
 
+Docker Compose (recommended)
+----------------------------
 
-1. First check if `redis-server` is available:
-
-.. code:: bash
-
-    redis-server
-
-
-2. If you see something like `/usr/sbin/redis-server`, then you simply have to expand your path:
+The repository includes a Redis service for local development:
 
 .. code:: bash
 
-    export PATH=$PATH:/usr/sbin
+    docker compose up -d redis
+    docker compose ps redis
 
-Consider adding this to your `~/.bashrc` file.
-Check if `redis-server` works now.
+The service publishes port 6379 only on the host's loopback interface. RDB and AOF persistence
+are disabled because DeepCAVE queue jobs are temporary and should not survive Redis restarts.
 
-
-3. If no `redis-server` was found, try to install it:
-
-.. code:: bash
-
-    sudo apt-get install redis-server  # linux
-    brew install redis  # mac
-
-
-4. If there was no `redis-server` found and you do not have admin access,
-do the following inside the DeepCAVE root folder:
+To stop the service, run:
 
 .. code:: bash
 
-    file="redis-6.2.6"
-    filename=$file".tar.gz"
+    docker compose down
 
-    mkdir -p vendors
-    cd vendors
-    wget https://download.redis.io/releases/$filename
-    tar -xzvf $filename
-    rm $filename
-    cd $file
-    make
-    export PATH=$PATH:`pwd`
-    cd ../../
+No local ``redis-server`` or ``redis-cli`` binary is required. To test the same connection path
+that DeepCAVE uses, activate its Python environment and run:
+
+.. code:: bash
+
+    deepcave --check_redis
+
+System-wide installation
+------------------------
+
+A local Redis package remains supported:
+
+.. code:: bash
+
+    sudo apt-get install redis-server  # Linux
+    brew install redis                 # macOS
+
+If Redis is already running, DeepCAVE connects to it. Otherwise, the launcher starts the local
+``redis-server`` binary for the lifetime of DeepCAVE.
+
+Custom server
+-------------
+
+Set ``REDIS_ADDRESS`` and ``REDIS_PORT`` in a custom DeepCAVE configuration. Keep Redis on a
+trusted network and configure authentication when it is not limited to the local machine.

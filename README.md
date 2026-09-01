@@ -14,8 +14,17 @@ tool at any time effortlessly.
 
 ## Installation
 
-First, make sure you have [redis-server](https://flaviocopes.com/redis-installation/) installed on
-your computer.
+DeepCAVE requires a reachable Redis server for its background job queue. For a source checkout,
+the included Docker Compose service is the recommended option:
+
+```bash
+docker compose up -d redis
+```
+
+The container is published only on `127.0.0.1:6379` and persistence is disabled so stale queue
+jobs do not survive restarts. A system-wide `redis-server` installation remains supported as a
+fallback. DeepCAVE checks the configured Redis connection at startup, so neither `redis-server`
+nor `redis-cli` needs to be installed on the host when Docker is used.
 
 Afterwards, follow the instructions to install DeepCAVE:
 ```bash
@@ -62,6 +71,18 @@ deepcave --open
 If you specify `--open` your webbrowser automatically opens at `http://127.0.0.1:8050/`.
 You can find more arguments and information (like using custom configurations) in the
 [documentation](https://automl.github.io/DeepCAVE/main/getting_started.html).
+
+### Importing an Optuna SQLite study
+
+On the **General** page, enter a local SQLite database path in **SQLite database**. Relative paths
+are resolved against DeepCAVE's current Working Directory. DeepCAVE discovers the studies in the
+database, lets you select one, and creates a self-contained snapshot when you click **Load Optuna
+Study**.
+
+Snapshots are stored below `deepcave_optuna/` in the Working Directory and selected immediately.
+Use **Refresh from Optuna** to replace a snapshot manually. Running and waiting trials remain in
+the snapshot but are skipped by the analyses until a later refresh observes them in a terminal
+state. Automatic refresh is intentionally not part of this first version.
 
 
 ## Example runs

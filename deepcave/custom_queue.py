@@ -26,7 +26,6 @@ as well as deleting and adding jobs from/to the queue.
 
 from typing import Any, Callable, Dict, List, Optional
 
-import redis
 from rq import Queue as _Queue
 from rq import Worker
 from rq.command import send_kill_horse_command
@@ -34,6 +33,7 @@ from rq.job import Job
 from rq.registry import BaseRegistry
 
 from deepcave.utils.logs import get_logger
+from deepcave.utils.redis import create_redis_connection
 
 logger = get_logger(__name__)
 
@@ -46,7 +46,7 @@ class Queue:
     """
 
     def __init__(self, address: str, port: int) -> None:
-        self._connection = redis.from_url(address + ":" + str(port))
+        self._connection = create_redis_connection(address, port)
         self._queue = _Queue("high", connection=self._connection, default_timeout=-1)
 
     def ready(self) -> bool:
@@ -297,6 +297,25 @@ class Queue:
             The list with the corresponding jobs.
         """
         return self.get_jobs(registry="finished")
+
+    def get_jobs_for_run(self, run_id: str, registries: List[str]) -> List[Job]:
+        """Return jobs whose metadata references the given run."""
+        jobs = []
+        for registry in registries:
+            for job in self.get_jobs(registry=registry):
+                if job.meta.get("run_id") == run_id:
+                    jobs.append(job)
+
+        return jobs
+
+    def has_active_jobs_for_run(self, run_id: str) -> bool:
+        """Return whether a run has pending or running jobs."""
+        return len(self.get_jobs_for_run(run_id, ["running", "pending"])) > 0
+
+    def delete_inactive_jobs_for_run(self, run_id: str) -> None:
+        """Delete finished and failed jobs belonging to a run."""
+        for job in self.get_jobs_for_run(run_id, ["finished", "failed"]):
+            self.delete_job(job.id)
 
     def delete_job(self, job_id: Optional[str] = None) -> None:
         """

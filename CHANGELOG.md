@@ -1,3 +1,15 @@
+# Unreleased
+
+## Optuna
+- Added a General-page importer for studies stored in local Optuna SQLite databases.
+- Create detached, atomically replaced study snapshots and select imported runs automatically.
+- Support snapshots of live studies by skipping running and waiting trials during conversion.
+
+## Redis
+- Added a Docker Compose service bound to the host loopback interface with persistence disabled.
+- Check Redis connectivity directly instead of requiring local redis-server and redis-cli binaries.
+- Keep RQ's blocking Redis connection free of read timeouts, including with redis-py 8.
+
 # Version 1.4.1
 
 ## Raytune

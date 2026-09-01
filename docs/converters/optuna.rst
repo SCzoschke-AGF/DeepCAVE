@@ -1,6 +1,29 @@
 Optuna
 ------
 
+Import from SQLite
+^^^^^^^^^^^^^^^^^^
+
+The General page can import studies directly from a local Optuna SQLite database. Enter the path
+under ``SQLite database``. Relative paths are resolved against DeepCAVE's current Working
+Directory, so ``optuna.db`` selects a database with that name in the displayed directory.
+
+DeepCAVE lists the studies stored in the database. Select a study and click ``Load Optuna Study``.
+The imported run is selected immediately and stored below ``deepcave_optuna/`` in the Working
+Directory. The generated Pickle contains an in-memory copy of the study and no longer needs the
+SQLite database when it is analyzed.
+
+Click ``Refresh from Optuna`` to update an existing snapshot. A refresh is blocked while DeepCAVE
+has pending or running analysis jobs for that run. Running and waiting Optuna trials are retained
+in the snapshot but skipped during conversion. They become available after they reach a terminal
+state and the snapshot is refreshed again. Automatic refresh is not supported.
+
+Only local SQLite file paths are accepted by this importer. Other Optuna storage backends can
+still be exported manually as described below.
+
+Manual Pickle export
+^^^^^^^^^^^^^^^^^^^^
+
 To be able to load your Optuna run into DeepCave, there are a few points to
 consider when running Optuna:
 
@@ -27,9 +50,9 @@ consider when running Optuna:
 
 Furthermore, to load an Optuna run into DeepCAVE, it is necessary to install Optuna, e.g. via:
 
-   .. code-block:: bash
+.. code-block:: bash
 
-        pip install deepcave[optuna]
+    pip install deepcave[optuna]
 
 .. note::
    Optuna does not support instances.
@@ -39,3 +62,7 @@ Furthermore, to load an Optuna run into DeepCAVE, it is necessary to install Opt
    This limitation arises because Optuna leverages a dynamic search space, which cannot be
    trivially converted into a static search space as used in DeepCAVE.
 
+.. warning::
+   Pickling a Study connected to persistent Optuna storage does not necessarily create a detached
+   snapshot. Prefer the SQLite importer above, which explicitly copies the Study into in-memory
+   storage before serializing it.

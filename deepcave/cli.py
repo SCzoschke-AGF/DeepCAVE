@@ -25,11 +25,13 @@ from typing import Any
 
 import multiprocessing
 import subprocess
+import sys
 from pathlib import Path
 
 from absl import app, flags
 
 from deepcave.utils.configs import parse_config
+from deepcave.utils.redis import is_redis_available
 
 FLAGS = flags.FLAGS
 flags.DEFINE_boolean("open", False, "Opens DeepCAVE directly in the browser.")
@@ -43,17 +45,35 @@ flags.DEFINE_string("config", None, "Filename to a user-specific config.")
 flags.DEFINE_string(
     "get_config_value", None, "Prints the value of a given config key. Useful for bash scripts."
 )
+flags.DEFINE_boolean(
+    "check_redis",
+    False,
+    "Checks whether the configured Redis server is reachable.",
+)
 
 
 def execute(_: Any) -> None:
     """Entry point for the programs execution."""
+    config_name = FLAGS.config
+    if config_name is not None:
+        config_name = str(config_name)
+
     if (config_key := FLAGS.get_config_value) is not None:
-        config = FLAGS.config
-        if config is not None:
-            config = str(FLAGS.config)
-        config = parse_config(config)
+        config = parse_config(config_name)
         print(getattr(config, config_key))
         return
+
+    if FLAGS.check_redis:
+        config = parse_config(config_name)
+        if is_redis_available(config.REDIS_ADDRESS, config.REDIS_PORT):
+            print("Redis connection successful.")
+            return
+
+        print(
+            "Error: Redis is not reachable using the configured REDIS_ADDRESS and REDIS_PORT.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
 
     HERE = Path(__file__).parent
 

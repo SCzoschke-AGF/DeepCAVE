@@ -30,22 +30,35 @@ if ! [[ $CONFIG ]]; then
 fi
 echo "Using config '$CONFIG'"
 
-# Check if redis-server is installed
-if ! [[ -x "$(command -v redis-server)" ]]; then
-    echo "Error: redis-server is not installed." >&2
-    exit 1
-fi
+check_redis() {
+    deepcave --check_redis --config "$CONFIG"
+}
 
-REDIS_PORT=$(deepcave --get_config_value REDIS_PORT)
-echo "Checking if redis-server is already running..."
+echo "Checking the configured Redis connection..."
 
-# We ping the redis server to see if it is running
-RUNNING=true
-redis-cli -p $REDIS_PORT PING || RUNNING=false
+# Use an already running Redis instance, including one published by Docker.
+if check_redis > /dev/null 2>&1; then
+    echo "Redis server already running. Skipping..."
+else
+    # Preserve the previous behavior as a fallback for local installations.
+    if ! command -v redis-server > /dev/null 2>&1; then
+        check_redis || true
+        echo "Start Redis with 'docker compose up -d redis' or install redis-server locally." >&2
+        exit 1
+    fi
 
-# Check if redis-server is already running
-if [ "$RUNNING" == false ]; then
-    echo "Redis server is not running. Starting..."
+    REDIS_ADDRESS=$(deepcave --get_config_value REDIS_ADDRESS --config "$CONFIG")
+    REDIS_PORT=$(deepcave --get_config_value REDIS_PORT --config "$CONFIG")
+
+    if [[ "$REDIS_ADDRESS" != "redis://localhost" \
+        && "$REDIS_ADDRESS" != "redis://127.0.0.1" \
+        && "$REDIS_ADDRESS" != "redis://[::1]" ]]; then
+        check_redis || true
+        echo "Error: The configured non-local Redis server must be started separately." >&2
+        exit 1
+    fi
+
+    echo "Redis server is not reachable. Starting a local server..."
     cd "$ROOT_PATH"
 
     # We remove dump.rdb to avoid issues from previous runs
@@ -55,11 +68,23 @@ if [ "$RUNNING" == false ]; then
     fi
 
     # We don't want to show the redis-server output
-    redis-server --port $REDIS_PORT > /dev/null 2>&1 &
+    redis-server --port "$REDIS_PORT" > /dev/null 2>&1 &
     cd "$HERE"
-    echo "Redis server successfully started."
-else
-    echo "Redis server already running. Skipping..."
+
+    # Give Redis up to five seconds to accept connections.
+    for _ in {1..50}; do
+        if check_redis > /dev/null 2>&1; then
+            echo "Redis server successfully started."
+            break
+        fi
+        sleep 0.1
+    done
+
+    if ! check_redis > /dev/null 2>&1; then
+        check_redis || true
+        echo "Error: The local Redis server did not become ready." >&2
+        exit 1
+    fi
 fi
 
 # Start n workers in background
@@ -68,8 +93,8 @@ do
 	python "$ROOT_PATH/worker.py" --config "$CONFIG" &
 done
 
-ADDRESS=$(deepcave --get_config_value DASH_ADDRESS)
-PORT=$(deepcave --get_config_value DASH_PORT)
+ADDRESS=$(deepcave --get_config_value DASH_ADDRESS --config "$CONFIG")
+PORT=$(deepcave --get_config_value DASH_PORT --config "$CONFIG")
 # Open the webserver delayed
 if [ "$OPEN" == "true" ]; then
     python "$ROOT_PATH/open.py" --address "$ADDRESS"  --port "$PORT" &

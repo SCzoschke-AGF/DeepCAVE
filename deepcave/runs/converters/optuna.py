@@ -208,7 +208,7 @@ class OptunaRun(Run):
                 )
         configspace.add(hyperparameters)
 
-        n_objectives = max(len(trial.values) for trial in optuna_study.trials)
+        n_objectives = len(optuna_study.directions)
         obj_list = list()
         for i in range(n_objectives):
             if optuna_study.metric_names is not None:
@@ -234,8 +234,20 @@ class OptunaRun(Run):
         # The path has to be set manually
         run._path = path
 
-        first_starttime = None
-        for trial in optuna_study.trials:
+        supported_trials = [
+            trial
+            for trial in optuna_study.trials
+            if trial.state in (TrialState.COMPLETE, TrialState.FAIL, TrialState.PRUNED)
+        ]
+        if not any(trial.state == TrialState.COMPLETE for trial in supported_trials):
+            raise ValueError("The Optuna study does not contain a completed trial yet.")
+
+        start_times = [
+            trial.datetime_start for trial in supported_trials if trial.datetime_start is not None
+        ]
+        first_starttime = min(start_times) if len(start_times) > 0 else None
+
+        for trial in supported_trials:
             try:
                 config = Configuration(configspace, trial.params)
             except ValueError:
@@ -246,34 +258,38 @@ class OptunaRun(Run):
                     f"hyperparameter value ranges, which are currently not supported."
                 )
 
-            if first_starttime is None:
-                first_starttime = trial.datetime_start.timestamp()
-
-            starttime = trial.datetime_start.timestamp() - first_starttime
-            endtime = trial.datetime_complete.timestamp() - first_starttime
-
             if trial.state == TrialState.COMPLETE:
                 status = Status.SUCCESS
             elif trial.state == TrialState.FAIL:
                 status = Status.FAILED
-            elif trial.state == TrialState.PRUNED:
+            else:
                 status = Status.PRUNED
-            elif trial.state == TrialState.RUNNING or trial["status"] == TrialState.WAITING:
-                continue
+
+            starttime = 0.0
+            if first_starttime is not None and trial.datetime_start is not None:
+                starttime = (trial.datetime_start - first_starttime).total_seconds()
+
+            endtime = starttime
+            if first_starttime is not None and trial.datetime_complete is not None:
+                endtime = (trial.datetime_complete - first_starttime).total_seconds()
+
+            if status == Status.SUCCESS:
+                if trial.values is None or len(trial.values) != n_objectives:
+                    raise ValueError(
+                        f"Completed trial {trial.number} does not provide {n_objectives} "
+                        "objective values."
+                    )
+                costs = list(trial.values)
+                if trial.datetime_start is not None and trial.datetime_complete is not None:
+                    time = float(endtime - starttime)
+                else:
+                    time = None
             else:
-                status = Status.UNKNOWN
-
-            cost = trial.values
-
-            if status != Status.SUCCESS:
-                # Costs which failed, should not be included
-                cost = [None] * len(cost) if isinstance(cost, list) else None
+                costs = [None] * n_objectives
                 time = None
-            else:
-                time = float(endtime - starttime)
 
             run.add(
-                costs=cost + [time] if isinstance(cost, list) else [cost, time],  # type: ignore
+                costs=costs + [time],
                 config=config,
                 budget=0.0,
                 seed=-1,
