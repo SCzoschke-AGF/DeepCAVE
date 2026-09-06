@@ -11,6 +11,7 @@ This plugin is capable of answering following questions:
 * Which selected pairs of hyperparameters have an additional interaction effect?
 * How does the importance of each hyperparameter vary across different budgets?
 * How does the local parameter importance compare to the global importance as determined by fANOVA?
+* Which hyperparameters distinguish a selected top-performing region from the observed search?
 
 .. image:: ../images/plugins/importances.png
 
@@ -35,6 +36,15 @@ hyperparameter importance across the entire configuration space, thus helping in
 global impact of hyperparameters. For more details on fANOVA, please refer to the paper
 `An Efficient Approach for Assessing Hyperparameter Importance
 <https://proceedings.mlr.press/v32/hutter14.html>`_.
+
+**PED-ANOVA Importance** compares the hyperparameter distributions of the best trials with those
+in the observed search region. The target quantile controls which top-performing trials form the
+target region. For example, a target quantile of ``0.10`` analyzes the top 10% of successful
+trials. DeepCAVE's implementation follows the Optuna 4.9 algorithm and Scott Parzen estimator while
+operating directly on the common DeepCAVE run representation. PED-ANOVA currently supports only
+single-objective analysis. For details, see the paper
+`PED-ANOVA: Efficiently Quantifying Hyperparameter Importance in Arbitrary Subspaces
+<https://arxiv.org/abs/2304.10255>`_.
 
 For global single-objective fANOVA, the interaction order can be set to two. DeepCAVE then keeps
 all main effects and adds pairwise interactions between two to four explicitly selected
@@ -65,9 +75,13 @@ Options
 
 * **Objective 1 / 2**: Choose the objective you wish to calculate the importance for. Optionally, choose a second objective to see how the importance changes from one objective to the other.
 
-* **Method:** Whether to calculate the local parameter importance or the fANOVA importance.
+* **Method:** Whether to calculate local parameter importance, fANOVA, or PED-ANOVA importance.
 
-* **Trees:** Specify the number of trees for the random forest surrogate model used in calculating importance scores.
+* **Trees:** Specify the number of trees for the random forest surrogate model used by LPI and
+  fANOVA. This setting is disabled for PED-ANOVA.
+
+* **Target quantile:** Select the top-performing fraction analyzed by PED-ANOVA. It must be greater
+  than zero and smaller than one. This setting is disabled for other methods.
 
 * **Interaction order:** Calculate main effects only (order 1), or main effects plus selected
   pairwise interactions (order 2). Order 2 is available only for global fANOVA with one objective.
@@ -88,3 +102,7 @@ To refine your analysis, you can apply various filters after calculation:
     As a workaround, we remove constant hyperparameters before calculation.
     This will break if the configuration space contains any conditions or forbiddens including
     constant hyperparameters.
+
+.. note::
+    PED-ANOVA is available only when a single objective is selected. Selecting PED-ANOVA clears and
+    disables the second objective input.

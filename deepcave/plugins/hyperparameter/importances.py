@@ -43,8 +43,10 @@ from deepcave.evaluators.fanova import fANOVA as GlobalEvaluator
 from deepcave.evaluators.lpi import LPI as LocalEvaluator
 from deepcave.evaluators.mo_fanova import MOfANOVA
 from deepcave.evaluators.mo_lpi import MOLPI
+from deepcave.evaluators.ped_anova import PEDANOVA
 from deepcave.plugins.static import StaticPlugin
 from deepcave.runs import AbstractRun
+from deepcave.runs.objective import Objective
 from deepcave.utils.cast import optional_int
 from deepcave.utils.layout import get_checklist_options, get_select_options, help_button
 from deepcave.utils.logs import get_logger
@@ -84,7 +86,7 @@ class Importances(StaticPlugin):
     """
     Provide a plugin for the visualization of the importances.
 
-    Evaluators are fANOVA and LPI (local parameter importance).
+    Evaluators are fANOVA, LPI (local parameter importance), and PED-ANOVA.
 
     Provided utilities include getting input/output layout, data processing
     and loading outputs. Also provides a matplotlib version.
@@ -129,7 +131,11 @@ class Importances(StaticPlugin):
                         [
                             dbc.Label("Objective 2"),
                             dbc.Select(
-                                id=register("objective_id2", ["value", "options"], type=int),
+                                id=register(
+                                    "objective_id2",
+                                    ["value", "options", "disabled"],
+                                    type=int,
+                                ),
                                 placeholder="Select objective ...",
                             ),
                         ],
@@ -146,7 +152,9 @@ class Importances(StaticPlugin):
                                 "Local Parameter Importance: Quantify importance by changing the "
                                 "neighborhood of a configuration. Uses default and incumbent "
                                 "configuration as reference. \n\n"
-                                "fANOVA: Quantify importance globally."
+                                "fANOVA: Quantify importance globally. \n\n"
+                                "PED-ANOVA: Quantify which parameters distinguish the selected "
+                                "top-performing region."
                             ),
                             dbc.Select(
                                 id=register("method", ["value", "options"]),
@@ -164,11 +172,36 @@ class Importances(StaticPlugin):
                                 "The more trees are used the more accurate the results. "
                                 "However, also it takes longer to compute."
                             ),
-                            dbc.Input(id=register("n_trees", type=optional_int), type="number"),
+                            dbc.Input(
+                                id=register("n_trees", ["value", "disabled"], type=optional_int),
+                                type="number",
+                            ),
                         ],
                         md=6,
                     ),
                 ],
+            ),
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            dbc.Label("Target quantile"),
+                            help_button(
+                                "Fraction of best trials analyzed by PED-ANOVA. "
+                                "For example, 0.10 analyzes the top 10%."
+                            ),
+                            dbc.Input(
+                                id=register("target_quantile", ["value", "disabled"], type=float),
+                                type="number",
+                                min=0.01,
+                                max=0.99,
+                                step=0.01,
+                            ),
+                        ],
+                        md=6,
+                    ),
+                ],
+                className="mt-3",
             ),
             dbc.Row(
                 [
@@ -280,15 +313,17 @@ class Importances(StaticPlugin):
         method_labels = [
             "Local Parameter Importance (local)",
             "fANOVA (global)",
+            "PED-ANOVA (top region)",
         ]
-        method_values = ["local", "global"]
+        method_values = ["local", "global", "ped_anova"]
 
         return {
             "method": {
                 "options": get_select_options(method_labels, method_values),
                 "value": "local",
             },
-            "n_trees": {"value": 10},
+            "n_trees": {"value": 10, "disabled": False},
+            "target_quantile": {"value": 0.1, "disabled": True},
             "interaction_order": {
                 "options": get_select_options(
                     ["1 — Main effects", "2 — Main effects + pairwise interactions"], [1, 2]
@@ -354,6 +389,9 @@ class Importances(StaticPlugin):
 
         # Pairwise interactions are deliberately restricted to global, single-objective fANOVA.
         method = inputs["method"]["value"]
+        ped_anova_selected = method == "ped_anova"
+        if ped_anova_selected:
+            objective_value2 = -1
         interactions_available = method == "global" and objective_value2 in (None, -1, "-1")
         try:
             interaction_order = int(inputs.get("interaction_order", {}).get("value") or 1)
@@ -410,6 +448,7 @@ class Importances(StaticPlugin):
             "objective_id2": {
                 "options": objective_options2,
                 "value": objective_value2,
+                "disabled": ped_anova_selected,
             },
             "method": {
                 "value": inputs["method"]["value"],
@@ -423,7 +462,14 @@ class Importances(StaticPlugin):
                 "value": budget_value,
             },
             "n_hps": {"value": n_hps},
-            "n_trees": {"value": inputs["n_trees"]["value"]},
+            "n_trees": {
+                "value": inputs["n_trees"]["value"],
+                "disabled": ped_anova_selected,
+            },
+            "target_quantile": {
+                "value": inputs.get("target_quantile", {}).get("value", 0.1),
+                "disabled": not ped_anova_selected,
+            },
             "interaction_order": {
                 "options": get_select_options(
                     ["1 — Main effects", "2 — Main effects + pairwise interactions"], [1, 2]
@@ -468,7 +514,7 @@ class Importances(StaticPlugin):
         Raises
         ------
         RuntimeError
-            If the number of trees is not specified.
+            If required method inputs are missing or invalid.
             If the method is not found.
         """
         objective: Any = None
@@ -477,11 +523,21 @@ class Importances(StaticPlugin):
             objective = [objective, run.get_objective(inputs["objective_id2"])]
         method = inputs["method"]
         n_trees = inputs["n_trees"]
+        target_quantile = inputs.get("target_quantile", 0.1)
         interaction_order = inputs.get("interaction_order", 1)
         interaction_hp_names = inputs.get("interaction_hp_names") or []
 
-        if n_trees is None:
+        if method in ("local", "global") and n_trees is None:
             raise RuntimeError("Please specify the number of trees.")
+
+        if method == "ped_anova":
+            if isinstance(objective, list):
+                raise RuntimeError(
+                    "PED-ANOVA currently supports single-objective analysis only. "
+                    "Please deselect Objective 2."
+                )
+            if target_quantile is None or not 0.0 < float(target_quantile) < 1.0:
+                raise RuntimeError("Target quantile must be between 0 and 1.")
 
         if interaction_order not in (1, 2):
             raise RuntimeError("Interaction order must be either 1 or 2.")
@@ -533,7 +589,7 @@ class Importances(StaticPlugin):
         budgets = run.get_budgets(include_combined=True)
 
         # Initialize the evaluator
-        evaluator: Optional[Union[LocalEvaluator, GlobalEvaluator]] = None
+        evaluator: Optional[Union[LocalEvaluator, GlobalEvaluator, PEDANOVA]] = None
         if method == "local" and isinstance(objective, list):
             evaluator = MOLPI(run)
         elif method == "local":
@@ -542,6 +598,8 @@ class Importances(StaticPlugin):
             evaluator = MOfANOVA(run)
         elif method == "global":
             evaluator = GlobalEvaluator(run)
+        elif method == "ped_anova":
+            evaluator = PEDANOVA(run)
         else:
             raise RuntimeError("Method was not found.")
 
@@ -555,7 +613,18 @@ class Importances(StaticPlugin):
         ]
         for budget_id, budget in enumerate(budgets):
             assert isinstance(budget, (int, float))
-            evaluator.calculate(objective, budget, n_trees=n_trees, seed=0)
+            if method == "ped_anova":
+                assert isinstance(evaluator, PEDANOVA)
+                assert isinstance(objective, Objective)
+                evaluator.calculate(
+                    objective,
+                    budget,
+                    target_quantile=float(target_quantile),
+                    region_quantile=1.0,
+                )
+            else:
+                assert not isinstance(evaluator, PEDANOVA)
+                evaluator.calculate(objective, budget, n_trees=n_trees, seed=0)
             if isinstance(objective, list):
                 assert isinstance(evaluator, (MOLPI, MOfANOVA))
                 importances = evaluator.get_importances_(hp_names)
@@ -578,6 +647,9 @@ class Importances(StaticPlugin):
                         )
                     records.extend(_serialize_global_importances(pairwise_importances, order=2))
                 importances = records
+            elif method == "ped_anova":
+                assert isinstance(evaluator, PEDANOVA)
+                importances = evaluator.get_importances(hp_names)
             else:
                 assert isinstance(evaluator, LocalEvaluator)
                 importances = evaluator.get_importances(hp_names)

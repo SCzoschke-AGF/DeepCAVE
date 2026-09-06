@@ -93,6 +93,38 @@ def test_interaction_dependency_inputs_and_selection_limit() -> None:
     assert updated["interaction_hp_names"]["disabled"] is True
 
 
+def test_ped_anova_dependency_inputs_disable_multi_objective_controls() -> None:
+    plugin = Importances()
+    run = _dependency_run()
+    inputs = _dependency_inputs(plugin)
+    inputs["method"]["value"] = "ped_anova"
+    inputs["objective_id2"]["value"] = 1
+
+    updated = plugin.load_dependency_inputs(run, {}, inputs)
+
+    assert updated["objective_id2"]["value"] == -1
+    assert updated["objective_id2"]["disabled"] is True
+    assert updated["n_trees"]["disabled"] is True
+    assert updated["target_quantile"] == {"value": 0.1, "disabled": False}
+    assert updated["interaction_order"]["disabled"] is True
+    assert updated["interaction_hp_names"]["disabled"] is True
+
+
+def test_ped_anova_target_quantile_is_part_of_processing_cache_key() -> None:
+    plugin = Importances()
+    inputs = {
+        "target_quantile": {"value": 0.1},
+        "hyperparameter_names": {"value": ["a", "b"]},
+    }
+    changed_target = deepcopy(inputs)
+    changed_target["target_quantile"]["value"] = 0.2
+
+    get_key = Importances._dict_as_key.__wrapped__
+    key = get_key(plugin, inputs, remove_filters=True)
+
+    assert key != get_key(plugin, changed_target, remove_filters=True)
+
+
 def test_interaction_inputs_are_part_of_processing_cache_key() -> None:
     plugin = Importances()
     inputs = {
@@ -133,6 +165,43 @@ def test_process_serializes_main_and_pairwise_importances() -> None:
     assert pairs[0]["members"] == hp_names[:2]
     assert pairs[0]["importance"] <= pairs[0]["total_importance"]
     json.dumps(outputs)
+
+
+def test_process_calculates_ped_anova_importances() -> None:
+    run = SMAC3v1Run.from_path("logs/SMAC3v1/mlp/run_1")
+    inputs = {
+        "objective_id1": 0,
+        "objective_id2": -1,
+        "method": "ped_anova",
+        "n_trees": None,
+        "target_quantile": 0.1,
+        "interaction_order": 1,
+        "interaction_hp_names": [],
+    }
+
+    outputs = Importances.process(run, inputs)
+    importances = outputs[0]
+
+    assert set(importances) == set(run.configspace.keys())
+    assert sum(importance for importance, _ in importances.values()) == pytest.approx(1.0)
+    assert all(variance == 0.0 for _, variance in importances.values())
+    json.dumps(outputs)
+
+
+def test_process_rejects_multi_objective_ped_anova() -> None:
+    run = SMAC3v1Run.from_path("logs/SMAC3v1/mlp/run_1")
+    inputs = {
+        "objective_id1": 0,
+        "objective_id2": 0,
+        "method": "ped_anova",
+        "n_trees": None,
+        "target_quantile": 0.1,
+        "interaction_order": 1,
+        "interaction_hp_names": [],
+    }
+
+    with pytest.raises(RuntimeError, match="single-objective"):
+        Importances.process(run, inputs)
 
 
 @pytest.mark.parametrize(

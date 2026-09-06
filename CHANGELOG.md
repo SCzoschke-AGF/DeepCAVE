@@ -1,6 +1,8 @@
 # Unreleased
 
 ## Importances
+- Added single-objective PED-ANOVA with a configurable target quantile for all DeepCAVE run types.
+- Matched Optuna 4.9 PED-ANOVA scores with an AbstractRun-native Scott Parzen implementation.
 - Added selected second-order fANOVA interactions for global single-objective analyses.
 - Keep pairwise results JSON-safe and align effects correctly across multiple budgets.
 - Fixed the fANOVA marginal cache so higher-order calculations can follow main effects.
