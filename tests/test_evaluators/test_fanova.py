@@ -54,6 +54,28 @@ class TestFanova(unittest.TestCase):
         # Same seed: Same results
         assert importances["batch_size"][1] == importances2["batch_size"][1]
 
+    def test_pairwise_importances_after_main_effects(self) -> None:
+        budget = self.run.get_budget(0)
+        objective = self.run.get_objective(0)
+        selected_hp_names = self.hp_names[:2]
+
+        self.evaluator.calculate(objective, budget, n_trees=4, seed=0)
+        main_importances = self.evaluator.get_importances(self.hp_names, depth=1)
+        pairwise_importances = self.evaluator.get_importances(selected_hp_names, depth=2)
+        cached_pairwise_importances = self.evaluator.get_importances(selected_hp_names, depth=2)
+
+        assert set(main_importances) == set(self.hp_names)
+        assert set(pairwise_importances) == {
+            selected_hp_names[0],
+            selected_hp_names[1],
+            tuple(selected_hp_names),
+        }
+        assert pairwise_importances == cached_pairwise_importances
+        assert (
+            pairwise_importances[tuple(selected_hp_names)][0]
+            <= pairwise_importances[tuple(selected_hp_names)][2]
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

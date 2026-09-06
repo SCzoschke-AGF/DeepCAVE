@@ -175,9 +175,10 @@ class FanovaForest(RandomForest):
         # recompute the trees' total variance
         self.trees_total_variance = self._model.get_trees_total_variances()
 
-    def compute_marginals(
-        self, hp_ids: Union[List[int], Tuple[int, ...]], depth: int = 1
-    ) -> Tuple[Dict[Tuple[int, ...], List[Any]], Dict[Tuple[int, ...], List[Any]],]:
+    def compute_marginals(self, hp_ids: Union[List[int], Tuple[int, ...]], depth: int = 1) -> Tuple[
+        Dict[Tuple[int, ...], List[Any]],
+        Dict[Tuple[int, ...], List[Any]],
+    ]:
         """
         Return the marginal of selected Hyperparameters.
 
@@ -187,8 +188,9 @@ class FanovaForest(RandomForest):
             Contains the indices of the configspace for the selected Hyperparameters
             (starts with 0).
         depth: int
-            The depth of the marginalization.
-            Default value is 1.
+            Highest interaction order to calculate. Only marginals up to this order are cached;
+            requesting a higher order later computes the missing subsets without discarding the
+            lower-order cache. Default value is 1.
 
         Returns
         -------
@@ -199,26 +201,30 @@ class FanovaForest(RandomForest):
         if not isinstance(hp_ids, tuple):
             hp_ids = tuple(hp_ids)
 
-        # check if values has been previously computed
-        if hp_ids in self.V_U_individual:
-            return self.V_U_individual, self.V_U_total
+        if depth < 1:
+            raise ValueError("The marginalization depth must be at least 1.")
 
-        # otherwise make sure all lower order marginals have been
-        # computed, if not compute them
-        for k in range(1, len(hp_ids)):
-            if k > depth:
-                break
-
+        # Cache entries represent marginals that were actually calculated. In particular, do not
+        # insert an empty entry for the complete hp_ids tuple when only lower-order combinations
+        # were requested. Such placeholders used to make a depth=1 call incorrectly short-circuit
+        # a later depth=2 call with the same set of hyperparameters.
+        for k in range(1, min(depth, len(hp_ids)) + 1):
             for sub_hp_ids in it.combinations(hp_ids, k):
-                if sub_hp_ids not in self.V_U_total:
-                    self.compute_marginals(sub_hp_ids)
+                self._compute_marginal(sub_hp_ids)
 
-        # now all lower order terms have been computed
+        return self.V_U_individual, self.V_U_total
+
+    def _compute_marginal(self, hp_ids: Tuple[int, ...]) -> None:
+        """Calculate and cache one marginal after ensuring all of its proper subsets exist."""
+        if hp_ids in self.V_U_individual:
+            return
+
+        for k in range(1, len(hp_ids)):
+            for sub_hp_ids in it.combinations(hp_ids, k):
+                self._compute_marginal(sub_hp_ids)
+
         self.V_U_individual[hp_ids] = []
         self.V_U_total[hp_ids] = []
-
-        if len(hp_ids) > depth + 1:
-            return self.V_U_individual, self.V_U_total
 
         for tree_idx in range(len(self.all_midpoints)):
             # collect all the midpoints and corresponding sizes for that tree
@@ -251,14 +257,9 @@ class FanovaForest(RandomForest):
                 V_U_total = stat.variance_population()
                 V_U_individual = stat.variance_population()
                 for k in range(1, len(hp_ids)):
-                    if k > depth:
-                        break
-
                     for sub_dims in it.combinations(hp_ids, k):
                         V_U_individual -= self.V_U_individual[sub_dims][tree_idx]
                 V_U_individual = np.clip(V_U_individual, 0, np.inf)
 
             self.V_U_individual[hp_ids].append(V_U_individual)
             self.V_U_total[hp_ids].append(V_U_total)
-
-        return self.V_U_individual, self.V_U_total

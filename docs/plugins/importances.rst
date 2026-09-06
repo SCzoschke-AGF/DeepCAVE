@@ -8,6 +8,7 @@ It generates a bar plot displaying the importance scores for each hyperparameter
 This plugin is capable of answering following questions:
 
 * Which individual hyperparameters have the greatest impact on the objective performance?
+* Which selected pairs of hyperparameters have an additional interaction effect?
 * How does the importance of each hyperparameter vary across different budgets?
 * How does the local parameter importance compare to the global importance as determined by fANOVA?
 
@@ -35,6 +36,16 @@ global impact of hyperparameters. For more details on fANOVA, please refer to th
 `An Efficient Approach for Assessing Hyperparameter Importance
 <https://proceedings.mlr.press/v32/hutter14.html>`_.
 
+For global single-objective fANOVA, the interaction order can be set to two. DeepCAVE then keeps
+all main effects and adds pairwise interactions between two to four explicitly selected
+hyperparameters. An interaction such as ``learning_rate × max_depth`` shows its individual
+importance: the additional variance attributable to that pair after subtracting its main effects.
+The total importance, which includes those main effects, remains available in the raw data.
+
+Pairwise marginalization is substantially more expensive than calculating main effects. It is
+performed by the background worker and can take several minutes for four selected parameters or
+for runs with multiple budgets.
+
 Multi-Objective Importance
 --------------------------
 
@@ -58,11 +69,17 @@ Options
 
 * **Trees:** Specify the number of trees for the random forest surrogate model used in calculating importance scores.
 
+* **Interaction order:** Calculate main effects only (order 1), or main effects plus selected
+  pairwise interactions (order 2). Order 2 is available only for global fANOVA with one objective.
+
+* **Interaction hyperparameters:** Choose between two and four non-constant hyperparameters whose
+  pairwise interactions should be calculated. This selection is part of the calculation cache key.
+
 To refine your analysis, you can apply various filters after calculation:
 
 * **Hyperparameters:** Display only the importance scores for specific hyperparameters of interest.
 
-* **Limit Hyperparameters**: Show only the top N most important hyperparameters.
+* **Limit Effects**: Show only the top N main or interaction effects.
 
 * **Budgets**: Filter the results to view importance scores specific to certain multi-fidelity budgets, allowing you to analyze how hyperparameter importance varies with budget changes.
 

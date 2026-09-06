@@ -120,7 +120,10 @@ class fANOVA:
 
         Warning
         -------
-        Using a depth higher than 1 might take much longer.
+        Using a depth higher than 1 might take much longer because every requested
+        Hyperparameter combination must be marginalized separately. Pairwise effects use the
+        ``mean individual`` value to describe variance attributable specifically to the
+        interaction, while ``mean total`` also includes its lower-order main effects.
 
         Parameters
         ----------

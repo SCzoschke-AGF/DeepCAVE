@@ -1,5 +1,10 @@
 # Unreleased
 
+## Importances
+- Added selected second-order fANOVA interactions for global single-objective analyses.
+- Keep pairwise results JSON-safe and align effects correctly across multiple budgets.
+- Fixed the fANOVA marginal cache so higher-order calculations can follow main effects.
+
 ## Optuna
 - Added a General-page importer for studies stored in local Optuna SQLite databases.
 - Create detached, atomically replaced study snapshots and select imported runs automatically.

@@ -25,7 +25,7 @@ processing the data and loading the outputs. Also provides a matplotlib version.
     - Importances: This class provides a plugin for the visualization of the importances.
 """
 
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from io import StringIO
 
@@ -51,6 +51,33 @@ from deepcave.utils.logs import get_logger
 from deepcave.utils.styled_plotty import get_color, save_image
 
 logger = get_logger(__name__)
+
+MAX_INTERACTION_HYPERPARAMETERS = 4
+
+
+def _serialize_global_importances(
+    importances: Dict[Union[str, Tuple[str, ...]], Tuple[float, float, float, float]],
+    order: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Convert fANOVA's tuple-keyed result into JSON-safe effect records."""
+    records = []
+    for hp_names, values in importances.items():
+        members = [hp_names] if isinstance(hp_names, str) else list(hp_names)
+        if order is not None and len(members) != order:
+            continue
+
+        records.append(
+            {
+                "members": members,
+                "order": len(members),
+                "importance": float(values[0]),
+                "variance": float(values[1]),
+                "total_importance": float(values[2]),
+                "total_variance": float(values[3]),
+            }
+        )
+
+    return records
 
 
 class Importances(StaticPlugin):
@@ -143,6 +170,48 @@ class Importances(StaticPlugin):
                     ),
                 ],
             ),
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            dbc.Label("Interaction order"),
+                            help_button(
+                                "Order 1 calculates main effects only. Order 2 additionally "
+                                "calculates pairwise fANOVA interactions for the selected "
+                                "interaction hyperparameters. Pairwise marginalization can take "
+                                "several minutes per budget."
+                            ),
+                            dbc.Select(
+                                id=register(
+                                    "interaction_order",
+                                    ["value", "options", "disabled"],
+                                    type=int,
+                                ),
+                            ),
+                        ],
+                        md=6,
+                    ),
+                    dbc.Col(
+                        [
+                            dbc.Label("Interaction hyperparameters"),
+                            help_button(
+                                "Select between two and four hyperparameters. All main effects "
+                                "remain visible; only pairwise interactions are limited to this "
+                                "selection."
+                            ),
+                            dcc.Dropdown(
+                                id=register(
+                                    "interaction_hp_names", ["value", "options", "disabled"]
+                                ),
+                                multi=True,
+                                placeholder="Select 2–4 hyperparameters ...",
+                            ),
+                        ],
+                        md=6,
+                    ),
+                ],
+                className="mt-3",
+            ),
         ]
 
     @staticmethod
@@ -173,10 +242,11 @@ class Importances(StaticPlugin):
             ),
             html.Div(
                 [
-                    dbc.Label("Limit Hyperparameters"),
+                    dbc.Label("Limit Effects"),
                     help_button(
-                        "Shows only the n most important hyperparameters. If an important "
-                        "hyperparameter was de-selected, it is not shown but skipped."
+                        "Shows only the n most important main or interaction effects. If a "
+                        "hyperparameter was de-selected, its main effect and all interactions "
+                        "containing it are skipped."
                     ),
                     dbc.Input(id=register("n_hps", "value"), type="number"),
                 ],
@@ -219,6 +289,14 @@ class Importances(StaticPlugin):
                 "value": "local",
             },
             "n_trees": {"value": 10},
+            "interaction_order": {
+                "options": get_select_options(
+                    ["1 — Main effects", "2 — Main effects + pairwise interactions"], [1, 2]
+                ),
+                "value": 1,
+                "disabled": True,
+            },
+            "interaction_hp_names": {"options": [], "value": [], "disabled": True},
             "hyperparameter_names": {"options": get_checklist_options(), "value": []},
             "n_hps": {"value": 0},
             "budget_ids": {"options": get_checklist_options(), "value": []},
@@ -274,6 +352,46 @@ class Importances(StaticPlugin):
         hp_value = inputs["hyperparameter_names"]["value"]
         n_hps = inputs["n_hps"]["value"]
 
+        # Pairwise interactions are deliberately restricted to global, single-objective fANOVA.
+        method = inputs["method"]["value"]
+        interactions_available = method == "global" and objective_value2 in (None, -1, "-1")
+        try:
+            interaction_order = int(inputs.get("interaction_order", {}).get("value") or 1)
+        except (TypeError, ValueError):
+            interaction_order = 1
+
+        eligible_interaction_hp_names = [
+            name for name, hp in dict(run.configspace).items() if not isinstance(hp, Constant)
+        ]
+        selected_interaction_hp_names = inputs.get("interaction_hp_names", {}).get("value") or []
+        if not isinstance(selected_interaction_hp_names, list):
+            selected_interaction_hp_names = []
+
+        # Canonical configspace order keeps equivalent selections stable in URLs and cache keys.
+        selected_set = set(selected_interaction_hp_names)
+        selected_interaction_hp_names = [
+            name for name in eligible_interaction_hp_names if name in selected_set
+        ][:MAX_INTERACTION_HYPERPARAMETERS]
+
+        if not interactions_available:
+            interaction_order = 1
+            selected_interaction_hp_names = []
+        elif interaction_order != 2:
+            interaction_order = 1
+            selected_interaction_hp_names = []
+
+        interaction_limit_reached = (
+            len(selected_interaction_hp_names) >= MAX_INTERACTION_HYPERPARAMETERS
+        )
+        interaction_options = get_select_options(
+            eligible_interaction_hp_names,
+            eligible_interaction_hp_names,
+            [
+                interaction_limit_reached and name not in selected_interaction_hp_names
+                for name in eligible_interaction_hp_names
+            ],
+        )
+
         if n_hps == 0:
             n_hps = len(hp_names)
 
@@ -306,6 +424,18 @@ class Importances(StaticPlugin):
             },
             "n_hps": {"value": n_hps},
             "n_trees": {"value": inputs["n_trees"]["value"]},
+            "interaction_order": {
+                "options": get_select_options(
+                    ["1 — Main effects", "2 — Main effects + pairwise interactions"], [1, 2]
+                ),
+                "value": interaction_order,
+                "disabled": not interactions_available,
+            },
+            "interaction_hp_names": {
+                "options": interaction_options,
+                "value": selected_interaction_hp_names,
+                "disabled": not interactions_available or interaction_order != 2,
+            },
         }
 
     @staticmethod
@@ -347,9 +477,25 @@ class Importances(StaticPlugin):
             objective = [objective, run.get_objective(inputs["objective_id2"])]
         method = inputs["method"]
         n_trees = inputs["n_trees"]
+        interaction_order = inputs.get("interaction_order", 1)
+        interaction_hp_names = inputs.get("interaction_hp_names") or []
 
         if n_trees is None:
             raise RuntimeError("Please specify the number of trees.")
+
+        if interaction_order not in (1, 2):
+            raise RuntimeError("Interaction order must be either 1 or 2.")
+        if interaction_order == 2:
+            if method != "global" or isinstance(objective, list):
+                raise RuntimeError(
+                    "Pairwise interactions are only available for global single-objective fANOVA."
+                )
+            if not isinstance(interaction_hp_names, list):
+                raise RuntimeError("Interaction hyperparameters must be provided as a list.")
+            if len(interaction_hp_names) != len(set(interaction_hp_names)):
+                raise RuntimeError("Interaction hyperparameters must be unique.")
+            if not 2 <= len(interaction_hp_names) <= MAX_INTERACTION_HYPERPARAMETERS:
+                raise RuntimeError("Select between two and four interaction hyperparameters.")
 
         # Handle constant values in fANOVA: As the fANOVA implementation relies on pyrfr
         # and pyrfr cannot be applied to constant hyperparameters
@@ -357,9 +503,17 @@ class Importances(StaticPlugin):
         # hyperparameters are removed before calculation.
         # Note: This will break if there are conditions or forbiddens including
         # constant hyperparameters.
-        hp_dict = run.configspace.get_hyperparameters_dict()
-        if method == "global" and any([type(v) == Constant for v in hp_dict.values()]):
-            hp_dict_wo_const = {k: v for k, v in hp_dict.items() if type(v) != Constant}
+        hp_dict = dict(run.configspace)
+        eligible_interaction_hp_names = {
+            name for name, hp in hp_dict.items() if not isinstance(hp, Constant)
+        }
+        if interaction_order == 2 and not set(interaction_hp_names).issubset(
+            eligible_interaction_hp_names
+        ):
+            raise RuntimeError("Interaction hyperparameters must exist and must not be constant.")
+
+        if method == "global" and any(isinstance(v, Constant) for v in hp_dict.values()):
+            hp_dict_wo_const = {k: v for k, v in hp_dict.items() if not isinstance(v, Constant)}
             configspace_wo_const = ConfigurationSpace()
             for k in hp_dict_wo_const.keys():
                 configspace_wo_const.add_hyperparameter(hp_dict_wo_const[k])
@@ -375,6 +529,7 @@ class Importances(StaticPlugin):
             run.configs = dict(enumerate(configs_wo_const))
 
         hp_names = list(run.configspace.keys())
+        interaction_hp_names = [name for name in hp_names if name in interaction_hp_names]
         budgets = run.get_budgets(include_combined=True)
 
         # Initialize the evaluator
@@ -394,6 +549,7 @@ class Importances(StaticPlugin):
         data = {}
         importances: Union[
             str,
+            list[dict[str, Any]],
             dict[str, tuple[float, float]],
             dict[Union[str, tuple[str, ...]], tuple[float, float, float, float]],
         ]
@@ -405,9 +561,26 @@ class Importances(StaticPlugin):
                 importances = evaluator.get_importances_(hp_names)
                 if any(pd.read_json(StringIO(importances))["importance"].isna()):
                     logger.warning(f"Nan encountered in importance values for budget {budget}.")
+            elif method == "global":
+                assert isinstance(evaluator, GlobalEvaluator)
+                global_importances = evaluator.get_importances(hp_names)
+                if any(np.isnan(val) for value in global_importances.values() for val in value):
+                    logger.warning(f"Nan encountered in importance values for budget {budget}.")
+
+                records = _serialize_global_importances(global_importances, order=1)
+                if interaction_order == 2:
+                    pairwise_importances = evaluator.get_importances(interaction_hp_names, depth=2)
+                    if any(
+                        np.isnan(val) for value in pairwise_importances.values() for val in value
+                    ):
+                        logger.warning(
+                            f"Nan encountered in interaction values for budget {budget}."
+                        )
+                    records.extend(_serialize_global_importances(pairwise_importances, order=2))
+                importances = records
             else:
+                assert isinstance(evaluator, LocalEvaluator)
                 importances = evaluator.get_importances(hp_names)
-                assert isinstance(importances, Dict)
                 if any(np.isnan(val) for value in importances.values() for val in value):
                     logger.warning(f"Nan encountered in importance values for budget {budget}.")
             data[budget_id] = importances
@@ -478,43 +651,57 @@ class Importances(StaticPlugin):
         if len(selected_hp_names) == 0 or len(selected_budget_ids) == 0:
             raise PreventUpdate()
 
-        # Collect data
-        data = {}
+        # Collect data. Effects are keyed by their members so values remain correctly aligned
+        # across budgets even when evaluators return a different importance-based order.
+        data: Dict[int, Dict[Tuple[str, ...], Tuple[str, float, float]]] = {}
         for budget_id, importances in outputs.items():
             # Important to cast budget_id here because of json serialization
             budget_id = int(budget_id)
             if budget_id not in selected_budget_ids:
                 continue
 
-            x = []
-            y = []
-            error_y = []
-            for hp_name, results in importances.items():
-                if hp_name not in selected_hp_names:
-                    continue
-                x += [hp_name]
-                y += [results[0]]
-                error_y += [results[1]]
+            effects: Dict[Tuple[str, ...], Tuple[str, float, float]] = {}
+            if inputs["method"] == "global":
+                for record in importances:
+                    members = tuple(record["members"])
+                    if not all(member in selected_hp_names for member in members):
+                        continue
+                    effects[members] = (
+                        " × ".join(members),
+                        record["importance"],
+                        record["variance"],
+                    )
+            else:
+                for hp_name, results in importances.items():
+                    if hp_name not in selected_hp_names:
+                        continue
+                    effects[(hp_name,)] = (hp_name, results[0], results[1])
 
-            data[budget_id] = (np.array(x), np.array(y), np.array(error_y))
+            data[budget_id] = effects
 
         # Sort by last fidelity
         selected_budget_id = max(selected_budget_ids)
-        idx = np.argsort(data[selected_budget_id][1], axis=None)[::-1]
-        idx = idx[:n_hps]
+        if selected_budget_id not in data:
+            raise PreventUpdate
+        selected_effect_ids = sorted(
+            data[selected_budget_id],
+            key=lambda effect_id: data[selected_budget_id][effect_id][1],
+            reverse=True,
+        )[:n_hps]
 
         bar_data = []
-        for budget_id, values in data.items():
+        for budget_id, effects in data.items():
             budget = run.get_budget(budget_id, human=True)
-
-            x = values[0][idx]
+            displayed_effects = [
+                effects[effect_id] for effect_id in selected_effect_ids if effect_id in effects
+            ]
 
             bar_data += [
                 go.Bar(
                     name=budget,
-                    x=x,
-                    y=values[1][idx],
-                    error_y_array=values[2][idx],
+                    x=[effect[0] for effect in displayed_effects],
+                    y=[effect[1] for effect in displayed_effects],
+                    error_y_array=[effect[2] for effect in displayed_effects],
                     marker_color=get_color(budget_id),
                 )
             ]
