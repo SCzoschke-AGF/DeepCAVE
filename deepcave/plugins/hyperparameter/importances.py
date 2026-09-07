@@ -47,6 +47,7 @@ from deepcave.evaluators.ped_anova import PEDANOVA
 from deepcave.plugins.static import StaticPlugin
 from deepcave.runs import AbstractRun
 from deepcave.runs.objective import Objective
+from deepcave.utils.analysis_layout import style_analysis
 from deepcave.utils.cast import optional_int
 from deepcave.utils.layout import get_checklist_options, get_select_options, help_button
 from deepcave.utils.logs import get_logger
@@ -677,7 +678,8 @@ class Importances(StaticPlugin):
         """
         return dcc.Graph(
             register("graph", "figure"),
-            style={"height": config.FIGURE_HEIGHT},
+            responsive=True,
+            style={"width": "100%", "minHeight": "480px"},
             config={"toImageButtonOptions": {"scale": config.FIGURE_DOWNLOAD_SCALE}},
         )
 
@@ -771,9 +773,10 @@ class Importances(StaticPlugin):
             bar_data += [
                 go.Bar(
                     name=budget,
-                    x=[effect[0] for effect in displayed_effects],
-                    y=[effect[1] for effect in displayed_effects],
-                    error_y_array=[effect[2] for effect in displayed_effects],
+                    y=[effect[0] for effect in displayed_effects],
+                    x=[effect[1] for effect in displayed_effects],
+                    error_x_array=[effect[2] for effect in displayed_effects],
+                    orientation="h",
                     marker_color=get_color(budget_id),
                 )
             ]
@@ -781,12 +784,14 @@ class Importances(StaticPlugin):
         figure = go.Figure(data=bar_data)
         figure.update_layout(
             barmode="group",
-            yaxis_title="Importance",
+            xaxis_title="Importance",
             legend={"title": "Budget"},
             margin=config.FIGURE_MARGIN,
-            xaxis=dict(tickangle=-45),
+            yaxis=dict(autorange="reversed"),
             font=dict(size=config.FIGURE_FONT_SIZE),
         )
+        style_analysis(figure, height=max(480, 180 + 30 * len(selected_effect_ids)))
+        figure.update_layout(showlegend=len(bar_data) > 1)
         save_image(figure, "importances.pdf")
 
         return figure
@@ -911,6 +916,8 @@ class Importances(StaticPlugin):
             font=dict(size=config.FIGURE_FONT_SIZE),
         )
 
+        style_analysis(figure)
+        figure.update_xaxes(tickangle=0)
         save_image(figure, "importances.pdf")
 
         return figure

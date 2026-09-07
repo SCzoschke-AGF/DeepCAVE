@@ -109,13 +109,20 @@ class Config:
         from deepcave.plugins.budget.budget_correlation import BudgetCorrelation
         from deepcave.plugins.hyperparameter.ablation_paths import AblationPaths
         from deepcave.plugins.hyperparameter.configuration_cube import ConfigurationCube
+        from deepcave.plugins.hyperparameter.hpo_planning import HPOPlanning
         from deepcave.plugins.hyperparameter.importances import Importances
+        from deepcave.plugins.hyperparameter.one_dimensional_analysis import (
+            OneDimensionalAnalysis,
+        )
         from deepcave.plugins.hyperparameter.parallel_coordinates import (
             ParallelCoordinates,
         )
         from deepcave.plugins.hyperparameter.pdp import PartialDependencies
         from deepcave.plugins.hyperparameter.symbolic_explanations import (
             SymbolicExplanations,
+        )
+        from deepcave.plugins.hyperparameter.two_dimensional_analysis import (
+            TwoDimensionalAnalysis,
         )
         from deepcave.plugins.objective.cost_over_time import CostOverTime
         from deepcave.plugins.objective.pareto_front import ParetoFront
@@ -140,7 +147,10 @@ class Config:
             "Hyperparameter Analysis": [
                 Importances(),
                 AblationPaths(),
+                OneDimensionalAnalysis(),
+                TwoDimensionalAnalysis(),
                 ConfigurationCube(),
+                HPOPlanning(),
                 ParallelCoordinates(),
                 PartialDependencies(),
                 SymbolicExplanations(),

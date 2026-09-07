@@ -9,7 +9,8 @@ pandas>=1.3.4
 matplotlib==3.9.0
 seaborn>=0.13.0
 pyyaml>=6.0.1
-kaleido>=0.2.1
+# Kaleido 1.x requires Plotly >=6.1.1 and Chrome (see RUNBOOK.md).
+kaleido==1.4.0
 gplearn>=0.4.2
 sympy>=1.12
 requests>=2.31.0
@@ -18,14 +19,13 @@ requests>=2.31.0
 ConfigSpace==1.2.0
 pyrfr>=0.9.0
 
-# Upgrading to 2.1.0 or higher breaks the slider because string keys in marks
-# can not be interpreted anymore (2.0.0 works nicely)
-dash==2.0.0
-dash-extensions==0.0.71
+# Dash >=2.13 uses the installed Plotly.js bundle, including Plotly 6 array encoding.
+dash==2.18.2
+dash-extensions==0.1.13
 dash-bootstrap-components==1.0.3
 redis>=4.1.4
 rq==1.10.1
-plotly==5.24.1
+plotly==6.1.2
 # Pinned due to https://github.com/plotly/dash/issues/1992
 # Pinning might be removed for dash>2.3.0
 werkzeug==2.0.3

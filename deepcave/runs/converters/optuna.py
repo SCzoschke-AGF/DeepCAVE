@@ -297,7 +297,8 @@ class OptunaRun(Run):
                 end_time=endtime,
                 status=status,
                 origin=None,
-                additional=None,
+                additional={"optuna_trial_number": trial.number},
+                allow_duplicate_trials=True,
             )
 
         return run

@@ -129,6 +129,7 @@ class MainLayout(Layout):
                             children=[
                                 self.sidebar_layout(),
                                 html.Main(
+                                    id="main-content",
                                     className="col-md-9 ms-sm-auto col-lg-10 px-md-4",
                                     children=[
                                         html.Div(

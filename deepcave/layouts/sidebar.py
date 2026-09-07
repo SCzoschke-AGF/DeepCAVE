@@ -66,6 +66,19 @@ class SidebarLayout(Layout):
 
     def register_callbacks(self) -> None:
         """Register the callbacks for the sidebar layout."""
+        # Collapse/expand the sidebar so wide analysis views can use the full width
+        app.clientside_callback(
+            """
+            function(n_clicks) {
+                return (n_clicks % 2 === 1)
+                    ? "container-fluid sidebar-collapsed"
+                    : "container-fluid";
+            }
+            """,
+            Output("main-container", "className"),
+            Input("sidebar-collapse-toggle", "n_clicks"),
+        )
+
         # Update navigation items
         output = Output("navigation-items", "children")
         input = Input("on-page-load", "pathname")

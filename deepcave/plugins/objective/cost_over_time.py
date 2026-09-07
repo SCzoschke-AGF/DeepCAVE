@@ -32,11 +32,14 @@ import numpy as np
 import plotly.graph_objs as go
 from dash import dcc, html
 from dash.exceptions import PreventUpdate
+from plotly.subplots import make_subplots
 
 from deepcave import config, notification
 from deepcave.plugins.dynamic import DynamicPlugin
 from deepcave.runs import AbstractRun, check_equality
 from deepcave.runs.exceptions import NotMergeableError, RunInequality
+from deepcave.runs.status import Status
+from deepcave.utils.analysis_layout import style_analysis
 from deepcave.utils.layout import get_select_options, help_button
 from deepcave.utils.styled_plotty import (
     get_color,
@@ -61,6 +64,11 @@ class CostOverTime(DynamicPlugin):
     name = "Cost Over Time"
     icon = "fas fa-chart-line"
     help = "plugins/cost_over_time.html"
+
+    @property
+    def optuna_runs(self) -> List[AbstractRun]:
+        """Return the loaded Optuna studies available to this plugin."""
+        return [run for run in self.runs if run.prefix == "Optuna"]
 
     def check_runs_compatibility(self, runs: List[AbstractRun]) -> None:
         """
@@ -87,8 +95,12 @@ class CostOverTime(DynamicPlugin):
             If the budgets of the runs are not equal.
             If the objective of the runs are not equal.
         """
+        optuna_runs = [run for run in runs if run.prefix == "Optuna"]
+        if not optuna_runs:
+            raise NotMergeableError("No Optuna studies are loaded.")
+
         try:
-            check_equality(runs, objectives=True, budgets=True)
+            check_equality(optuna_runs, objectives=True, budgets=True)
         except NotMergeableError as e:
             run_inequality = e.args[1]
             if run_inequality == RunInequality.INEQ_BUDGET:
@@ -107,7 +119,7 @@ class CostOverTime(DynamicPlugin):
         # as first comparative value, else there is gonna be an index problem
         objective_options = []
         budget_options = []
-        for run in runs:
+        for run in optuna_runs:
             objective_names = run.get_objective_names()
             objective_ids = run.get_objective_ids()
             objective_options.append(get_select_options(objective_names, objective_ids))
@@ -135,6 +147,22 @@ class CostOverTime(DynamicPlugin):
             Layouts for the input block.
         """
         return [
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            dbc.Label("Optuna Studies"),
+                            dcc.Dropdown(
+                                id=register("study_ids", ["value", "options"]),
+                                multi=True,
+                                placeholder="Select one or more studies ...",
+                            ),
+                        ],
+                        md=12,
+                    ),
+                ],
+                className="mb-3",
+            ),
             dbc.Row(
                 [
                     dbc.Col(
@@ -193,30 +221,6 @@ class CostOverTime(DynamicPlugin):
                 ],
                 className="mb-3",
             ),
-            dbc.Row(
-                [
-                    dbc.Col(
-                        [
-                            dbc.Label("Show Runs"),
-                            dbc.Select(
-                                id=register("show_runs", ["value", "options"]),
-                                placeholder="Select ...",
-                            ),
-                        ],
-                        md=6,
-                    ),
-                    dbc.Col(
-                        [
-                            dbc.Label("Show Groups"),
-                            dbc.Select(
-                                id=register("show_groups", ["value", "options"]),
-                                placeholder="Select ...",
-                            ),
-                        ],
-                        md=6,
-                    ),
-                ],
-            ),
         ]
 
     def load_inputs(self) -> Dict[str, Any]:
@@ -232,16 +236,27 @@ class CostOverTime(DynamicPlugin):
         Dict[str, Any]
             The content to be filled.
         """
+        optuna_runs = self.optuna_runs
+        study_options = get_select_options(
+            labels=[run.name for run in optuna_runs],
+            values=[run.id for run in optuna_runs],
+        )
         return {
+            "study_ids": {
+                "options": study_options,
+                "value": [optuna_runs[0].id] if optuna_runs else [],
+            },
             "objective_id": {
                 "options": self.objective_options,
                 "value": self.objective_options[0]["value"],
             },
             "budget_id": {
                 "options": self.budget_options,
-                "value": self.budget_options[0]["value"]
-                if len(self.budget_options) == 1
-                else self.budget_options[-2]["value"],
+                "value": (
+                    self.budget_options[0]["value"]
+                    if len(self.budget_options) == 1
+                    else self.budget_options[-2]["value"]
+                ),
             },
             "xaxis": {
                 "options": [
@@ -251,9 +266,15 @@ class CostOverTime(DynamicPlugin):
                 ],
                 "value": "times",
             },
-            "show_runs": {"options": get_select_options(binary=True), "value": True},
-            "show_groups": {"options": get_select_options(binary=True), "value": True},
         }
+
+    def get_selected_runs(self, inputs: Dict[str, Any]) -> List[AbstractRun]:
+        """Return exactly the Optuna studies selected in the multi-select."""
+        from deepcave import run_handler
+
+        selected_ids = inputs["study_ids"]["value"] or []
+        selected_runs = [run_handler.get_run(run_id) for run_id in selected_ids]
+        return [run for run in selected_runs if run.prefix == "Optuna"]
 
     @staticmethod
     def process(run, inputs) -> Dict[str, Any]:  # type: ignore
@@ -288,6 +309,15 @@ class CostOverTime(DynamicPlugin):
         times, costs_mean, costs_std, ids, config_ids = run.get_trajectory(
             objective=objective, budget=budget
         )
+        objective_id = run.get_objective_id(objective)
+        objective_values = [
+            float(trial.costs[objective_id])
+            for trial in run.history
+            if trial.status == Status.SUCCESS
+            and trial.budget == budget
+            and trial.costs[objective_id] is not None
+            and np.isfinite(trial.costs[objective_id])
+        ]
 
         return {
             "times": times,
@@ -295,6 +325,7 @@ class CostOverTime(DynamicPlugin):
             "costs_std": costs_std,
             "ids": ids,
             "config_ids": config_ids,
+            "objective_values": objective_values,
         }
 
     @staticmethod
@@ -315,7 +346,8 @@ class CostOverTime(DynamicPlugin):
         """
         return dcc.Graph(
             register("graph", "figure"),
-            style={"height": config.FIGURE_HEIGHT},
+            responsive=True,
+            style={"width": "100%", "minHeight": "500px"},
             config={"toImageButtonOptions": {"scale": config.FIGURE_DOWNLOAD_SCALE}},
         )
 
@@ -344,21 +376,21 @@ class CostOverTime(DynamicPlugin):
         go.Figure
             The output figure.
         """
-        show_runs = inputs["show_runs"]
-        show_groups = inputs["show_groups"]
+        selected_study_ids = set(inputs["study_ids"] or [])
+        runs = [run for run in runs if run.id in selected_study_ids]
         objective = None
 
-        if not show_runs and not show_groups:
+        if not runs:
             return go.Figure()
 
-        traces = []
+        figure = make_subplots(
+            rows=1,
+            cols=2,
+            column_widths=[0.45, 0.55],
+            subplot_titles=("Objective Distribution", "Running Best"),
+            horizontal_spacing=0.1,
+        )
         for idx, run in enumerate(runs):
-            if run.prefix == "group" and not show_groups:
-                continue
-
-            if run.prefix != "group" and not show_runs:
-                continue
-
             objective = run.get_objective(inputs["objective_id"])
             ids = outputs[run.id]["ids"]
             x = outputs[run.id]["times"]
@@ -385,21 +417,55 @@ class CostOverTime(DynamicPlugin):
                 symbol = "circle"
                 mode = "lines+markers"
 
-            traces.append(
+            color = get_color(idx)
+            objective_values = outputs[run.id]["objective_values"]
+            figure.add_trace(
+                go.Histogram(
+                    x=objective_values,
+                    name=run.name,
+                    marker_color=color,
+                    opacity=0.55,
+                    nbinsx=40,
+                    bingroup="objective-distribution",
+                    legendgroup=run.id,
+                    showlegend=False,
+                ),
+                row=1,
+                col=1,
+            )
+            if objective_values:
+                best_value = (
+                    max(objective_values)
+                    if objective.optimize == "upper"
+                    else min(objective_values)
+                )
+                figure.add_vline(
+                    x=best_value,
+                    line_dash="dash",
+                    line_color=color,
+                    row=1,
+                    col=1,
+                )
+
+            figure.add_trace(
                 go.Scatter(
                     x=x,
                     y=y_list,
                     name=run.name,
                     line_shape="hv",
-                    line=dict(color=get_color(idx)),
+                    line=dict(color=color),
                     hovertext=hovertext,
                     hoverinfo=hoverinfo,
                     marker=dict(symbol=symbol),
                     mode=mode,
-                )
+                    legendgroup=run.id,
+                    showlegend=True,
+                ),
+                row=1,
+                col=2,
             )
 
-            traces.append(
+            figure.add_trace(
                 go.Scatter(
                     x=x,
                     y=y_upper,
@@ -407,11 +473,14 @@ class CostOverTime(DynamicPlugin):
                     line_shape="hv",
                     hoverinfo="skip",
                     showlegend=False,
+                    legendgroup=run.id,
                     marker=dict(symbol=None),
-                )
+                ),
+                row=1,
+                col=2,
             )
 
-            traces.append(
+            figure.add_trace(
                 go.Scatter(
                     x=x,
                     y=y_lower,
@@ -421,8 +490,11 @@ class CostOverTime(DynamicPlugin):
                     line_shape="hv",
                     hoverinfo="skip",
                     showlegend=False,
+                    legendgroup=run.id,
                     marker=dict(symbol=None),
-                )
+                ),
+                row=1,
+                col=2,
             )
 
         if objective is None:
@@ -436,14 +508,24 @@ class CostOverTime(DynamicPlugin):
         if inputs["xaxis"] == "trials":
             xaxis_label = "Number of evaluated trials"
 
-        layout = go.Layout(
-            xaxis=dict(title=xaxis_label, type=type),
-            yaxis=dict(title=objective.name),
-            margin=config.FIGURE_MARGIN,
+        figure.update_xaxes(title_text=objective.name, row=1, col=1)
+        figure.update_yaxes(title_text="Trials", row=1, col=1)
+        figure.update_xaxes(title_text=xaxis_label, type=type, row=1, col=2)
+        figure.update_yaxes(title_text=objective.name, row=1, col=2)
+        figure.update_layout(
+            barmode="overlay",
+            legend=dict(
+                orientation="h",
+                yanchor="top",
+                y=-0.3,
+                xanchor="center",
+                x=0.5,
+                groupclick="togglegroup",
+            ),
+            margin={**config.FIGURE_MARGIN, "b": 120},
             font=dict(size=config.FIGURE_FONT_SIZE),
         )
-
-        figure = go.Figure(data=traces, layout=layout)
+        style_analysis(figure, height=520 + 24 * max(0, len(runs) - 2))
         save_image(figure, "cost_over_time.pdf")
 
         return figure

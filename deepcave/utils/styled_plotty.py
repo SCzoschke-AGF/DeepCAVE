@@ -64,9 +64,10 @@ def save_image(figure: go.Figure, name: str) -> None:
         return
 
     ratio = 16 / 9
-    width = 500
-    height = int(width / ratio)
+    width = 1200
+    height = figure.layout.height or int(width / ratio)
     path = config.CACHE_DIR / "figures" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
 
     figure.write_image(path, width=width, height=height)
     logger.info(f"Saved figure {name} to {path}.")

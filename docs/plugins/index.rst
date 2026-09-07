@@ -13,7 +13,10 @@ Displaying Data with Plugins
    budget_correlation
    importances
    ablation_paths
+   one_dimensional_analysis
+   two_dimensional_analysis
    configuration_cube
+   hpo_planning
    parallel_coordinates
    partial_dependencies
    symbolic_explanations
@@ -81,4 +84,3 @@ a plugin <custom-plugin>` and use any of our provided plugins as a starting poin
 
 
 We would be very happy to receive pull-requests!
-

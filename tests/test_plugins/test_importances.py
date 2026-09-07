@@ -261,11 +261,11 @@ def test_global_plot_aligns_effects_across_budgets_and_filters_pairs() -> None:
     with patch("deepcave.plugins.hyperparameter.importances.save_image"):
         figure = Importances.load_outputs(run, inputs, outputs)
 
-    assert list(figure.data[0].x) == ["a × b", "a", "b"]
-    assert list(figure.data[0].y) == [0.3, 0.8, 0.2]
-    assert list(figure.data[1].y) == [0.9, 0.4, 0.1]
+    assert list(figure.data[0].y) == ["a × b", "a", "b"]
+    assert list(figure.data[0].x) == [0.3, 0.8, 0.2]
+    assert list(figure.data[1].x) == [0.9, 0.4, 0.1]
 
     inputs["hyperparameter_names"] = ["a"]
     with patch("deepcave.plugins.hyperparameter.importances.save_image"):
         filtered_figure = Importances.load_outputs(run, inputs, outputs)
-    assert list(filtered_figure.data[0].x) == ["a"]
+    assert list(filtered_figure.data[0].y) == ["a"]

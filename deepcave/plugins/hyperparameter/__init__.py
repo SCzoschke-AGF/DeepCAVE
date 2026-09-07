@@ -22,6 +22,10 @@ importances
     This module provides a plugin for the visualization of the importances.
 ablation_paths
     This module provides a plugin for the visualization of the ablation paths.
+one_dimensional_analysis
+    This module provides one-dimensional Optuna trial and elite analyses.
+two_dimensional_analysis
+    This module provides two-dimensional empirical Optuna analyses.
 pdp
     This module provides utilities for generating Partial Dependency Plots (PDP).
 symbolic_explanations
@@ -30,4 +34,6 @@ parallel_coordinates
     This module provides utilities for visualizing the parallel coordinates.
 configuration_cube
     This module provides utilities for visualizing and creating a configruation cube.
+hpo_planning
+    This module provides empirical single-feature ranges for subsequent HPO planning.
 """

@@ -93,6 +93,25 @@ def test_converter_handles_missing_timestamps(tmp_path: Path) -> None:
     assert run.history[0].costs == [0.4, None]
 
 
+def test_converter_preserves_duplicate_configurations_and_trial_numbers(tmp_path: Path) -> None:
+    study = optuna.create_study(direction="maximize")
+    distribution = {"x": FloatDistribution(0.0, 1.0)}
+    for value in (0.4, 0.6):
+        study.add_trial(
+            create_trial(
+                params={"x": 0.5},
+                distributions=distribution,
+                value=value,
+            )
+        )
+
+    run = OptunaRun.from_path(_write_study(tmp_path / "run", study))
+
+    assert len(run.history) == 2
+    assert [trial.costs[0] for trial in run.history] == pytest.approx([0.4, 0.6])
+    assert [trial.additional["optuna_trial_number"] for trial in run.history] == [0, 1]
+
+
 def test_converter_rejects_study_without_completed_trial(tmp_path: Path) -> None:
     study = optuna.create_study(direction="minimize")
     study.add_trial(create_trial(state=TrialState.WAITING))

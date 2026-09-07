@@ -5,9 +5,9 @@ One of the goals of using AutoML is to achieve high peak performance. However, i
 to track how the objectives evolve over time. This plugin visualizes these changes based on time
 or the number of trials evaluated.
 
-With support for multiple runs, you can easily see which run performs best at various points in
-time. If you choose to display groups of combined runs, the plugin will also show the mean and
-standard deviation, providing a clearer picture of performance trends.
+With support for multiple Optuna studies, you can easily see which study performs best at various
+points in time. The objective distributions of the selected studies are shown as overlaid
+histograms next to their running-best trajectories.
 
 .. note::
     The configuration spaces of the selected runs should be equal. Otherwise, a good comparison
@@ -30,17 +30,18 @@ This plugin is capable of answering the following questions:
 Interpretation
 --------------
 
-As mentioned above, the resulting graph shows the objective values on the y-axis and the time on
-the x-axis. By examining the lines, you can determine when a particular run or group outperforms
-or underperforms relative to others, and at what times. This graph is particularly useful for
-assessing which optimizer converges more quickly and whether the optimizer converges at all.
-
-In contrast to individual runs, groups show the mean and standard deviation across all runs within
-the group. This feature helps you understand the variability and spread among multiple runs.
+The histogram on the left shows the objective values of all successful trials at the selected
+budget. Histograms are overlaid when multiple studies are selected, and a dashed vertical line
+marks each study's best value. The graph on the right shows the corresponding running-best
+trajectory. By examining both plots, you can compare both the explored objective distributions and
+the convergence behavior of the selected studies.
 
 
 Options
 -------
+
+* **Optuna Studies:** Select one or more of the loaded studies. The first loaded study is selected
+  initially; the plugin does not display every study by default.
 
 * **Objective:** Select the objective function you wish to analyze.
 
@@ -52,5 +53,3 @@ To refine your analysis, you can apply various filters after calculation:
 
 * **X-Axis:** You can adjust the x-axis to suit your needs using the available options.
   For long-running processes, a logarithmic scale is often more useful.
-
-* **Show Runs / Show Groups**: You can choose to display either individual runs, groups of runs, or both.

@@ -242,6 +242,7 @@ class Run(AbstractRun, ABC):
         origin: Optional[str] = None,
         model: Union[str, "torch.nn.Module"] = None,  # type: ignore # noqa: F821
         additional: Optional[Dict] = None,
+        allow_duplicate_trials: bool = False,
     ) -> None:
         """
         Add a trial to the run.
@@ -275,6 +276,10 @@ class Run(AbstractRun, ABC):
             Additional information of the trial. By default, None.
             Following information is used by DeepCAVE:
             * traceback
+        allow_duplicate_trials : bool, optional
+            Append trials with an existing configuration, budget, and seed key instead of
+            replacing the previous trial. The lookup for that key points to the latest trial.
+            By default False.
 
         Raises
         ------
@@ -344,7 +349,7 @@ class Run(AbstractRun, ABC):
         )
 
         trial_key = trial.get_key()
-        if trial_key not in self.trial_keys:
+        if trial_key not in self.trial_keys or allow_duplicate_trials:
             self.trial_keys[trial_key] = len(self.history)
             self.history += [trial]
         else:

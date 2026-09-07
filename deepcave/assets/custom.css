@@ -85,3 +85,76 @@ table.table.exclude-head tbody {
     clear: both;
 }
 */
+/* Compact single-row control toolbar for the dense analysis views. */
+#one_dimensional_analysis-input {
+    padding: 0.6rem 0.75rem !important;
+}
+
+.analysis-toolbar .input-group-text {
+    background-color: rgb(243, 242, 241);
+    color: #475569;
+    font-size: 0.8rem;
+}
+
+.analysis-toolbar .form-select,
+.analysis-toolbar .form-control {
+    font-size: 0.85rem;
+}
+
+/* Analysis grid: raw trials on the left, the coupled range panels stacked on the right. */
+#one_dimensional_analysis-output {
+    background: transparent !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+}
+
+.analysis-grid {
+    display: grid;
+    grid-template-columns: 42fr 58fr;
+    grid-auto-rows: min-content;
+    gap: 0.75rem;
+}
+
+.analysis-grid .analysis-card {
+    background-color: #fff;
+    border-radius: 0.5rem;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    padding: 0.25rem;
+    overflow: hidden;
+}
+
+.analysis-grid .analysis-card--tall {
+    grid-row: span 2;
+}
+
+@media (max-width: 1200px) {
+    .analysis-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .analysis-grid .analysis-card--tall {
+        grid-row: auto;
+    }
+}
+
+/* Collapsible sidebar: gives analysis plots the full window width. */
+#main-container.sidebar-collapsed #sidebarMenu {
+    display: none !important;
+}
+
+#main-container.sidebar-collapsed #main-content {
+    flex: 0 0 100%;
+    max-width: 100%;
+    margin-left: 0 !important;
+}
+
+#sidebar-collapse-toggle {
+    border: 0;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.75);
+    padding: 0 0.75rem;
+}
+
+#sidebar-collapse-toggle:hover {
+    color: #fff;
+}
