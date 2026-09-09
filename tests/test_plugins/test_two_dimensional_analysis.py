@@ -7,6 +7,7 @@ from ConfigSpace.hyperparameters import (
     CategoricalHyperparameter,
     UniformFloatHyperparameter,
 )
+from dash import html
 
 from deepcave import config
 from deepcave.plugins.hyperparameter import analysis_utils
@@ -21,6 +22,65 @@ def test_plugin_is_registered_directly_after_one_dimensional_analysis():
 
     one_dimensional_index = plugin_ids.index("one_dimensional_analysis")
     assert plugin_ids[one_dimensional_index + 1] == "two_dimensional_analysis"
+
+
+def _walk_components(component):
+    """Yield a Dash component and all of its descendants."""
+    yield component
+    children = getattr(component, "children", None)
+    if children is None:
+        return
+    if not isinstance(children, (list, tuple)):
+        children = [children]
+    for child in children:
+        if hasattr(child, "children"):
+            yield from _walk_components(child)
+
+
+def test_every_control_shares_the_single_toolbar_row():
+    registered = []
+    toolbar = analysis.TwoDimensionalAnalysis.get_run_input_layout(
+        lambda input_id, *_args, **_kwargs: registered.append(input_id) or input_id
+    )
+
+    assert registered == [
+        "run",
+        "objective_id",
+        "hyperparameter_name_1",
+        "hyperparameter_name_2",
+        "elite_proportion",
+        "process_analysis",
+    ]
+    assert "analysis-toolbar" in toolbar.className
+    assert any(
+        isinstance(component, html.Button) and component.children == "Apply"
+        for component in _walk_components(toolbar)
+    )
+    assert (
+        analysis.TwoDimensionalAnalysis.get_input_layout(lambda input_id, *_args, **_kwargs: None)
+        == []
+    )
+
+
+def test_output_layout_is_a_two_by_two_grid_with_an_empty_final_cell():
+    registered = []
+    (grid,) = analysis.TwoDimensionalAnalysis.get_output_layout(
+        lambda name, *_args, **_kwargs: registered.append(name) or name
+    )
+
+    assert grid.className == "analysis-grid analysis-grid--two-dimensional"
+    assert registered == ["trials_graph", "elite_rate_graph", "objective_graph"]
+    assert [card.className for card in grid.children] == [
+        "analysis-card",
+        "analysis-card",
+        "analysis-card",
+        "analysis-card analysis-card--empty",
+    ]
+    assert [card.children[0].children for card in grid.children[:3]] == [
+        "Observed trials",
+        "Elite enrichement (1x = Baseline)",
+        "Empirical objective median contour",
+    ]
 
 
 def test_dependencies_exclude_time_and_enforce_distinct_hyperparameters():
@@ -137,6 +197,7 @@ def test_pair_summary_honors_objective_direction(
     assert x_groups == ["a", "b"]
     assert y_groups == ["c", "d"]
     assert sum(cell["elite"] for cell in cells) == 2
+    assert [cell["elite_enrichment"] for cell in cells] == pytest.approx([2.0, 2.0, 0.0, 0.0])
 
 
 def test_elite_threshold_ties_are_all_included_and_joint_gaps_remain_empty():
@@ -268,19 +329,110 @@ def test_numeric_outputs_use_contour_and_preserve_missing_cells(monkeypatch):
         "elite_count": 1,
     }
 
-    overview, objective_figure = analysis.TwoDimensionalAnalysis.load_outputs(
-        run,
-        inputs,
-        outputs,
+    trials_figure, elite_rate_figure, objective_figure = (
+        analysis.TwoDimensionalAnalysis.load_outputs(
+            run,
+            inputs,
+            outputs,
+        )
     )
 
-    assert [trace.type for trace in overview.data] == ["scatter", "heatmap"]
-    assert overview.layout.xaxis.type == "log"
-    assert overview.data[1].z[0][1] is None
+    assert trials_figure.data[0].type == "scatter"
+    assert trials_figure.layout.xaxis.type == "log"
+    assert trials_figure.data[0].marker.reversescale is True
+    assert list(trials_figure.data[0].marker.color) == pytest.approx([2.0, 1.0])
+    assert elite_rate_figure.data[0].type == "heatmap"
+    assert elite_rate_figure.data[0].z[0][1] is None
+    assert elite_rate_figure.data[0].z[1][1] == pytest.approx(2.0)
+    assert elite_rate_figure.data[0].zmax == pytest.approx(2.0)
+    assert "Elite enrichment: %{z:.2f}×" in elite_rate_figure.data[0].hovertemplate
+    assert "Elite rate: %{customdata[2]:.1f}%" in elite_rate_figure.data[0].hovertemplate
+    assert elite_rate_figure.data[0].showscale is False
     assert objective_figure.data[0].type == "contour"
     assert objective_figure.data[0].connectgaps is False
     assert objective_figure.data[0].z[0][1] is None
     assert objective_figure.layout.xaxis.type == "log"
+    assert (
+        trials_figure.data[0].marker.colorscale
+        == elite_rate_figure.data[0].colorscale
+        == objective_figure.data[0].colorscale
+    )
+    assert trials_figure.data[0].marker.colorbar.orientation == "h"
+    assert objective_figure.data[0].colorbar.orientation == "h"
+    assert all(
+        figure.layout.title.text is None
+        for figure in (trials_figure, elite_rate_figure, objective_figure)
+    )
+
+
+def test_enrichment_distinguishes_observed_zero_from_an_empty_bin():
+    cells = pd.DataFrame(
+        [
+            {
+                "group_1": "observed-zero",
+                "group_2": "row",
+                "n": 10,
+                "elite": 0,
+                "elite_rate_pct": 0.0,
+                "elite_median_rank": None,
+            },
+            {
+                "group_1": "enriched",
+                "group_2": "row",
+                "n": 10,
+                "elite": 2,
+                "elite_rate_pct": 20.0,
+                "elite_median_rank": 1.5,
+            },
+            {
+                "group_1": "empty",
+                "group_2": "row",
+                "n": 0,
+                "elite": 0,
+                "elite_rate_pct": 0.0,
+                "elite_median_rank": None,
+            },
+        ]
+    )
+
+    figure = analysis._elite_enrichment_figure(
+        cells,
+        ["observed-zero", "enriched", "empty"],
+        ["row"],
+        "learning_rate",
+        "max_depth",
+        elite_threshold=0.5,
+        elite_proportion=0.1,
+    )
+
+    assert list(figure.data[0].z[0]) == [0.0, 2.0, None]
+    annotation_text = [annotation.text for annotation in figure.layout.annotations]
+    assert "0×" in annotation_text
+    assert "2.00×" in annotation_text
+    assert "No data" in annotation_text
+    assert annotation_text.count("n = 0") == 1
+    assert figure.data[0].colorscale[0][1] == "#440154"
+    assert figure.data[0].colorscale[-1][1] == "#fde725"
+    assert figure.data[0].showscale is False
+    assert figure.layout.xaxis.domain == (0.06, 0.94)
+    assert figure.layout.xaxis.scaleanchor is None
+    assert all("<br>" not in label for label in figure.layout.xaxis.ticktext)
+    assert figure.layout.xaxis.title.standoff == 4
+    assert figure.layout.margin.b == analysis.ENRICHMENT_BOTTOM_MARGIN
+    assert "Elite enrichment" not in [
+        annotation.text for annotation in figure.layout.annotations
+    ]
+
+    figure_with_twenty_percent_elite = analysis._elite_enrichment_figure(
+        cells,
+        ["observed-zero", "enriched", "empty"],
+        ["row"],
+        "learning_rate",
+        "max_depth",
+        elite_threshold=0.5,
+        elite_proportion=0.2,
+    )
+    assert list(figure_with_twenty_percent_elite.data[0].z[0]) == [0.0, 1.0, None]
 
 
 def test_categorical_axis_uses_objective_heatmap(monkeypatch):
@@ -329,9 +481,10 @@ def test_categorical_axis_uses_objective_heatmap(monkeypatch):
         "elite_count": 1,
     }
 
-    _, objective_figure = analysis.TwoDimensionalAnalysis.load_outputs(run, inputs, outputs)
+    _, _, objective_figure = analysis.TwoDimensionalAnalysis.load_outputs(run, inputs, outputs)
 
     assert objective_figure.data[0].type == "heatmap"
+    assert objective_figure.data[0].reversescale is True
 
 
 def test_only_suitable_optuna_studies_are_compatible():

@@ -166,8 +166,8 @@ class OptunaRun(Run):
             if isinstance(hp, FloatDistribution) or isinstance(hp, IntDistribution):
                 if hp.step is not None and hp.step != 1:
                     logger.warning(
-                        f"Step is not supported. "
-                        f'Step={hp.step} will be ignored for hyperparameter "{hp_name}".'
+                        "ConfigSpace does not enforce Optuna's step during sampling. "
+                        f'Step={hp.step} is retained as metadata for hyperparameter "{hp_name}".'
                     )
 
             if isinstance(hp, FloatDistribution):
@@ -178,6 +178,7 @@ class OptunaRun(Run):
                         distribution=Uniform(),
                         default=None,
                         log=hp.log,
+                        meta={"step": hp.step},
                     )
                 )
             elif isinstance(hp, IntDistribution):
@@ -188,6 +189,7 @@ class OptunaRun(Run):
                         distribution=Uniform(),
                         default=None,
                         log=hp.log,
+                        meta={"step": hp.step},
                     )
                 )
             elif isinstance(hp, CategoricalDistribution):

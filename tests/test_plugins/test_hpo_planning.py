@@ -9,6 +9,7 @@ from ConfigSpace.hyperparameters import (
     OrdinalHyperparameter,
     UniformFloatHyperparameter,
 )
+from dash import dcc, html
 
 from deepcave import config
 from deepcave.plugins.hyperparameter import hpo_planning as planning
@@ -22,6 +23,41 @@ def test_plugin_is_registered_directly_after_configuration_cube():
 
     configuration_cube_index = plugin_ids.index("ccube")
     assert plugin_ids[configuration_cube_index + 1] == "hpo_planning"
+
+
+def _walk_components(component):
+    """Yield a Dash component and all descendants."""
+    yield component
+    children = getattr(component, "children", None)
+    if children is None:
+        return
+    if not isinstance(children, (list, tuple)):
+        children = [children]
+    for child in children:
+        if hasattr(child, "to_plotly_json"):
+            yield from _walk_components(child)
+
+
+def test_toolbar_contains_all_controls_in_one_compact_row():
+    registered = []
+    toolbar = planning.HPOPlanning.get_run_input_layout(
+        lambda name, *_args, **_kwargs: registered.append(name) or name
+    )
+
+    assert registered == [
+        "run",
+        "objective_id",
+        "elite_proportion_1",
+        "elite_proportion_2",
+        "elite_proportion_3",
+        "process_analysis",
+    ]
+    assert "analysis-toolbar" in toolbar.className
+    assert any(
+        isinstance(component, html.Button) and component.children == "Apply"
+        for component in _walk_components(toolbar)
+    )
+    assert planning.HPOPlanning.get_input_layout(lambda *_args, **_kwargs: None) == []
 
 
 def test_elite_proportions_are_validated_and_sorted():
@@ -44,6 +80,92 @@ def test_numeric_statistics_use_linear_or_logarithmic_observed_ranges():
 
     assert linear_statistics["median_normalized"] == pytest.approx(9 / 99)
     assert log_statistics["median_normalized"] == pytest.approx(0.5)
+
+
+def test_planner_normalization_uses_current_linear_or_logarithmic_space():
+    linear = {
+        "current_min": 100,
+        "current_max": 600,
+        "log": False,
+        "parameter_type": "integer",
+        "step": 50,
+    }
+    logarithmic = {
+        "current_min": 0.001,
+        "current_max": 10.0,
+        "log": True,
+        "parameter_type": "float",
+        "step": None,
+    }
+
+    assert planning._normalize_value(100, linear) == pytest.approx(0)
+    assert planning._normalize_value(600, linear) == pytest.approx(1)
+    assert planning._normalize_value(0.0001, logarithmic) == pytest.approx(-0.25)
+    assert planning._normalize_value(100, logarithmic) == pytest.approx(1.25)
+    assert planning._denormalize_value(1.25, logarithmic) == pytest.approx(100)
+
+
+def test_integer_step_snapping_and_extensions_are_not_clipped():
+    parameter = {
+        "index": 0,
+        "name": "n_estimators",
+        "current_min": 100,
+        "current_max": 600,
+        "log": False,
+        "parameter_type": "integer",
+        "step": 50,
+    }
+    selection = {"n_estimators": {"min": 100, "max": 600}}
+
+    moved = planning._updated_selection(
+        [parameter],
+        selection,
+        {"type": "hpo-planner-range", "index": 0},
+        [0.674, 1.5],
+    )
+    metrics = planning._selection_metrics(parameter, moved["n_estimators"])
+
+    assert moved["n_estimators"] == {"min": 450, "max": 850}
+    assert metrics["span_ratio"] == pytest.approx(0.8)
+    assert metrics["right_extension"] == pytest.approx(0.5)
+    assert metrics["extends"] is True
+
+
+def test_logarithmic_span_metrics_are_calculated_in_sampling_space():
+    parameter = {
+        "current_min": 0.001,
+        "current_max": 10.0,
+        "log": True,
+        "parameter_type": "float",
+        "step": None,
+    }
+
+    metrics = planning._selection_metrics(parameter, {"min": 0.0001, "max": 100.0})
+
+    assert metrics["min_normalized"] == pytest.approx(-0.25)
+    assert metrics["max_normalized"] == pytest.approx(1.25)
+    assert metrics["span_ratio"] == pytest.approx(1.5)
+    assert metrics["left_extension"] == pytest.approx(0.25)
+    assert metrics["right_extension"] == pytest.approx(0.25)
+
+
+def test_nonpositive_log_edit_does_not_create_a_second_control_state():
+    parameter = {
+        "index": 0,
+        "name": "gamma",
+        "current_min": 0.001,
+        "current_max": 10.0,
+        "log": True,
+        "parameter_type": "float",
+        "step": None,
+    }
+    selection = {"gamma": {"min": 0.001, "max": 10.0}}
+    triggered_id = {"type": "hpo-planner-min", "index": 0}
+
+    updated = planning._updated_selection([parameter], selection, triggered_id, 0)
+
+    assert updated == selection
+    assert not planning._control_matches_selection([parameter], selection, triggered_id, 0)
 
 
 def test_categorical_quantiles_use_observed_categories_in_configspace_order():
@@ -184,11 +306,17 @@ def test_dependencies_exclude_time_from_objectives():
     ]
 
 
-def test_plot_contains_only_single_feature_ranges_and_scales_height(monkeypatch):
-    monkeypatch.setattr(planning, "save_image", lambda *_args: None)
+def test_planner_layout_uses_separate_metadata_and_selection_stores():
+    configspace = ConfigurationSpace()
+    configspace.add(
+        [
+            UniformFloatHyperparameter("x", lower=0.0, upper=10.0),
+            CategoricalHyperparameter("kind", choices=["a", "b"]),
+        ]
+    )
     outputs = {
         "elite_proportions": [0.1, 0.05, 0.01],
-        "features": ["x", "conditional"],
+        "features": ["x", "kind"],
         "summary": [],
     }
     for feature in outputs["features"]:
@@ -210,40 +338,192 @@ def test_plot_contains_only_single_feature_ranges_and_scales_height(monkeypatch)
                 "q90_normalized": 0.8,
                 "maximum_normalized": 1.0,
             }
-            if feature == "conditional" and proportion == 0.01:
+            if feature == "kind":
                 row.update(
-                    {
-                        "n": 0,
-                        "minimum": None,
-                        "q10": None,
-                        "median": None,
-                        "q90": None,
-                        "maximum": None,
-                        "minimum_normalized": None,
-                        "q10_normalized": None,
-                        "median_normalized": None,
-                        "q90_normalized": None,
-                        "maximum_normalized": None,
-                    }
+                    minimum="a",
+                    q10="a",
+                    median="b",
+                    q90="b",
+                    maximum="b",
                 )
             outputs["summary"].append(row)
 
-    figure, style = planning.HPOPlanning.load_outputs(
-        SimpleNamespace(),
-        {},
-        outputs,
+    (layout,) = planning.HPOPlanning.load_outputs(
+        SimpleNamespace(configspace=configspace), {}, outputs
+    )
+    components = list(_walk_components(layout))
+    stores = [component for component in components if isinstance(component, dcc.Store)]
+    sliders = [component for component in components if isinstance(component, dcc.RangeSlider)]
+    dropdowns = [component for component in components if isinstance(component, dcc.Dropdown)]
+
+    assert [store.id for store in stores] == [
+        planning.METADATA_STORE_ID,
+        planning.SELECTION_STORE_ID,
+    ]
+    metadata, selection = stores[0].data, stores[1].data
+    assert metadata[0]["current_min"] == pytest.approx(0)
+    assert metadata[0]["current_max"] == pytest.approx(10)
+    # Raw quantiles are positioned against ConfigSpace 0–10, not observed summary 1–2.
+    first_elite = metadata[0]["elite_positions"][0]
+    assert first_elite["minimum_position"] == pytest.approx(0.1)
+    assert first_elite["q10_position"] == pytest.approx(0.12)
+    assert first_elite["median_position"] == pytest.approx(0.15)
+    assert first_elite["q90_position"] == pytest.approx(0.18)
+    assert first_elite["maximum_position"] == pytest.approx(0.2)
+    assert first_elite["position"] == first_elite["median_position"]
+    assert selection == {
+        "x": {"min": 0.0, "max": 10.0},
+        "kind": {"choices": ["a", "b"]},
+    }
+    assert sliders[0].value == pytest.approx([0, 1])
+    assert sliders[0].marks == {0: "0", 1: "10"}
+    assert sliders[0].tooltip["transform"] == "hpoPlanning.parameter0"
+    assert dropdowns[0].multi is True
+    assert dropdowns[0].value == ["a", "b"]
+    assert not any(isinstance(component, dcc.Graph) for component in components)
+
+    table_header = next(
+        component
+        for component in components
+        if isinstance(component, html.Div)
+        and getattr(component, "className", None) == "planner-table-header"
+    )
+    assert [cell.children for cell in table_header.children] == [
+        "Parameter",
+        "Normalized position in current search space",
+        "Min (original)",
+        "Max (original)",
+    ]
+    assert not any(
+        isinstance(getattr(component, "id", None), dict)
+        and component.id.get("type") == "hpo-planner-metric"
+        for component in components
     )
 
-    assert [trace.name for trace in figure.data] == [
-        "Minimum–Maximum",
-        "Q10 / Q90",
-        "Median",
+    legend = next(
+        component
+        for component in components
+        if isinstance(component, html.Div)
+        and getattr(component, "className", None) == "planner-legend"
+    )
+    general_legend_row, elite_legend_row = legend.children
+    assert general_legend_row.className == "planner-legend-row"
+    assert len(general_legend_row.children) == 4
+    assert elite_legend_row.className == "planner-legend-row planner-legend-elites"
+    assert len(elite_legend_row.children) == 3
+    assert all(item.children[-1].startswith("Top ") for item in elite_legend_row.children)
+
+    range_control = next(
+        component
+        for component in components
+        if isinstance(component, html.Div)
+        and getattr(component, "className", None) == "planner-range-control"
+    )
+    range_control_props = range_control.to_plotly_json()["props"]
+    assert range_control_props["data-current-min"] == "0.0"
+    assert range_control_props["data-current-max"] == "10.0"
+    assert range_control_props["data-log"] == "false"
+    assert range_control_props["data-step"] == ""
+    assert range_control_props["data-parameter-type"] == "float"
+
+    current_reference = next(
+        component
+        for component in components
+        if isinstance(component, html.Div)
+        and getattr(component, "className", None) == "planner-current-reference"
+    )
+    assert getattr(current_reference, "style", None) is None
+    assert current_reference.children.className == "planner-current-reference-segment"
+    assert current_reference.children.style == {
+        "left": "16.666667%",
+        "width": "66.666667%",
+    }
+
+    elite_tracks = [
+        component
+        for component in components
+        if isinstance(component, html.Div)
+        and getattr(component, "className", None) == "planner-elite-track"
     ]
-    assert len(figure.layout.shapes) == 1
-    assert any(annotation.text == "No active trials" for annotation in figure.layout.annotations)
-    assert all("×" not in annotation.text for annotation in figure.layout.annotations)
-    assert figure.layout.height == 500
-    assert style == {"height": "500px"}
+    elite_bands = [
+        component
+        for component in components
+        if isinstance(component, html.Span)
+        and getattr(component, "className", None) == "planner-elite-band"
+    ]
+    elite_markers = [
+        component
+        for component in components
+        if isinstance(component, html.Span)
+        and getattr(component, "className", None) == "planner-elite-marker"
+    ]
+    elite_whiskers = [
+        component
+        for component in components
+        if isinstance(component, html.Span)
+        and getattr(component, "className", None) == "planner-elite-whisker"
+    ]
+    assert len(elite_tracks) == len(elite_whiskers) == len(elite_bands) == len(elite_markers) == 3
+    assert all(
+        "min–max" in track.title and "Q10–Q90" in track.title and "median" in track.title
+        for track in elite_tracks
+    )
+
+    unselected_segments = [
+        component
+        for component in components
+        if isinstance(component, html.Span)
+        and getattr(component, "className", None) == "planner-unselected-segment"
+    ]
+    assert [segment.style for segment in unselected_segments] == [
+        {"left": "0", "width": "16.666667%"},
+        {"left": "83.333333%", "width": "16.666667%"},
+    ]
+
+
+def test_elite_ranges_use_the_planner_logarithmic_transform():
+    configspace = ConfigurationSpace()
+    configspace.add(UniformFloatHyperparameter("gamma", lower=0.001, upper=10.0, log=True))
+    proportions = [0.1, 0.05, 0.01]
+    summary = [
+        {
+            "feature": "gamma",
+            "proportion": proportion,
+            "n": 10,
+            "minimum": 0.001,
+            "q10": 0.01,
+            "median": 0.1,
+            "q90": 1.0,
+            "maximum": 10.0,
+        }
+        for proportion in proportions
+    ]
+
+    metadata = planning._build_planning_metadata(configspace, ["gamma"], proportions, summary)
+
+    for elite in metadata[0]["elite_positions"]:
+        assert elite["minimum_position"] == pytest.approx(0)
+        assert elite["q10_position"] == pytest.approx(0.25)
+        assert elite["median_position"] == pytest.approx(0.5)
+        assert elite["q90_position"] == pytest.approx(0.75)
+        assert elite["maximum_position"] == pytest.approx(1)
+
+
+def test_python_preview_preserves_integer_types_and_categorical_choices():
+    metadata = [
+        {"name": "n_estimators", "parameter_type": "integer"},
+        {"name": "booster", "parameter_type": "categorical"},
+    ]
+    selection = {
+        "n_estimators": {"min": 180, "max": 420},
+        "booster": {"choices": ["gbtree", "dart"]},
+    }
+
+    preview = planning._python_space_preview(metadata, selection)
+
+    assert "'n_estimators': [180, 420]" in preview
+    assert "420.0" not in preview
+    assert "'booster': ['gbtree', 'dart']" in preview
 
 
 def test_only_nonempty_optuna_studies_with_features_are_compatible():

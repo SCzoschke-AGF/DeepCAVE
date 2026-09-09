@@ -19,7 +19,7 @@ from pathlib import Path
 
 import optuna
 import pytest
-from optuna.distributions import FloatDistribution
+from optuna.distributions import FloatDistribution, IntDistribution
 from optuna.trial import TrialState, create_trial
 
 from deepcave.runs import Status
@@ -110,6 +110,21 @@ def test_converter_preserves_duplicate_configurations_and_trial_numbers(tmp_path
     assert len(run.history) == 2
     assert [trial.costs[0] for trial in run.history] == pytest.approx([0.4, 0.6])
     assert [trial.additional["optuna_trial_number"] for trial in run.history] == [0, 1]
+
+
+def test_converter_retains_optuna_step_as_parameter_metadata(tmp_path: Path) -> None:
+    study = optuna.create_study(direction="minimize")
+    study.add_trial(
+        create_trial(
+            params={"n_estimators": 150},
+            distributions={"n_estimators": IntDistribution(100, 600, step=50)},
+            value=0.4,
+        )
+    )
+
+    run = OptunaRun.from_path(_write_study(tmp_path / "run", study))
+
+    assert run.configspace["n_estimators"].meta["step"] == 50
 
 
 def test_converter_rejects_study_without_completed_trial(tmp_path: Path) -> None:

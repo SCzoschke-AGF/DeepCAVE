@@ -15,7 +15,7 @@
 # noqa: D400
 """One-dimensional trial and elite-distribution analysis for Optuna studies."""
 
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 import dash_bootstrap_components as dbc
 import pandas as pd
@@ -34,8 +34,15 @@ from deepcave.plugins.hyperparameter.analysis_utils import (
     _group_parameter_values,
 )
 from deepcave.runs import AbstractRun
-from deepcave.utils.analysis_layout import bin_label, style_analysis
-from deepcave.utils.layout import get_select_options, help_button
+from deepcave.utils.analysis_layout import (
+    add_colorbar_label,
+    analysis_graph,
+    analysis_toolbar_item,
+    bin_label,
+    horizontal_colorbar,
+    style_analysis,
+)
+from deepcave.utils.layout import get_select_options
 from deepcave.utils.styled_plotty import save_image
 
 ELITE_PROPORTION_DEFAULT = 0.10
@@ -57,10 +64,6 @@ PERFORMANCE_BOTTOM_MARGIN = 76
 ENRICHMENT_BOTTOM_MARGIN = 128
 PANEL_LEFT_MARGIN = 64
 TOP_MARGIN = 44
-COLORBAR_CONTAINER_Y = 0.015
-COLORBAR_THICKNESS = 10
-COLORBAR_TICK_HEIGHT = 24
-COLORBAR_LABEL_PADDING = 7
 
 
 def _summarize_trials(
@@ -106,40 +109,6 @@ def _summarize_trials(
     return summary, tail_quantile, elite_threshold, elite_count
 
 
-def _toolbar_item(
-    label: str,
-    control: Component,
-    width: str,
-    help_text: Optional[str] = None,
-) -> Component:
-    """Wrap a single control into a compact, prefixed toolbar group."""
-    children: List[Component] = [
-        dbc.InputGroup(
-            [dbc.InputGroupText(label), control],
-            size="sm",
-            className="flex-nowrap",
-        )
-    ]
-    if help_text is not None:
-        children.append(help_button(help_text))
-
-    return html.Div(
-        children,
-        className="d-flex align-items-center me-2",
-        style={"flex": f"1 1 {width}", "minWidth": width},
-    )
-
-
-def _panel_graph(graph_id: str, height: int) -> Component:
-    """Return one panel of the analysis grid."""
-    return dcc.Graph(
-        id=graph_id,
-        responsive=True,
-        style={"width": "100%", "height": f"{height}px"},
-        config={"toImageButtonOptions": {"scale": config.FIGURE_DOWNLOAD_SCALE}},
-    )
-
-
 def _style_panel(
     figure: go.Figure,
     title: str,
@@ -147,7 +116,7 @@ def _style_panel(
     bottom: int,
     show_legend: bool = False,
 ) -> None:
-    """Apply the shared card styling: bold left title, inline legend, fixed left margin."""
+    """Apply the established 1-D card styling and fixed plot alignment."""
     style_analysis(figure, height=height, show_legend=show_legend)
     figure.update_layout(
         title={
@@ -158,7 +127,6 @@ def _style_panel(
             "yanchor": "top",
             "font": {"size": 15},
         },
-        # The identical left margin is what keeps the two range panels aligned column by column.
         margin={"t": TOP_MARGIN, "b": bottom, "l": PANEL_LEFT_MARGIN, "r": 22},
         legend={
             "orientation": "h",
@@ -172,46 +140,6 @@ def _style_panel(
     )
     figure.update_yaxes(automargin=False)
     figure.update_xaxes(automargin=False)
-
-
-def _horizontal_colorbar() -> Dict[str, Any]:
-    """Return a colorbar that sits below the panel instead of taking width from the plot."""
-    return {
-        "orientation": "h",
-        "x": 0.5,
-        "xanchor": "center",
-        # Anchored to the figure instead of the plot area, so panel heights stay independent.
-        "yref": "container",
-        "y": COLORBAR_CONTAINER_Y,
-        "yanchor": "bottom",
-        "thickness": COLORBAR_THICKNESS,
-        "len": 0.8,
-        "tickfont": {"size": 10},
-        "nticks": 6,
-    }
-
-
-def _add_colorbar_label(figure: go.Figure, text: str, height: int, bottom: int) -> None:
-    """Caption the colorbar above the bar; its built-in title collides with the tick labels."""
-    # The colorbar block reserves its tick labels below the bar, so the caption clears
-    # the bar itself only above the anchor plus tick, bar and padding height.
-    above_figure_bottom = (
-        COLORBAR_CONTAINER_Y * height
-        + COLORBAR_TICK_HEIGHT
-        + COLORBAR_THICKNESS
-        + COLORBAR_LABEL_PADDING
-    )
-    figure.add_annotation(
-        text=text,
-        xref="paper",
-        yref="paper",
-        x=0.5,
-        xanchor="center",
-        y=-(bottom - above_figure_bottom) / (height - TOP_MARGIN - bottom),
-        yanchor="bottom",
-        showarrow=False,
-        font={"size": 11},
-    )
 
 
 def _range_axis(figure: go.Figure, ranges: List[str], hyperparameter_name: str) -> None:
@@ -243,7 +171,7 @@ def _trials_figure(
                 "color": trials["trial_number"],
                 "colorscale": "Blues",
                 "showscale": True,
-                "colorbar": _horizontal_colorbar(),
+                "colorbar": horizontal_colorbar(),
                 "size": 5,
                 "opacity": 0.7,
             },
@@ -259,7 +187,13 @@ def _trials_figure(
         figure.update_xaxes(type="log")
     figure.update_yaxes(title_text=objective_name)
     _style_panel(figure, "Observed trials", TRIALS_HEIGHT, bottom=TRIALS_BOTTOM_MARGIN)
-    _add_colorbar_label(figure, "Trial", TRIALS_HEIGHT, TRIALS_BOTTOM_MARGIN)
+    add_colorbar_label(
+        figure,
+        "Trial",
+        TRIALS_HEIGHT,
+        TRIALS_BOTTOM_MARGIN,
+        top=TOP_MARGIN,
+    )
     return figure
 
 
@@ -360,7 +294,7 @@ def _enrichment_figure(
                 "cmin": 1,
                 "cmax": rank_maximum,
                 "showscale": True,
-                "colorbar": _horizontal_colorbar(),
+                "colorbar": horizontal_colorbar(),
             },
             customdata=_enrichment_customdata(with_elite),
             hovertemplate=hover,
@@ -401,11 +335,12 @@ def _enrichment_figure(
         bottom=ENRICHMENT_BOTTOM_MARGIN,
         show_legend=True,
     )
-    _add_colorbar_label(
+    add_colorbar_label(
         figure,
         "Median elite rank (1 = best)",
         ENRICHMENT_HEIGHT,
         ENRICHMENT_BOTTOM_MARGIN,
+        top=TOP_MARGIN,
     )
     return figure
 
@@ -450,7 +385,7 @@ class OneDimensionalAnalysis(DynamicPlugin):
         """
         return html.Div(
             [
-                _toolbar_item(
+                analysis_toolbar_item(
                     "Run",
                     dbc.Select(
                         id=register("run", ["value", "options"]),
@@ -458,7 +393,7 @@ class OneDimensionalAnalysis(DynamicPlugin):
                     ),
                     width="20rem",
                 ),
-                _toolbar_item(
+                analysis_toolbar_item(
                     "Objective",
                     dbc.Select(
                         id=register("objective_id", ["value", "options"], type=int),
@@ -466,7 +401,7 @@ class OneDimensionalAnalysis(DynamicPlugin):
                     ),
                     width="14rem",
                 ),
-                _toolbar_item(
+                analysis_toolbar_item(
                     "Hyperparameter",
                     dbc.Select(
                         id=register("hyperparameter_name", ["value", "options"]),
@@ -474,7 +409,7 @@ class OneDimensionalAnalysis(DynamicPlugin):
                     ),
                     width="18rem",
                 ),
-                _toolbar_item(
+                analysis_toolbar_item(
                     "Elite",
                     dbc.Input(
                         id=register("elite_proportion", "value", type=float),
@@ -601,15 +536,27 @@ class OneDimensionalAnalysis(DynamicPlugin):
             html.Div(
                 [
                     html.Div(
-                        _panel_graph(register("trials_graph", "figure"), TRIALS_HEIGHT),
+                        analysis_graph(
+                            register("trials_graph", "figure"),
+                            TRIALS_HEIGHT,
+                            config.FIGURE_DOWNLOAD_SCALE,
+                        ),
                         className="analysis-card analysis-card--tall",
                     ),
                     html.Div(
-                        _panel_graph(register("performance_graph", "figure"), PERFORMANCE_HEIGHT),
+                        analysis_graph(
+                            register("performance_graph", "figure"),
+                            PERFORMANCE_HEIGHT,
+                            config.FIGURE_DOWNLOAD_SCALE,
+                        ),
                         className="analysis-card",
                     ),
                     html.Div(
-                        _panel_graph(register("enrichment_graph", "figure"), ENRICHMENT_HEIGHT),
+                        analysis_graph(
+                            register("enrichment_graph", "figure"),
+                            ENRICHMENT_HEIGHT,
+                            config.FIGURE_DOWNLOAD_SCALE,
+                        ),
                         className="analysis-card",
                     ),
                 ],

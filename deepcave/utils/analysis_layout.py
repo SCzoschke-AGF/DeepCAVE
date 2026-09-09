@@ -1,9 +1,138 @@
-"""Consistent, readable layout for empirical analysis figures."""
+"""Consistent, readable layout for empirical analysis views and figures."""
+
+from typing import Any, Dict, List, Optional
 
 import math
 import re
 
+import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
+from dash import dcc, html
+from dash.development.base_component import Component
+
+from deepcave.utils.layout import help_button
+
+PANEL_LEFT_MARGIN = 64
+PANEL_TOP_MARGIN = 44
+COLORBAR_CONTAINER_Y = 0.015
+COLORBAR_THICKNESS = 10
+COLORBAR_TICK_HEIGHT = 24
+COLORBAR_LABEL_PADDING = 7
+
+
+def analysis_toolbar_item(
+    label: str,
+    control: Component,
+    width: str,
+    help_text: Optional[str] = None,
+) -> Component:
+    """Wrap one control in the compact toolbar style shared by analysis plugins."""
+    children: List[Component] = [
+        dbc.InputGroup(
+            [dbc.InputGroupText(label), control],
+            size="sm",
+            className="flex-nowrap",
+        )
+    ]
+    if help_text is not None:
+        children.append(help_button(help_text))
+
+    return html.Div(
+        children,
+        className="analysis-toolbar__item d-flex align-items-center me-2",
+        style={"flex": f"1 1 {width}", "minWidth": width},
+    )
+
+
+def analysis_graph(graph_id: str, height: int, download_scale: float) -> Component:
+    """Return a responsive graph sized for an analysis card."""
+    return dcc.Graph(
+        id=graph_id,
+        responsive=True,
+        style={"width": "100%", "height": f"{height}px"},
+        config={"toImageButtonOptions": {"scale": download_scale}},
+    )
+
+
+def analysis_card(title: str, graph: Component, modifier: str = "") -> Component:
+    """Put a graph below an external card header, keeping Plotly titles out of the canvas."""
+    class_name = "analysis-card"
+    if modifier:
+        class_name += f" {modifier}"
+    return html.Div(
+        [html.Div(title, className="analysis-card__header"), graph],
+        className=class_name,
+    )
+
+
+def style_analysis_panel(
+    figure: go.Figure,
+    height: int,
+    bottom: int,
+    show_legend: bool = False,
+    top: int = PANEL_TOP_MARGIN,
+    left: int = PANEL_LEFT_MARGIN,
+    right: int = 22,
+) -> None:
+    """Apply the plot styling used inside analysis cards."""
+    style_analysis(figure, height=height, show_legend=show_legend)
+    figure.update_layout(
+        title=None,
+        margin={"t": top, "b": bottom, "l": left, "r": right},
+        legend={
+            "orientation": "h",
+            "x": 1,
+            "xanchor": "right",
+            "y": 1.01,
+            "yanchor": "bottom",
+            "font": {"size": 12},
+        },
+    )
+    figure.update_yaxes(automargin=False)
+    figure.update_xaxes(automargin=False)
+
+
+def horizontal_colorbar() -> Dict[str, Any]:
+    """Return a compact colorbar positioned below an analysis plot."""
+    return {
+        "orientation": "h",
+        "x": 0.5,
+        "xanchor": "center",
+        "yref": "container",
+        "y": COLORBAR_CONTAINER_Y,
+        "yanchor": "bottom",
+        "thickness": COLORBAR_THICKNESS,
+        "len": 0.8,
+        "tickfont": {"size": 10},
+        "nticks": 6,
+    }
+
+
+def add_colorbar_label(
+    figure: go.Figure,
+    text: str,
+    height: int,
+    bottom: int,
+    top: int = PANEL_TOP_MARGIN,
+) -> None:
+    """Place a centered caption immediately above a horizontal colorbar."""
+    above_figure_bottom = (
+        COLORBAR_CONTAINER_Y * height
+        + COLORBAR_TICK_HEIGHT
+        + COLORBAR_THICKNESS
+        + COLORBAR_LABEL_PADDING
+    )
+    figure.add_annotation(
+        text=text,
+        xref="paper",
+        yref="paper",
+        x=0.5,
+        xanchor="center",
+        y=-(bottom - above_figure_bottom) / (height - top - bottom),
+        yanchor="bottom",
+        showarrow=False,
+        font={"size": 11},
+    )
 
 
 def style_analysis(figure: go.Figure, height: int = 500, show_legend: bool = True) -> None:
