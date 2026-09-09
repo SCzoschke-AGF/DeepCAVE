@@ -39,27 +39,18 @@ def _walk_components(component):
 
 def test_every_control_shares_the_single_toolbar_row():
     registered = []
-    toolbar = analysis.TwoDimensionalAnalysis.get_run_input_layout(
+    (toolbar,) = analysis.TwoDimensionalAnalysis.get_input_layout(
         lambda input_id, *_args, **_kwargs: registered.append(input_id) or input_id
     )
 
     assert registered == [
-        "run",
         "objective_id",
         "hyperparameter_name_1",
         "hyperparameter_name_2",
         "elite_proportion",
-        "process_analysis",
     ]
     assert "analysis-toolbar" in toolbar.className
-    assert any(
-        isinstance(component, html.Button) and component.children == "Apply"
-        for component in _walk_components(toolbar)
-    )
-    assert (
-        analysis.TwoDimensionalAnalysis.get_input_layout(lambda input_id, *_args, **_kwargs: None)
-        == []
-    )
+    assert not any(isinstance(component, html.Button) for component in _walk_components(toolbar))
 
 
 def test_output_layout_is_a_two_by_two_grid_with_an_empty_final_cell():

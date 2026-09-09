@@ -29,6 +29,7 @@ from typing import Dict, List, Optional, Type, Union
 
 import time
 from pathlib import Path
+from threading import RLock
 
 from deepcave.config import Config
 from deepcave.runs import AbstractRun
@@ -70,6 +71,9 @@ class RunHandler:
     def __init__(self, config: Config, cache: "Cache", run_cache: "RunCaches") -> None:
         self.c = cache
         self.rc = run_cache
+        # Dash executes callbacks concurrently.  Updating the shared run dictionaries must be
+        # serialized because a refresh can remove and recreate run instances.
+        self._update_lock = RLock()
         # Fields set by self.update()
         self.logger = get_logger("RunHandler")
 
@@ -84,6 +88,39 @@ class RunHandler:
         self.c.read()
         self.update_runs()
         self.update_groups()
+
+    def _ensure_active_run_id(self) -> Optional[str]:
+        """Initialize the active run without replacing an explicit selection."""
+        with self._update_lock:
+            available_runs = list(self.runs.values()) + list(self.groups.values())
+            active_run_id = self.c.get("active_run_id")
+
+            # Only choose a default before the user has made a selection.  In particular, keep a
+            # stale id when a selected run is temporarily unavailable.  Replacing it here races
+            # with the dropdown callback and makes an explicit selection jump to the first run.
+            if active_run_id is None:
+                fallback_run_id = available_runs[0].id if available_runs else None
+                if fallback_run_id is not None:
+                    self.c.set("active_run_id", value=fallback_run_id)
+                active_run_id = fallback_run_id
+
+            return active_run_id
+
+    def get_active_run_id(self) -> Optional[str]:
+        """Return the globally selected run id, initializing it if none was selected yet."""
+        return self._ensure_active_run_id()
+
+    def set_active_run_id(self, run_id: Optional[str]) -> None:
+        """Persist the globally selected run after validating that it is loaded."""
+        with self._update_lock:
+            available_ids = {
+                run.id for run in list(self.runs.values()) + list(self.groups.values())
+            }
+            if run_id is not None and run_id not in available_ids:
+                raise RuntimeError("Run not found.")
+
+            if self.c.get("active_run_id") != run_id:
+                self.c.set("active_run_id", value=run_id)
 
     def set_working_directory(self, working_directory: Union[Path, str]) -> None:
         """
@@ -239,7 +276,9 @@ class RunHandler:
             selected_run_paths.append(run_path)
             self.c.set("selected_run_paths", value=selected_run_paths)
 
-            return self.update_runs()
+            success = self.update_runs()
+            self._ensure_active_run_id()
+            return success
 
         return True
 
@@ -284,24 +323,24 @@ class RunHandler:
             # Last inputs are also removed here
             self.c.set("last_inputs", value={})
             self.update_runs()
+            self.update_groups()
 
     def update(self) -> None:
         """Update the internal run and group instances but only if a hash changed."""
-        update_required = False
-        for run_path in list(self.runs.keys()):
-            run = self.runs[run_path]
+        with self._update_lock:
+            update_required = False
+            for run_path, run in list(self.runs.items()):
+                # Get cache
+                if self.rc.update(run):
+                    # It's important to delete the run from self.runs here because
+                    # otherwise this object is kept in memory though it has changed.
+                    del self.runs[run_path]
 
-            # Get cache
-            if self.rc.update(run):
-                # It's important to delete the run from self.runs here because
-                # otherwise this object is kept in memory though it has changed
-                del self.runs[run_path]
+                    update_required = True
 
-                update_required = True
-
-        if update_required:
-            self.update_runs()
-            self.update_groups()
+            if update_required:
+                self.update_runs()
+                self.update_groups()
 
     def update_runs(self) -> bool:
         """
@@ -317,28 +356,29 @@ class RunHandler:
         NotValidRunError
             If directory can not be transformed into a run, an error is thrown.
         """
-        runs: Dict[str, AbstractRun] = {}  # run_path: Run
-        success = True
+        with self._update_lock:
+            runs: Dict[str, AbstractRun] = {}  # run_path: Run
+            success = True
 
-        class_hint = None
-        updated_paths = []
-        for run_path in self.get_selected_run_paths():
-            run = self.update_run(run_path, class_hint=class_hint)
-            if run is not None:
-                runs[run_path] = run
-                class_hint = run.__class__
-                updated_paths += [run_path]
-            else:
-                success = False
+            class_hint = None
+            updated_paths = []
+            for run_path in self.get_selected_run_paths():
+                run = self.update_run(run_path, class_hint=class_hint)
+                if run is not None:
+                    runs[run_path] = run
+                    class_hint = run.__class__
+                    updated_paths += [run_path]
+                else:
+                    success = False
 
-        # Save in cache again
-        if self.get_selected_run_paths() != updated_paths:
-            self.c.set("selected_run_paths", value=updated_paths)
+            # Save in cache again
+            if self.get_selected_run_paths() != updated_paths:
+                self.c.set("selected_run_paths", value=updated_paths)
 
-        # Save runs in memory
-        self.runs = runs
+            # Save runs in memory
+            self.runs = runs
 
-        return success
+            return success
 
     def update_run(
         self, run_path: str, class_hint: Optional[Type[Run]] = None
@@ -431,35 +471,37 @@ class RunHandler:
         TypeError
             If `groups` is None, an error is thrown.
         """
-        instantiated_groups = {}
-        if groups is None:
-            groups = self.c.get("groups")
-        # This check is necessary because groups could still be None
-        if groups is None:
-            raise TypeError("Groups can not be None.")
-        # Add grouped runs
-        for group_name, run_paths in groups.items():
-            runs = []
-            for run_path, run in self.runs.items():
-                if run_path in run_paths:
-                    runs += [run]
+        with self._update_lock:
+            instantiated_groups = {}
+            if groups is None:
+                groups = self.c.get("groups")
+            # This check is necessary because groups could still be None
+            if groups is None:
+                raise TypeError("Groups can not be None.")
+            # Add grouped runs
+            for group_name, run_paths in groups.items():
+                runs = []
+                for run_path, run in self.runs.items():
+                    if run_path in run_paths:
+                        runs += [run]
 
-            if len(runs) == 0:
-                continue
+                if len(runs) == 0:
+                    continue
 
-            # Throws NotMergeableError
-            instantiated_groups[group_name] = Group(group_name, runs)
+                # Throws NotMergeableError
+                instantiated_groups[group_name] = Group(group_name, runs)
 
-        # Add groups to rc
-        for group in instantiated_groups.values():
-            # Create cache file and set name/hash. Clear cache if hash got changed
-            self.rc.update(group)
+            # Add groups to rc
+            for group in instantiated_groups.values():
+                # Create cache file and set name/hash. Clear cache if hash got changed
+                self.rc.update(group)
 
-        # Save in cache
-        self.c.set("groups", value=groups)
+            # Save in cache
+            self.c.set("groups", value=groups)
 
-        # Save in memory
-        self.groups = instantiated_groups
+            # Save in memory
+            self.groups = instantiated_groups
+            self._ensure_active_run_id()
 
     def get_run(self, run_id: str) -> AbstractRun:
         """
@@ -496,8 +538,9 @@ class RunHandler:
         List[GroupedRun]
             Instances of grouped runs.
         """
-        self.update()
-        return list(self.groups.values())
+        with self._update_lock:
+            self.update()
+            return list(self.groups.values())
 
     def get_runs(self, include_groups: bool = False) -> List[AbstractRun]:
         """
@@ -516,13 +559,14 @@ class RunHandler:
         List[AbstractRun]
             Instances of runs.
         """
-        self.update()
-        runs = list(self.runs.values())
+        with self._update_lock:
+            self.update()
+            runs = list(self.runs.values())
 
-        if include_groups:
-            runs += list(self.groups.values())
+            if include_groups:
+                runs += list(self.groups.values())
 
-        return runs
+            return runs
 
     def is_run(self, path_name: str) -> bool:
         """

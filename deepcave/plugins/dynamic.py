@@ -79,13 +79,16 @@ class DynamicPlugin(Plugin, ABC):
         for id, attribute in self.outputs:
             outputs.append(Output(self.get_internal_output_id(id), attribute))
 
-        inputs = [Input(self.get_internal_id("update-button"), "n_clicks")]
+        inputs = [
+            Input(self.get_internal_id("update-button"), "n_clicks"),
+            Input("global-run-selector", "value"),
+        ]
         for id, attribute, _, _ in self.inputs:
             inputs.append(Input(self.get_internal_input_id(id), attribute))
 
         # Register updates from inputs
         @app.callback(outputs, inputs)  # type: ignore
-        def plugin_output_update(_: Any, *inputs_list: str) -> Any:
+        def plugin_output_update(_: Any, global_run_id: str, *inputs_list: str) -> Any:
             """
             Update the outputs.
 
@@ -102,16 +105,17 @@ class DynamicPlugin(Plugin, ABC):
             # Map the list `inputs_list` to a dict s.t.
             # it's easier to access them.
             inputs = self._list_to_dict(list(inputs_list), input=True)
+            inputs["run"] = {"value": global_run_id}
             # The Optional[str] would need tobe changed to a str as return type annotation
             # of the function _dict_as_key.
             inputs_key = self._dict_as_key(inputs, remove_filters=True)
             cleaned_inputs = self._clean_inputs(inputs)
             runs = self.get_selected_runs(inputs)
+            self.check_runs_compatibility(runs)
 
             raw_outputs = {}
-            rc.clear()
             for run in runs:
-                run_outputs = rc.get(run, self.id, inputs_key)
+                run_outputs = rc.get(run, self.id, inputs_key) if self.use_cache else None
                 if run_outputs is None:
                     self.logger.debug(f"Process {run.name}.")
                     run_outputs = self.process(run, cleaned_inputs)
@@ -130,7 +134,7 @@ class DynamicPlugin(Plugin, ABC):
             # Cache last inputs
             c.set("last_inputs", self.id, value=inputs)
 
-            return self._process_raw_outputs(inputs, raw_outputs)
+            return self._process_raw_outputs(inputs, raw_outputs, runs)
 
     @interactive
     def __call__(self) -> List[Component]:  # type: ignore

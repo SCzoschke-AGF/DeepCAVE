@@ -21,7 +21,7 @@ import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.graph_objs as go
 from ConfigSpace.hyperparameters import Hyperparameter
-from dash import dcc, html
+from dash import html
 from dash.development.base_component import Component
 from dash.exceptions import PreventUpdate
 
@@ -46,8 +46,6 @@ from deepcave.utils.layout import get_select_options
 from deepcave.utils.styled_plotty import save_image
 
 ELITE_PROPORTION_DEFAULT = 0.10
-RELEVANT_INPUTS = ("objective_id", "hyperparameter_name", "elite_proportion")
-
 TAIL_COLOR = "#F58518"
 MEDIAN_COLOR = "#54A24B"
 DEPLETED_COLOR = "#C9CFD8"
@@ -243,37 +241,11 @@ def _enrichment_figure(
     hyperparameter_name: str,
     elite_percent: float,
     rank_maximum: int,
-    processed: bool,
 ) -> go.Figure:
     """Plot where elite trials accumulate, relative to the study-wide elite share."""
     ranges = summary["range"].tolist()
     title = f"Elite enrichment (best {elite_percent:.0f}%)"
     figure = go.Figure()
-
-    if not processed:
-        # An invisible trace keeps the shared bins (and their tick labels) in place.
-        figure.add_trace(
-            go.Scatter(
-                x=ranges,
-                y=[None] * len(ranges),
-                mode="markers",
-                marker={"opacity": 0},
-                hoverinfo="skip",
-            )
-        )
-        figure.add_annotation(
-            text="Press <b>Apply</b> to compute the elite enrichment",
-            xref="paper",
-            yref="paper",
-            x=0.5,
-            y=0.5,
-            showarrow=False,
-            font={"size": 12, "color": "#94a3b8"},
-        )
-        figure.update_yaxes(title_text="Enrichment", range=[0, 1.35], showticklabels=False)
-        _range_axis(figure, ranges, hyperparameter_name)
-        _style_panel(figure, title, ENRICHMENT_HEIGHT, bottom=ENRICHMENT_BOTTOM_MARGIN)
-        return figure
 
     hover = (
         "%{customdata[0]}<br>Trials: %{customdata[1]}<br>"
@@ -375,71 +347,51 @@ class OneDimensionalAnalysis(DynamicPlugin):
         return run.prefix == "Optuna" and not run.empty() and len(run.configspace) > 0
 
     @staticmethod
-    def get_run_input_layout(register: Callable) -> Component:
+    def get_input_layout(register: Callable) -> List[Component]:
         """
         Return the complete control toolbar as a single row.
 
-        The base class renders this block above `get_input_layout`, so keeping every control
-        here - run selection included - is what makes the header a single ~70px toolbar
-        instead of a stack of rows.
+        The globally selected run is shown in the sidebar, so only analysis-specific controls
+        are rendered here.
         """
-        return html.Div(
-            [
-                analysis_toolbar_item(
-                    "Run",
-                    dbc.Select(
-                        id=register("run", ["value", "options"]),
-                        placeholder="Select run ...",
+        return [
+            html.Div(
+                [
+                    analysis_toolbar_item(
+                        "Objective",
+                        dbc.Select(
+                            id=register("objective_id", ["value", "options"], type=int),
+                            placeholder="Select objective ...",
+                        ),
+                        width="14rem",
                     ),
-                    width="20rem",
-                ),
-                analysis_toolbar_item(
-                    "Objective",
-                    dbc.Select(
-                        id=register("objective_id", ["value", "options"], type=int),
-                        placeholder="Select objective ...",
+                    analysis_toolbar_item(
+                        "Hyperparameter",
+                        dbc.Select(
+                            id=register("hyperparameter_name", ["value", "options"]),
+                            placeholder="Select hyperparameter ...",
+                        ),
+                        width="18rem",
                     ),
-                    width="14rem",
-                ),
-                analysis_toolbar_item(
-                    "Hyperparameter",
-                    dbc.Select(
-                        id=register("hyperparameter_name", ["value", "options"]),
-                        placeholder="Select hyperparameter ...",
+                    analysis_toolbar_item(
+                        "Elite",
+                        dbc.Input(
+                            id=register("elite_proportion", "value", type=float),
+                            type="number",
+                            min=0.01,
+                            max=0.99,
+                            step=0.01,
+                        ),
+                        width="9rem",
+                        help_text=(
+                            "Fraction of the best trials considered elite. For example, "
+                            "0.10 selects the best 10%."
+                        ),
                     ),
-                    width="18rem",
-                ),
-                analysis_toolbar_item(
-                    "Elite",
-                    dbc.Input(
-                        id=register("elite_proportion", "value", type=float),
-                        type="number",
-                        min=0.01,
-                        max=0.99,
-                        step=0.01,
-                    ),
-                    width="9rem",
-                    help_text=(
-                        "Fraction of the best trials considered elite. For example, "
-                        "0.10 selects the best 10%."
-                    ),
-                ),
-                dcc.Loading(
-                    html.Button(
-                        "Apply",
-                        id=register("process_elite", "n_clicks", type=int),
-                        className="btn btn-primary btn-sm",
-                    ),
-                    parent_className="ms-auto",
-                ),
-            ],
-            className="analysis-toolbar d-flex flex-wrap align-items-center gap-2",
-        )
-
-    @staticmethod
-    def get_input_layout(register: Callable) -> List[Any]:
-        """Return no further inputs; every control lives in the toolbar above."""
-        return []
+                ],
+                className="analysis-toolbar d-flex flex-wrap align-items-center gap-2",
+            )
+        ]
 
     @staticmethod
     def get_filter_layout(register: Callable) -> List[Any]:
@@ -452,16 +404,15 @@ class OneDimensionalAnalysis(DynamicPlugin):
             "objective_id": {"options": [], "value": None},
             "hyperparameter_name": {"options": [], "value": None},
             "elite_proportion": {"value": ELITE_PROPORTION_DEFAULT},
-            "process_elite": {"n_clicks": 0},
         }
 
     def load_dependency_inputs(
         self,
         run: AbstractRun,
-        previous_inputs: Dict[str, Any],
+        _previous_inputs: Dict[str, Any],
         inputs: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Populate study-dependent choices and reset stale elite results."""
+        """Populate study-dependent choices."""
         objectives = _get_objectives_without_time(run)
         objective_ids = [run.get_objective_id(objective) for objective in objectives]
         objective_value = inputs["objective_id"]["value"]
@@ -472,13 +423,6 @@ class OneDimensionalAnalysis(DynamicPlugin):
         hyperparameter_value = inputs["hyperparameter_name"]["value"]
         if hyperparameter_value not in hyperparameter_names:
             hyperparameter_value = hyperparameter_names[0]
-
-        process_clicks = inputs["process_elite"]["n_clicks"] or 0
-        if previous_inputs and any(
-            previous_inputs.get(input_name, {}).get("value") != inputs[input_name]["value"]
-            for input_name in RELEVANT_INPUTS
-        ):
-            process_clicks = 0
 
         return {
             "objective_id": {
@@ -493,7 +437,6 @@ class OneDimensionalAnalysis(DynamicPlugin):
                 "value": hyperparameter_value,
             },
             "elite_proportion": {"value": inputs["elite_proportion"]["value"]},
-            "process_elite": {"n_clicks": process_clicks},
         }
 
     @staticmethod
@@ -594,7 +537,6 @@ class OneDimensionalAnalysis(DynamicPlugin):
             hyperparameter_name,
             elite_percent,
             max(2, int(outputs["elite_count"])),
-            processed=bool(inputs["process_elite"]),
         )
 
         save_image(trials_figure, "one_dimensional_trials.pdf")

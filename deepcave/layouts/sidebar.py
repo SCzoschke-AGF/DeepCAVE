@@ -24,17 +24,19 @@ Callbacks are registered and handled.
     - SidebarLayout: Customize the Sidebar Layout.
 """
 
-from typing import Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import dash_bootstrap_components as dbc
-from dash import ALL, html
+from dash import ALL, dcc, html, no_update
 from dash.dependencies import Input, Output, State
 from dash.development.base_component import Component
+from dash.exceptions import PreventUpdate
 from dash_extensions.enrich import Trigger
 
 from deepcave import app, queue
 from deepcave.layouts import Layout
 from deepcave.plugins import Plugin
+from deepcave.runs.group import Group
 
 
 class SidebarLayout(Layout):
@@ -80,11 +82,14 @@ class SidebarLayout(Layout):
         )
 
         # Update navigation items
-        output = Output("navigation-items", "children")
+        outputs = [
+            Output("navigation-items", "children"),
+            Output("general-navigation-link", "className"),
+        ]
         input = Input("on-page-load", "pathname")
 
-        @app.callback(output, input)  # type: ignore
-        def update_navigation_items(pathname: str) -> List[Component]:
+        @app.callback(outputs, input)  # type: ignore
+        def update_navigation_items(pathname: str) -> Tuple[List[Component], str]:
             """
             Update the navigation items.
 
@@ -126,22 +131,72 @@ class SidebarLayout(Layout):
 
                 layouts += [html.Ul(className="nav flex-column", children=point_layouts)]
 
-            return html.Div(
-                className="position-sticky pt-3",
-                children=[
-                    html.Ul(
-                        className="nav flex-column",
-                        children=[
-                            html.A(
-                                "General",
-                                className=f"nav-link {'active' if pathname == '/' else ''}",
-                                href="/",
-                            ),
-                        ],
-                    ),
-                    *layouts,
-                ],
+            general_class = f"nav-link {'active' if pathname == '/' else ''}"
+            return layouts, general_class
+
+        @app.callback(  # type: ignore
+            [
+                Output("global-run-selector", "options"),
+                Output("global-run-selector", "disabled"),
+                Output("global-run-selector", "value"),
+            ],
+            Input("global-update", "n_intervals"),
+            State("global-run-selector", "options"),
+            State("global-run-selector", "value"),
+            State("global-run-selector", "disabled"),
+        )
+        def refresh_global_run_selector(
+            _: int,
+            current_options: List[Dict[str, Any]],
+            current_run_id: Optional[str],
+            current_disabled: bool,
+        ) -> Any:
+            """Refresh loaded runs while preserving a still-valid selection."""
+            options, active_run_id = self._get_global_run_state()
+            valid_ids = {option["value"] for option in options if option.get("value")}
+            disabled = len(valid_ids) == 0
+
+            # Re-emitting either identical options or an already selected value makes
+            # dcc.Dropdown briefly clear its value.  The transient None used to trigger the page
+            # callback and caused the content to oscillate between the plugin and its empty-state
+            # alert.
+            options_changed = options != (current_options or []) or disabled != current_disabled
+            if not options_changed:
+                return no_update, no_update, no_update
+
+            # The browser owns an explicit dropdown selection.  In particular, refreshing the
+            # option list must never re-emit or replace a valid choice.
+            if current_run_id is None and active_run_id in valid_ids:
+                value = active_run_id
+            else:
+                value = no_update
+
+            return (
+                options if options_changed else no_update,
+                disabled if options_changed else no_update,
+                value,
             )
+
+        @app.callback(  # type: ignore
+            Output("global-run-selection-trigger", "data"),
+            Input("global-run-selector", "value"),
+            State("global-run-selection-trigger", "data"),
+        )
+        def select_global_run(run_id: Optional[str], trigger: Optional[int]) -> int:
+            """Persist an explicit selection made in the sidebar."""
+            from deepcave import run_handler
+
+            # dcc.Dropdown can emit a short-lived None while its options are reconciled.  It is
+            # not a user selection and must neither clear persisted state nor rerender the page.
+            if run_id is None:
+                raise PreventUpdate()
+
+            try:
+                run_handler.set_active_run_id(run_id)
+            except RuntimeError:
+                raise PreventUpdate()
+
+            return (trigger or 0) + 1
 
         # Callback to cancel jobs
         @app.callback(
@@ -235,11 +290,54 @@ class SidebarLayout(Layout):
                 return []
 
     def __call__(self) -> Union[List[Component], Component]:  # noqa: D102
+        options, active_run_id = self._get_global_run_state()
         return html.Nav(
             className="col-md-3 col-lg-2 d-md-block sidebar collapse",
             id="sidebarMenu",
             children=[
-                html.Div(id="navigation-items"),
+                html.Div(
+                    className="position-sticky pt-3",
+                    children=[
+                        html.Ul(
+                            className="nav flex-column",
+                            children=[
+                                html.A(
+                                    "General",
+                                    id="general-navigation-link",
+                                    className="nav-link",
+                                    href="/",
+                                )
+                            ],
+                        ),
+                        html.Div(
+                            [
+                                dbc.Label("Run", className="small text-muted mb-1"),
+                                dcc.Dropdown(
+                                    id="global-run-selector",
+                                    options=options,
+                                    value=active_run_id,
+                                    clearable=False,
+                                    disabled=len(options) == 0,
+                                    placeholder="Select run ...",
+                                ),
+                                dcc.Store(id="global-run-selection-trigger", data=0),
+                            ],
+                            className="global-run-selector px-3 pt-2 pb-1",
+                        ),
+                        html.Div(id="navigation-items"),
+                    ],
+                ),
                 html.Div(id="queue-info"),
             ],
         )
+
+    @staticmethod
+    def _get_global_run_state() -> Tuple[List[Dict[str, Any]], Optional[str]]:
+        """Build global run options and reconcile the persisted selection."""
+        from deepcave import run_handler
+
+        loaded_runs = run_handler.get_runs(include_groups=True)
+        runs = [run for run in loaded_runs if not isinstance(run, Group)]
+        groups = [run for run in loaded_runs if isinstance(run, Group)]
+        inputs = Plugin.load_run_inputs(runs, groups, lambda _: True)
+        return inputs["run"]["options"], run_handler.get_active_run_id()

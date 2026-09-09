@@ -1064,67 +1064,48 @@ class HPOPlanning(DynamicPlugin):
         return run.prefix == "Optuna" and not run.empty() and len(run.configspace) > 0
 
     @staticmethod
-    def get_run_input_layout(register: Callable) -> Component:
-        """Return all HPO planning controls in the shared compact toolbar."""
-        return html.Div(
-            [
-                analysis_toolbar_item(
-                    "Run",
-                    dbc.Select(
-                        id=register("run", ["value", "options"]),
-                        placeholder="Select run ...",
-                    ),
-                    width="17rem",
-                ),
-                analysis_toolbar_item(
-                    "Objective",
-                    dbc.Select(
-                        id=register("objective_id", ["value", "options"], type=int),
-                        placeholder="Select objective ...",
-                    ),
-                    width="11rem",
-                ),
-                html.Div(
-                    [
-                        html.Span("Elite groups", className="analysis-toolbar__label"),
-                        help_button(
-                            "Three distinct fractions of the run-wide best trials. "
-                            "Their Q10–Q90 ranges and medians are shown from broadest "
-                            "to strictest."
-                        ),
-                    ],
-                    className="analysis-toolbar__group-label",
-                ),
-                *[
+    def get_input_layout(register: Callable) -> List[Component]:
+        """Return planning controls; the active run lives in the sidebar."""
+        return [
+            html.Div(
+                [
                     analysis_toolbar_item(
-                        f"Top {percent}%",
-                        dbc.Input(
-                            id=register(f"elite_proportion_{index}", "value", type=float),
-                            type="number",
-                            min=ELITE_PROPORTION_MIN,
-                            max=ELITE_PROPORTION_MAX,
-                            step=0.001,
+                        "Objective",
+                        dbc.Select(
+                            id=register("objective_id", ["value", "options"], type=int),
+                            placeholder="Select objective ...",
                         ),
-                        width="7rem",
-                    )
-                    for index, percent in enumerate((10, 5, 1), start=1)
-                ],
-                dcc.Loading(
-                    html.Button(
-                        "Apply",
-                        id=register("process_analysis", "n_clicks", type=int),
-                        className="btn btn-primary btn-sm",
+                        width="11rem",
                     ),
-                    parent_className="ms-auto",
-                ),
-            ],
-            className="analysis-toolbar d-flex flex-wrap align-items-center gap-2",
-        )
-
-    @staticmethod
-    def get_input_layout(register: Callable) -> List[Any]:
-        """Return no further inputs; every control lives in the toolbar above."""
-        return []
+                    html.Div(
+                        [
+                            html.Span("Elite groups", className="analysis-toolbar__label"),
+                            help_button(
+                                "Three distinct fractions of the run-wide best trials. "
+                                "Their Q10–Q90 ranges and medians are shown from broadest "
+                                "to strictest."
+                            ),
+                        ],
+                        className="analysis-toolbar__group-label",
+                    ),
+                    *[
+                        analysis_toolbar_item(
+                            f"Top {percent}%",
+                            dbc.Input(
+                                id=register(f"elite_proportion_{index}", "value", type=float),
+                                type="number",
+                                min=ELITE_PROPORTION_MIN,
+                                max=ELITE_PROPORTION_MAX,
+                                step=0.001,
+                            ),
+                            width="7rem",
+                        )
+                        for index, percent in enumerate((10, 5, 1), start=1)
+                    ],
+                ],
+                className="analysis-toolbar d-flex flex-wrap align-items-center gap-2",
+            )
+        ]
 
     @staticmethod
     def get_filter_layout(register: Callable) -> List[Any]:
@@ -1203,7 +1184,6 @@ class HPOPlanning(DynamicPlugin):
                 f"elite_proportion_{index}": {"value": proportion}
                 for index, proportion in enumerate(ELITE_PROPORTION_DEFAULTS, start=1)
             },
-            "process_analysis": {"n_clicks": 0},
         }
 
     def load_dependency_inputs(

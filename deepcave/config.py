@@ -86,6 +86,7 @@ class Config:
         "working_dir": None,  # str(DEFAULT_WORKING_DIRECTORY),
         "selected_run_paths": [],
         "groups": {},  # {group_name: [run_path, ...]}
+        "active_run_id": None,
     }
 
     @property

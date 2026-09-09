@@ -37,12 +37,11 @@ from dash.dependencies import Input, Output, State
 from dash.development.base_component import Component
 from dash.exceptions import PreventUpdate
 
-from deepcave import ROOT_DIR, DOC_ROOT, interactive
+from deepcave import DOC_ROOT, interactive
 from deepcave.layouts import Layout
-from deepcave.runs import AbstractRun
+from deepcave.runs import AbstractRun, check_equality
 from deepcave.runs.group import Group, NotMergeableError
 from deepcave.utils.data_structures import update_dict
-from deepcave.utils.docs import rst_to_md
 from deepcave.utils.hash import string_to_hash
 from deepcave.utils.layout import get_select_options
 from deepcave.utils.logs import get_logger
@@ -68,9 +67,11 @@ class Plugin(Layout, ABC):
     raw_outputs : Optional[Dict[str, Any]]
         The raw outputs.
     activate_run_selection : bool
-        Shows a dropdown to select a run in the inputs layout.
-        This feature is useful if only one run could be viewed at a time.
-        Moreover, it prevents the plugin to calculate results across all runs.
+        Uses the globally selected run for single-run processing instead of calculating results
+        across all loaded runs.
+    allow_additional_runs : bool
+        Uses the global run as a required basis and displays a local selector for compatible
+        additional runs.
     id : str
         The unique identifier for the plugin.
     runs : List[AbstractRun]
@@ -93,6 +94,7 @@ class Plugin(Layout, ABC):
     help: Optional[str] = None
     button_caption: str = "Process"
     activate_run_selection: bool = False
+    allow_additional_runs: bool = False
 
     def __init__(self) -> None:
         # Registered inputs and outputs
@@ -107,8 +109,8 @@ class Plugin(Layout, ABC):
         # the values
         # Problem: Inputs/Outputs can't be changed afterwards anymore.
 
-        if self.activate_run_selection:
-            self.__class__.get_run_input_layout(self.register_input)
+        if self.allow_additional_runs:
+            self.__class__.get_additional_run_input_layout(self.register_input)
 
         self.__class__.get_input_layout(self.register_input)
         self.__class__.get_filter_layout(lambda a, b: self.register_input(a, b, filter=True))
@@ -140,7 +142,7 @@ class Plugin(Layout, ABC):
 
         Note
         ----
-        This function is only called if `activate_run_selection` is True.
+        This function is called for the globally selected run before the plugin is rendered.
 
         Parameters
         ----------
@@ -279,155 +281,92 @@ class Plugin(Layout, ABC):
         """
         from deepcave import app, c, run_handler
 
-        # Handles the initial and the cashed input values
+        # Handles the initial and the cached input values
         outputs = []
-        inputs = [Input("on-page-load", "href")]
+        callback_inputs = [
+            Input("on-page-load", "href"),
+            Input("global-run-selector", "value"),
+        ]
 
         # Define also inputs if they are declared as interactive
         for id, attribute, _, _ in self.inputs:
-            inputs.append(Input(self.get_internal_input_id(id), attribute))
+            callback_inputs.append(Input(self.get_internal_input_id(id), attribute))
 
         for id, attribute, _, _ in self.inputs:
             outputs.append(Output(self.get_internal_input_id(id), attribute))
 
         if len(outputs) > 0:
 
-            @app.callback(outputs, inputs)  # type: ignore
-            def plugin_input_update(pathname: str, *inputs_list: str) -> List[Optional[str]]:
+            @app.callback(outputs, callback_inputs)  # type: ignore
+            def plugin_input_update(
+                pathname: str, global_run_id: Optional[str], *inputs_list: str
+            ) -> List[Optional[str]]:
                 """Update the input of the plugin."""
-                # Simple check if page was loaded for the first time
-                init = all(input is None for input in inputs_list)
+                init = len(self.previous_inputs) == 0
+                cached_inputs = c.get("last_inputs", self.id) or {}
+                cached_run_id = cached_inputs.get("run", {}).get("value")
+                run_changed = cached_run_id is not None and cached_run_id != global_run_id
 
-                # Reload our inputs
                 if init:
-                    inputs = c.get("last_inputs", self.id)
+                    inputs = self.load_inputs()
+                    if not run_changed:
+                        update_dict(inputs, cached_inputs)
+
                     passed_inputs = parse_url(pathname)
-
                     if passed_inputs is not None:
-                        # First get normal inputs
-                        inputs = self.load_inputs()
-                        # Overwrite/set the passed inputs
                         update_dict(inputs, passed_inputs)
-
-                        # Then the run_selection has to be taken care of
-                        selected_run: Optional[AbstractRun] = None
-                        if self.activate_run_selection:
-                            # If run_selection is active and the id is not known, then
-                            # the passed inputs have no use.
-                            try:
-                                run_id = passed_inputs["run"]["value"]
-                            except Exception:
-                                raise RuntimeError("No run id found.")
-                            selected_run = run_handler.get_run(run_id)
-
-                            # Update run_selection
-                            new_inputs = self.__class__.load_run_inputs(
-                                self.runs,
-                                self.groups,
-                                self.__class__.check_run_compatibility,
-                            )
-
-                            # Overwrite `run_id` and update the whole dict.
-                            new_inputs["run"]["value"] = run_id
-                            update_dict(inputs, new_inputs)
-
-                        # And lastly update with the dependencies here
-                        user_dependencies_inputs = self.load_dependency_inputs(
-                            selected_run, inputs, inputs
-                        )
-                        update_dict(inputs, user_dependencies_inputs)
-
-                    elif inputs is None:
+                else:
+                    inputs = self._list_to_dict(list(inputs_list))
+                    previous_run_id = self.previous_inputs.get("run", {}).get("value")
+                    run_changed = previous_run_id is not None and previous_run_id != global_run_id
+                    if run_changed:
                         inputs = self.load_inputs()
 
-                        # Also update the run selection
-                        if self.activate_run_selection:
-                            new_inputs = self.__class__.load_run_inputs(
-                                self.runs,
-                                self.groups,
-                                self.__class__.check_run_compatibility,
-                            )
-                            update_dict(inputs, new_inputs)
+                previous_inputs = copy.deepcopy(self.previous_inputs or cached_inputs)
+                inputs["run"] = {"value": global_run_id}
 
-                        # Set not used inputs
-                        for id, attribute, _, _ in self.inputs:
-                            if id not in inputs:
-                                inputs[id] = {}
+                # Dependency callbacks may read controls whose values are entirely populated by
+                # those callbacks.  Make every registered field available before invoking them,
+                # including on the first page render without cached inputs.
+                for id, attribute, _, _ in self.inputs:
+                    if id not in inputs:
+                        inputs[id] = {}
+                    if attribute not in inputs[id]:
+                        inputs[id][attribute] = None
 
-                            if attribute not in inputs[id]:
-                                inputs[id][attribute] = None
-                    elif inputs is not None:
-                        # The options of the run selection have to be updated here.
-                        # This is important if the user have added/removed runs.
-                        if self.activate_run_selection:
-                            run_value = inputs["run"]["value"]
-                            new_inputs = self.__class__.load_run_inputs(
-                                self.runs,
-                                self.groups,
-                                self.__class__.check_run_compatibility,
-                            )
-                            update_dict(inputs, new_inputs)
+                selected_run = None
+                if global_run_id is not None:
+                    try:
+                        selected_run = run_handler.get_run(global_run_id)
+                    except RuntimeError:
+                        selected_run = None
 
-                            # Keep the run value
-                            inputs["run"]["value"] = run_value
-                else:
-                    # Map the list `inputs` to a dict.
-                    # inputs_list_as_list is necessary as new variable,
-                    # because inputs_list is a tuple and cant be passed to _list_to_dict.
-                    inputs_list_as_list = list(inputs_list)
-                    inputs = self._list_to_dict(inputs_list_as_list)
+                if self.allow_additional_runs:
+                    additional_inputs = self.load_additional_run_inputs(selected_run)
+                    if not run_changed:
+                        current_ids = inputs.get("additional_runs", {}).get("value") or []
+                        valid_ids = {
+                            option["value"]
+                            for option in additional_inputs["additional_runs"]["options"]
+                            if option.get("value")
+                        }
+                        additional_inputs["additional_runs"]["value"] = [
+                            run_id for run_id in current_ids if run_id in valid_ids
+                        ]
+                    update_dict(inputs, additional_inputs)
 
-                    if len(self.previous_inputs) == 0:
-                        self.previous_inputs = inputs.copy()
-
-                    # Only work on copies.
-                    # The inputs dict should not be changed by the user.
-                    _previous_inputs = self.previous_inputs.copy()
-                    _inputs = inputs.copy()
-
-                    selected_run = None
-                    if self.activate_run_selection:
-                        if "run" in _previous_inputs:
-                            _previous_run_id = _previous_inputs["run"]["value"]
-                        else:
-                            _previous_run_id = None
-                        _run_id = inputs["run"]["value"]
-
-                        # Reset everything if run name changed.
-                        if _previous_run_id is not None and _previous_run_id != _run_id:
-                            # load_inputs cannot be used here, only
-                            # because `run` would be removed.
-                            # Also: The current run name does not need to be kept.
-                            update_dict(_inputs, self.load_inputs())
-                            # Reset inputs
-                            if "objective_id" in _inputs.keys():
-                                update_dict(_inputs, {"objective_id": {"value": None}})
-                            if "budget_id" in _inputs.keys():
-                                update_dict(_inputs, {"budget_id": {"value": None}})
-                            if "hyperparameter_name_1" in _inputs.keys():
-                                update_dict(_inputs, {"hyperparameter_name_1": {"value": None}})
-                            if "hyperparameter_name_2" in _inputs.keys():
-                                update_dict(_inputs, {"hyperparameter_name_2": {"value": None}})
-
-                        if _run_id:
-                            selected_run = run_handler.get_run(_run_id)
-
-                    if selected_run is not None:
-                        # How to update only parameters which have a dependency?
-                        user_dependencies_inputs = self.load_dependency_inputs(
-                            selected_run, _previous_inputs, _inputs
-                        )
-
-                        # Update dict
-                        # dict.update() removes keys, so our own method is used to do so
-                        update_dict(inputs, user_dependencies_inputs)  # inplace operation
+                if selected_run is not None:
+                    dependency_inputs = self.load_dependency_inputs(
+                        selected_run, previous_inputs, inputs
+                    )
+                    update_dict(inputs, dependency_inputs)
 
                 # Let's cast the inputs
                 inputs = self._cast_inputs(inputs)
 
                 # From dict to list
                 inputs_list_from_dict = self._dict_to_list(inputs, input=True)
-                self.previous_inputs = inputs
+                self.previous_inputs = copy.deepcopy(inputs)
 
                 return inputs_list_from_dict
 
@@ -474,7 +413,7 @@ class Plugin(Layout, ABC):
                 Output(internal_id, "clickData"),
                 Input(internal_id, "clickData"),
             )  # type: ignore
-            def go_to_configuration(click_data: Any):
+            def go_to_configuration(click_data: Any) -> None:
                 """Open link from hovertext."""
                 if click_data is not None:
                     # Get hovertext
@@ -532,7 +471,10 @@ class Plugin(Layout, ABC):
 
     @interactive
     def _process_raw_outputs(
-        self, inputs: Dict[str, Dict[str, str]], raw_outputs: Dict[str, Any]
+        self,
+        inputs: Dict[str, Dict[str, str]],
+        raw_outputs: Dict[str, Any],
+        selected_runs: Optional[List[AbstractRun]] = None,
     ) -> Any:
         """
         Process the raw outputs and update the layout.
@@ -543,22 +485,25 @@ class Plugin(Layout, ABC):
             The inputs for the passed runs.
         raw_outputs : Dict[str, Any]
             The raw outputs to process.
+        selected_runs : Optional[List[AbstractRun]], optional
+            The run snapshot used to produce the raw outputs. If omitted, it is resolved from
+            ``inputs``.
 
         Returns
         -------
         Any
             The processed outputs.
         """
-        from deepcave import run_handler
-
         # Use raw outputs to update our layout
         passed_runs: Union[List[AbstractRun], AbstractRun]
+        if selected_runs is None:
+            selected_runs = self.get_selected_runs(inputs)
 
-        if self.activate_run_selection:
-            passed_runs = run_handler.get_run(inputs["run"]["value"])
+        if self.activate_run_selection and not self.allow_additional_runs:
+            passed_runs = selected_runs[0]
             passed_outputs = raw_outputs[passed_runs.id]
         else:
-            passed_runs = self.all_runs
+            passed_runs = selected_runs
             passed_outputs = raw_outputs
 
         # Clean inputs
@@ -690,6 +635,8 @@ class Plugin(Layout, ABC):
             raise TypeError("d must be a dictionary.")
 
         new_d = copy.deepcopy(d)
+        new_d.pop("run", None)
+        new_d.pop("additional_runs", None)
         if remove_filters:
             for id, _, filter, _ in self.inputs:
                 if filter:
@@ -847,7 +794,7 @@ class Plugin(Layout, ABC):
         FileNotFoundError
             If the help file can not be found.
         """
-        from deepcave import notification
+        from deepcave import notification, run_handler
 
         # Reset runtime variables
         self.previous_inputs = {}
@@ -876,21 +823,25 @@ class Plugin(Layout, ABC):
             ]
         else:
             components += [html.H1(self.name)]
+        active_run_id = run_handler.get_active_run_id()
+        active_runs = [] if active_run_id is None else [run_handler.get_run(active_run_id)]
         try:
-            self.check_runs_compatibility(self.all_runs)
+            self.check_runs_compatibility(active_runs)
         except NotMergeableError as message:
             notification.update(str(message))
             return components
 
-        if self.activate_run_selection:
-            run_input_layout = [self.__class__.get_run_input_layout(self.register_input)]
+        if self.allow_additional_runs:
+            run_selection_layout = [
+                self.__class__.get_additional_run_input_layout(self.register_input)
+            ]
         else:
-            run_input_layout = []
+            run_selection_layout = []
 
         input_layout = self.__class__.get_input_layout(self.register_input)
 
         separator_layout = []
-        if input_layout and run_input_layout:
+        if input_layout and run_selection_layout:
             separator_layout.append(html.Hr())
 
         input_control_layout = html.Div(
@@ -910,13 +861,15 @@ class Plugin(Layout, ABC):
             html.Div(
                 id=f"{self.id}-input",
                 className="shadow-sm p-3 mb-3 bg-white rounded-lg",
-                children=run_input_layout
+                children=run_selection_layout
                 + separator_layout
                 + input_layout
                 + [input_control_layout],
-                style={}
-                if render_button or input_layout or run_input_layout
-                else {"display": "none"},
+                style=(
+                    {}
+                    if render_button or input_layout or run_selection_layout
+                    else {"display": "none"}
+                ),
             )
         ]
 
@@ -1013,9 +966,10 @@ class Plugin(Layout, ABC):
     @interactive
     def get_run_input_layout(register: Callable) -> Component:
         """
-        Generate the run selection input.
+        Generate the legacy run selection input.
 
-        This is only the case if `activate_run_selection` is True.
+        The interactive application uses the global sidebar selector. The method remains available
+        for API and downstream compatibility.
 
         Parameters
         ----------
@@ -1036,6 +990,61 @@ class Plugin(Layout, ABC):
                 ),
             ]
         )
+
+    @staticmethod
+    @interactive
+    def get_additional_run_input_layout(register: Callable) -> Component:
+        """Generate the local selector used by multi-run analyses."""
+        return html.Div(
+            [
+                dbc.Label("Additional Runs"),
+                dcc.Dropdown(
+                    id=register("additional_runs", ["value", "options"]),
+                    multi=True,
+                    placeholder="Add runs ...",
+                ),
+            ]
+        )
+
+    def check_additional_run_compatibility(
+        self, active_run: AbstractRun, candidate: AbstractRun
+    ) -> bool:
+        """Return whether a candidate can be analyzed together with the active run."""
+        try:
+            check_equality(
+                [active_run, candidate],
+                configspace=False,
+                objectives=True,
+                budgets=True,
+            )
+        except NotMergeableError:
+            return False
+        return True
+
+    def get_additional_run_candidates(self, active_run: AbstractRun) -> List[AbstractRun]:
+        """Return compatible loaded runs and groups except for the active run itself."""
+        return [
+            run
+            for run in self.all_runs
+            if run.id != active_run.id and self.check_additional_run_compatibility(active_run, run)
+        ]
+
+    @interactive
+    def load_additional_run_inputs(self, active_run: Optional[AbstractRun]) -> Dict[str, Any]:
+        """Load and reset the options for the local additional-runs selector."""
+        if active_run is None:
+            return {"additional_runs": {"options": [], "value": []}}
+
+        candidates = self.get_additional_run_candidates(active_run)
+        runs = [run for run in candidates if not isinstance(run, Group)]
+        groups = [run for run in candidates if isinstance(run, Group)]
+        run_inputs = self.load_run_inputs(runs, groups, lambda _: True)["run"]
+        return {
+            "additional_runs": {
+                "options": run_inputs["options"],
+                "value": [],
+            }
+        }
 
     @staticmethod
     @interactive
@@ -1069,15 +1078,9 @@ class Plugin(Layout, ABC):
 
         for run in runs:
             if check_run_compatibility(run):
-                try:
-                    run_path = run.path
-                    if run_path is not None:
-                        run_name = run_path.parent.name + "/" + run.name
-                    values.append(run.id)
-                    labels.append(run_name)
-                    disabled.append(False)
-                except Exception:
-                    pass
+                values.append(run.id)
+                labels.append(run.name)
+                disabled.append(False)
 
         added_group_label = False
         for run in groups:
@@ -1092,9 +1095,14 @@ class Plugin(Layout, ABC):
                 labels.append(run.name)
                 disabled.append(False)
 
+        options = get_select_options(labels=labels, values=values, disabled=disabled)
+        for option, label in zip(options, labels):
+            option["title"] = label
+            option["search"] = label
+
         return {
             "run": {
-                "options": get_select_options(labels=labels, values=values, disabled=disabled),
+                "options": options,
                 "value": None,
             }
         }
@@ -1124,24 +1132,23 @@ class Plugin(Layout, ABC):
         """
         from deepcave import run_handler
 
-        # Special case: If run selection is active
-        # Don't update anything if the inputs haven't changed
-        if self.activate_run_selection:
-            if (run_id := inputs["run"]["value"]) is None:
+        run_id = inputs.get("run", {}).get("value")
+        if self.activate_run_selection or self.allow_additional_runs:
+            if run_id is None:
                 raise PreventUpdate()
 
-            # Update runs
-            run = run_handler.get_run(run_id)
+            selected_runs = [run_handler.get_run(run_id)]
+            if self.allow_additional_runs:
+                valid_candidates = {
+                    run.id: run for run in self.get_additional_run_candidates(selected_runs[0])
+                }
+                for additional_run_id in inputs.get("additional_runs", {}).get("value") or []:
+                    if additional_run_id in valid_candidates:
+                        selected_runs.append(valid_candidates.pop(additional_run_id))
 
-            # Also:
-            # Remove `run` from inputs_key because
-            # The runs name does not need to be included
-            _inputs = inputs.copy()
-            del _inputs["run"]
+            return selected_runs
 
-            return [run]
-        else:
-            return self.all_runs
+        return self.all_runs
 
     def load_inputs(self) -> Dict[str, Any]:
         """

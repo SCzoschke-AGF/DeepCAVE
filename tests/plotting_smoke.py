@@ -62,7 +62,7 @@ def main():
     figures = {
         "cost": CostOverTime.load_outputs(
             runs,
-            dict(study_ids=["0", "1"], objective_id=0, xaxis="times"),
+            dict(objective_id=0, xaxis="times"),
             outputs,
         )
     }
@@ -73,7 +73,6 @@ def main():
             objective_id=0,
             hyperparameter_name="learning_rate",
             elite_proportion=0.1,
-            process_elite=1,
         ),
         dict(
             trials=trials.to_dict("records"),

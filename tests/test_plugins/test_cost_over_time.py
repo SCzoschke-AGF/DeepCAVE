@@ -81,7 +81,6 @@ def test_load_outputs_overlays_selected_study_distributions(monkeypatch):
     figure = cost_over_time.CostOverTime.load_outputs(
         runs,
         {
-            "study_ids": ["study-1", "study-2"],
             "objective_id": 0,
             "xaxis": "trials",
         },
@@ -110,7 +109,7 @@ def test_load_outputs_overlays_selected_study_distributions(monkeypatch):
     assert figure.layout.xaxis2.title.text == "Number of evaluated trials"
 
 
-def test_load_outputs_only_renders_explicitly_selected_studies(monkeypatch):
+def test_load_outputs_only_renders_passed_studies(monkeypatch):
     monkeypatch.setattr(cost_over_time, "save_image", lambda *_args: None)
     objective = SimpleNamespace(name="Objective", optimize="lower")
     runs = [
@@ -129,8 +128,8 @@ def test_load_outputs_only_renders_explicitly_selected_studies(monkeypatch):
     }
 
     figure = cost_over_time.CostOverTime.load_outputs(
-        runs,
-        {"study_ids": ["study-1"], "objective_id": 0, "xaxis": "times"},
+        [runs[0]],
+        {"objective_id": 0, "xaxis": "times"},
         outputs,
     )
 

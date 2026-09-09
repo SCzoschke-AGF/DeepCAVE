@@ -26,7 +26,7 @@ from ConfigSpace.hyperparameters import (
     Hyperparameter,
     IntegerHyperparameter,
 )
-from dash import dcc, html
+from dash import html
 from dash.development.base_component import Component
 from dash.exceptions import PreventUpdate
 
@@ -490,73 +490,54 @@ class TwoDimensionalAnalysis(DynamicPlugin):
         return run.prefix == "Optuna" and not run.empty() and len(run.configspace) >= 2
 
     @staticmethod
-    def get_run_input_layout(register: Callable) -> Component:
-        """Return the run and analysis controls in the shared compact toolbar."""
-        return html.Div(
-            [
-                analysis_toolbar_item(
-                    "Run",
-                    dbc.Select(
-                        id=register("run", ["value", "options"]),
-                        placeholder="Select run ...",
+    def get_input_layout(register: Callable) -> List[Component]:
+        """Return the analysis controls; the active run lives in the sidebar."""
+        return [
+            html.Div(
+                [
+                    analysis_toolbar_item(
+                        "Objective",
+                        dbc.Select(
+                            id=register("objective_id", ["value", "options"], type=int),
+                            placeholder="Select objective ...",
+                        ),
+                        width="9rem",
                     ),
-                    width="14rem",
-                ),
-                analysis_toolbar_item(
-                    "Objective",
-                    dbc.Select(
-                        id=register("objective_id", ["value", "options"], type=int),
-                        placeholder="Select objective ...",
+                    analysis_toolbar_item(
+                        "Hyperparameter #1",
+                        dbc.Select(
+                            id=register("hyperparameter_name_1", ["value", "options"]),
+                            placeholder="Select hyperparameter ...",
+                        ),
+                        width="12rem",
                     ),
-                    width="9rem",
-                ),
-                analysis_toolbar_item(
-                    "Hyperparameter #1",
-                    dbc.Select(
-                        id=register("hyperparameter_name_1", ["value", "options"]),
-                        placeholder="Select hyperparameter ...",
+                    analysis_toolbar_item(
+                        "Hyperparameter #2",
+                        dbc.Select(
+                            id=register("hyperparameter_name_2", ["value", "options"]),
+                            placeholder="Select hyperparameter ...",
+                        ),
+                        width="12rem",
                     ),
-                    width="12rem",
-                ),
-                analysis_toolbar_item(
-                    "Hyperparameter #2",
-                    dbc.Select(
-                        id=register("hyperparameter_name_2", ["value", "options"]),
-                        placeholder="Select hyperparameter ...",
+                    analysis_toolbar_item(
+                        "Elite",
+                        dbc.Input(
+                            id=register("elite_proportion", "value", type=float),
+                            type="number",
+                            min=0.01,
+                            max=0.99,
+                            step=0.01,
+                        ),
+                        width="6rem",
+                        help_text=(
+                            "Fraction of the best trials considered elite. For example, "
+                            "0.10 selects the best 10%."
+                        ),
                     ),
-                    width="12rem",
-                ),
-                analysis_toolbar_item(
-                    "Elite",
-                    dbc.Input(
-                        id=register("elite_proportion", "value", type=float),
-                        type="number",
-                        min=0.01,
-                        max=0.99,
-                        step=0.01,
-                    ),
-                    width="6rem",
-                    help_text=(
-                        "Fraction of the best trials considered elite. For example, "
-                        "0.10 selects the best 10%."
-                    ),
-                ),
-                dcc.Loading(
-                    html.Button(
-                        "Apply",
-                        id=register("process_analysis", "n_clicks", type=int),
-                        className="btn btn-primary btn-sm",
-                    ),
-                    parent_className="ms-auto",
-                ),
-            ],
-            className="analysis-toolbar d-flex flex-wrap align-items-center gap-2",
-        )
-
-    @staticmethod
-    def get_input_layout(register: Callable) -> List[Any]:
-        """Return no further inputs; every control lives in the toolbar above."""
-        return []
+                ],
+                className="analysis-toolbar d-flex flex-wrap align-items-center gap-2",
+            )
+        ]
 
     @staticmethod
     def get_filter_layout(register: Callable) -> List[Any]:
@@ -570,7 +551,6 @@ class TwoDimensionalAnalysis(DynamicPlugin):
             "hyperparameter_name_1": {"options": [], "value": None},
             "hyperparameter_name_2": {"options": [], "value": None},
             "elite_proportion": {"value": ELITE_PROPORTION_DEFAULT},
-            "process_analysis": {"n_clicks": 0},
         }
 
     def load_dependency_inputs(
@@ -613,7 +593,6 @@ class TwoDimensionalAnalysis(DynamicPlugin):
                 "value": hyperparameter_2,
             },
             "elite_proportion": {"value": inputs["elite_proportion"]["value"]},
-            "process_analysis": {"n_clicks": inputs.get("process_analysis", {}).get("n_clicks", 0)},
         }
 
     @staticmethod

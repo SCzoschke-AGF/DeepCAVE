@@ -40,24 +40,18 @@ def _walk_components(component):
 
 def test_toolbar_contains_all_controls_in_one_compact_row():
     registered = []
-    toolbar = planning.HPOPlanning.get_run_input_layout(
+    (toolbar,) = planning.HPOPlanning.get_input_layout(
         lambda name, *_args, **_kwargs: registered.append(name) or name
     )
 
     assert registered == [
-        "run",
         "objective_id",
         "elite_proportion_1",
         "elite_proportion_2",
         "elite_proportion_3",
-        "process_analysis",
     ]
     assert "analysis-toolbar" in toolbar.className
-    assert any(
-        isinstance(component, html.Button) and component.children == "Apply"
-        for component in _walk_components(toolbar)
-    )
-    assert planning.HPOPlanning.get_input_layout(lambda *_args, **_kwargs: None) == []
+    assert not any(isinstance(component, html.Button) for component in _walk_components(toolbar))
 
 
 def test_elite_proportions_are_validated_and_sorted():

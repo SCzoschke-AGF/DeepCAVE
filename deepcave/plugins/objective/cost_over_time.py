@@ -64,11 +64,25 @@ class CostOverTime(DynamicPlugin):
     name = "Cost Over Time"
     icon = "fas fa-chart-line"
     help = "plugins/cost_over_time.html"
+    allow_additional_runs = True
 
     @property
     def optuna_runs(self) -> List[AbstractRun]:
         """Return the loaded Optuna studies available to this plugin."""
         return [run for run in self.runs if run.prefix == "Optuna"]
+
+    @staticmethod
+    def check_run_compatibility(run: AbstractRun) -> bool:
+        """Accept individual Optuna studies as the global basis."""
+        return run.prefix == "Optuna"
+
+    def get_additional_run_candidates(self, active_run: AbstractRun) -> List[AbstractRun]:
+        """Return compatible individual Optuna studies except for the active study."""
+        return [
+            run
+            for run in self.optuna_runs
+            if run.id != active_run.id and self.check_additional_run_compatibility(active_run, run)
+        ]
 
     def check_runs_compatibility(self, runs: List[AbstractRun]) -> None:
         """
@@ -151,22 +165,6 @@ class CostOverTime(DynamicPlugin):
                 [
                     dbc.Col(
                         [
-                            dbc.Label("Optuna Studies"),
-                            dcc.Dropdown(
-                                id=register("study_ids", ["value", "options"]),
-                                multi=True,
-                                placeholder="Select one or more studies ...",
-                            ),
-                        ],
-                        md=12,
-                    ),
-                ],
-                className="mb-3",
-            ),
-            dbc.Row(
-                [
-                    dbc.Col(
-                        [
                             dbc.Label("Objective"),
                             dbc.Select(
                                 id=register("objective_id", ["value", "options"], type=int),
@@ -236,16 +234,7 @@ class CostOverTime(DynamicPlugin):
         Dict[str, Any]
             The content to be filled.
         """
-        optuna_runs = self.optuna_runs
-        study_options = get_select_options(
-            labels=[run.name for run in optuna_runs],
-            values=[run.id for run in optuna_runs],
-        )
         return {
-            "study_ids": {
-                "options": study_options,
-                "value": [optuna_runs[0].id] if optuna_runs else [],
-            },
             "objective_id": {
                 "options": self.objective_options,
                 "value": self.objective_options[0]["value"],
@@ -267,14 +256,6 @@ class CostOverTime(DynamicPlugin):
                 "value": "times",
             },
         }
-
-    def get_selected_runs(self, inputs: Dict[str, Any]) -> List[AbstractRun]:
-        """Return exactly the Optuna studies selected in the multi-select."""
-        from deepcave import run_handler
-
-        selected_ids = inputs["study_ids"]["value"] or []
-        selected_runs = [run_handler.get_run(run_id) for run_id in selected_ids]
-        return [run for run in selected_runs if run.prefix == "Optuna"]
 
     @staticmethod
     def process(run, inputs) -> Dict[str, Any]:  # type: ignore
@@ -376,8 +357,6 @@ class CostOverTime(DynamicPlugin):
         go.Figure
             The output figure.
         """
-        selected_study_ids = set(inputs["study_ids"] or [])
-        runs = [run for run in runs if run.id in selected_study_ids]
         objective = None
 
         if not runs:

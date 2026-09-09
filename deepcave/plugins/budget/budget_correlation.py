@@ -24,6 +24,7 @@ and loading the outputs.
 ## Classes
     - BudgetCorrelation: Can be used for visualizing the correlation of budgets.
 """
+
 from typing import Any, Callable, DefaultDict, Dict, List
 
 from collections import defaultdict
@@ -33,7 +34,7 @@ import plotly.graph_objs as go
 from dash import dcc, html
 from scipy import stats
 
-from deepcave import config, notification
+from deepcave import config
 from deepcave.plugins.dynamic import DynamicPlugin
 from deepcave.runs import AbstractRun, Status
 from deepcave.utils.layout import create_table, get_select_options
@@ -72,11 +73,7 @@ class BudgetCorrelation(DynamicPlugin):
         bool
             True if the run is compatible, otherwise False.
         """
-        if len(run.get_budgets()) == 1:
-            notification.update(f"{run.name} can not be selected because it has only one budget.")
-            return False
-
-        return True
+        return len(run.get_budgets()) > 1
 
     @staticmethod
     def get_input_layout(register: Callable) -> List[html.Div]:

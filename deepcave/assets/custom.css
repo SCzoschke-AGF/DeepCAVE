@@ -38,8 +38,11 @@ label {
 }
 
 #sidebarMenu {
+    position: relative;
+    z-index: 100;
     background-color: rgb(243, 242, 241);
     border-right: 1px solid rgba(0, 0, 0, 0.1);
+    overflow: visible;
     padding: 0px;
 }
 
@@ -52,9 +55,38 @@ thead {
     margin-right: 0.5rem;
 }
 
-#navigation-items .nav-link.active {
+#navigation-items .nav-link.active,
+#general-navigation-link.active {
     background-color: rgb(232, 232, 232) !important;
     border-right: 3px solid #0d6efd;
+}
+
+.global-run-selector .Select-control {
+    background-color: #fff;
+}
+
+.global-run-selector .Select-value,
+.global-run-selector .Select-value-label,
+.global-run-selector .Select-placeholder {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.global-run-selector .Select-menu-outer {
+    z-index: 1100;
+    width: 36rem;
+    min-width: 100%;
+    max-width: calc(100vw - 2rem);
+}
+
+.global-run-selector .Select-option,
+.global-run-selector .VirtualizedSelectOption {
+    min-width: 0;
+    overflow: hidden !important;
+    text-overflow: ellipsis;
+    white-space: nowrap !important;
 }
 
 table.table.fixed {

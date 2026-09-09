@@ -61,6 +61,15 @@ def _record(members: List[str], importance: float, variance: float = 0.0) -> Dic
     }
 
 
+def test_initial_inputs_are_safe_for_dependency_loading() -> None:
+    plugin = Importances()
+
+    updated = plugin.load_dependency_inputs(_dependency_run(), {}, plugin.load_inputs())
+
+    assert updated["objective_id1"]["value"] == 0
+    assert updated["objective_id2"]["value"] is None
+
+
 def test_interaction_dependency_inputs_and_selection_limit() -> None:
     plugin = Importances()
     run = _dependency_run()

@@ -319,6 +319,8 @@ class Importances(StaticPlugin):
         method_values = ["local", "global", "ped_anova"]
 
         return {
+            "objective_id1": {"options": [], "value": None},
+            "objective_id2": {"options": [], "value": None, "disabled": False},
             "method": {
                 "options": get_select_options(method_labels, method_values),
                 "value": "local",

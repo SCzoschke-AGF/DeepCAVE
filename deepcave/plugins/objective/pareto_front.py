@@ -59,6 +59,7 @@ class ParetoFront(DynamicPlugin):
     name = "Pareto Front"
     icon = "fas fa-wind"
     help = "plugins/pareto_front.html"
+    allow_additional_runs = True
 
     def check_runs_compatibility(self, runs: List[AbstractRun]) -> None:
         """

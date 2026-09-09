@@ -24,12 +24,12 @@ Also registers and handles the callbacks.
     - MainLayout: This class defines and provides the main layout.
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from urllib.parse import urlparse
 
 from dash import dcc, html
-from dash.dependencies import Input, Output
+from dash.dependencies import Input, Output, State
 from dash.development.base_component import Component
 
 from deepcave import app, config, queue, run_handler
@@ -80,10 +80,15 @@ class MainLayout(Layout):
     def register_callbacks(self) -> None:
         """Register and handle the callbacks."""
         output = Output("content", "children")
-        input = Input("on-page-load", "pathname")
+        inputs = [
+            Input("on-page-load", "pathname"),
+            Input("global-run-selection-trigger", "data"),
+        ]
 
-        @app.callback(output, input)  # type: ignore
-        def display_page(pathname: str) -> Any:
+        @app.callback(output, inputs, State("global-run-selector", "value"))  # type: ignore
+        def display_page(
+            pathname: str, _: Optional[int], active_run_id: Optional[str]
+        ) -> Any:
             """
             Display the page with the given path url, check for plugins.
 
@@ -105,13 +110,26 @@ class MainLayout(Layout):
             else:
                 if not queue.ready():
                     return alert("At least one worker has to be enabled.")
-                if len(run_handler.get_runs()) == 0:
-                    return alert("Please select a run first.")
-                else:
-                    if paths[0] == "plugins":
-                        plugin = self.plugins.get(paths[1], None)
-                        if plugin is not None:
-                            return plugin()
+                if paths[0] == "plugins":
+                    plugin = self.plugins.get(paths[1], None)
+                    if plugin is not None:
+                        if active_run_id is None:
+                            return alert("Please select a run in the sidebar first.")
+                        try:
+                            run_handler.set_active_run_id(active_run_id)
+                            active_run = run_handler.get_run(active_run_id)
+                        except RuntimeError:
+                            return alert("The selected run is no longer available.")
+
+                        if not plugin.check_run_compatibility(active_run):
+                            return [
+                                html.H1(plugin.name),
+                                alert(
+                                    "The selected run is not compatible with this "
+                                    "analysis. Select another run in the sidebar."
+                                ),
+                            ]
+                        return plugin()
 
             return self.not_found_layout(pathname)()
 

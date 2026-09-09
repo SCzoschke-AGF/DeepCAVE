@@ -143,6 +143,7 @@ class StaticPlugin(Plugin, ABC):
         inputs = [
             Input(self.get_internal_id("update-button"), "n_clicks"),
             Input(self.get_internal_id("update-interval-output"), "data"),
+            Input("global-run-selector", "value"),
         ]
 
         # Get other plugin specific inputs that might change
@@ -151,18 +152,22 @@ class StaticPlugin(Plugin, ABC):
 
         # Register updates from inputs
         @app.callback(outputs, inputs)  # type: ignore
-        def plugin_process(n_clicks: int, _: Any, *inputs_list: str) -> Optional[Any]:
+        def plugin_process(
+            n_clicks: int, _: Any, global_run_id: str, *inputs_list: str
+        ) -> Optional[Any]:
             """Register updates from inputs."""
             self._blocked = True
             # Map the list `inputs_list` to a dict s.t.
             # it's easier to access them.
             inputs = self._list_to_dict(list(inputs_list), input=True)
+            inputs["run"] = {"value": global_run_id}
             inputs_key = self._dict_as_key(inputs, remove_filters=True)
             cleaned_inputs = self._clean_inputs(inputs)
             last_inputs = c.get("last_inputs", self.id)
 
             link = create_url(self.get_base_url(), inputs)
             runs = self.get_selected_runs(inputs)
+            self.check_runs_compatibility(runs)
 
             button_pressed = n_clicks is not None
             inputs_changed = inputs != last_inputs
@@ -187,7 +192,7 @@ class StaticPlugin(Plugin, ABC):
                     # Save for modal
                     self.raw_outputs = raw_outputs
 
-                    outputs = self._process_raw_outputs(inputs, raw_outputs)
+                    outputs = self._process_raw_outputs(inputs, raw_outputs, runs)
                     self._refresh_required = False
 
                     return outputs

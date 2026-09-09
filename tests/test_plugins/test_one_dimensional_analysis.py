@@ -22,36 +22,26 @@ def test_plugin_is_registered_directly_after_ablation_paths():
     assert plugin_ids[ablation_index + 1] == "one_dimensional_analysis"
 
 
-def test_elite_button_does_not_prevent_initial_input_loading():
-    toolbar = analysis.OneDimensionalAnalysis.get_run_input_layout(
+def test_toolbar_does_not_require_an_apply_button():
+    (toolbar,) = analysis.OneDimensionalAnalysis.get_input_layout(
         lambda input_id, *_args, **_kwargs: input_id
     )
-    button = next(
-        component for component in _walk_components(toolbar) if isinstance(component, html.Button)
-    )
 
-    assert getattr(button, "n_clicks", None) is None
+    assert not any(isinstance(component, html.Button) for component in _walk_components(toolbar))
 
 
 def test_every_control_shares_the_single_toolbar_row():
     registered = []
-    toolbar = analysis.OneDimensionalAnalysis.get_run_input_layout(
+    (toolbar,) = analysis.OneDimensionalAnalysis.get_input_layout(
         lambda input_id, *_args, **_kwargs: registered.append(input_id) or input_id
     )
 
     assert registered == [
-        "run",
         "objective_id",
         "hyperparameter_name",
         "elite_proportion",
-        "process_elite",
     ]
     assert "analysis-toolbar" in toolbar.className
-    # No second input block may add vertical height below the toolbar.
-    assert (
-        analysis.OneDimensionalAnalysis.get_input_layout(lambda input_id, *_args, **_kwargs: None)
-        == []
-    )
 
 
 def _walk_components(component):
@@ -163,7 +153,7 @@ def test_minimization_uses_lower_tail_and_lower_values_as_elite():
     assert summary[1]["elite_median_rank"] is None
 
 
-def test_dependencies_exclude_time_and_reset_elite_analysis():
+def test_dependencies_exclude_time_and_preserve_analysis_controls():
     objectives = [
         Objective("Loss", optimize="lower"),
         Objective("Accuracy", optimize="upper"),
@@ -189,7 +179,6 @@ def test_dependencies_exclude_time_and_reset_elite_analysis():
         "objective_id": {"value": 1},
         "hyperparameter_name": {"value": "x"},
         "elite_proportion": {"value": 0.2},
-        "process_elite": {"n_clicks": 1},
     }
     previous_inputs = {
         **inputs,
@@ -208,10 +197,10 @@ def test_dependencies_exclude_time_and_reset_elite_analysis():
         "Accuracy",
     ]
     assert result["objective_id"]["value"] == 1
-    assert result["process_elite"]["n_clicks"] == 0
+    assert result["elite_proportion"]["value"] == pytest.approx(0.2)
 
 
-def test_plots_are_immediate_but_elite_plot_is_button_gated(monkeypatch):
+def test_all_plots_are_immediate(monkeypatch):
     monkeypatch.setattr(analysis, "save_image", lambda *_args: None)
     objective = Objective("Accuracy", optimize="upper")
     hyperparameter = CategoricalHyperparameter("kind", choices=["a", "b"])
@@ -259,24 +248,12 @@ def test_plots_are_immediate_but_elite_plot_is_button_gated(monkeypatch):
     trials_figure, performance_figure, enrichment_figure = (
         analysis.OneDimensionalAnalysis.load_outputs(
             run,
-            {**base_inputs, "process_elite": 0},
+            base_inputs,
             outputs,
         )
     )
-    # Trials and performance are immediate; enrichment only keeps the shared bins visible.
     assert [trace.type for trace in trials_figure.data] == ["scatter"]
     assert [trace.type for trace in performance_figure.data] == ["scatter", "scatter"]
-    assert [trace.type for trace in enrichment_figure.data] == ["scatter"]
-    assert list(enrichment_figure.data[0].x) == ["a", "b"]
-    assert any(
-        "Apply" in (annotation.text or "") for annotation in enrichment_figure.layout.annotations
-    )
-
-    _, _, enrichment_figure = analysis.OneDimensionalAnalysis.load_outputs(
-        run,
-        {**base_inputs, "process_elite": 1},
-        outputs,
-    )
     ranked, without_rank, baseline = enrichment_figure.data
     assert list(ranked.y) == pytest.approx([2.0])
     assert list(ranked.marker.color) == pytest.approx([1.0])
@@ -322,7 +299,6 @@ def test_range_panels_stay_aligned_and_fit_next_to_the_trials_panel(monkeypatch)
                 "objective_id": 0,
                 "hyperparameter_name": "kind",
                 "elite_proportion": 0.1,
-                "process_elite": 1,
             },
             outputs,
         )
