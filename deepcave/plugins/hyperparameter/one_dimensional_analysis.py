@@ -39,8 +39,10 @@ from deepcave.utils.analysis_layout import (
     analysis_graph,
     analysis_toolbar_item,
     bin_label,
+    bin_scale_exponent,
     horizontal_colorbar,
     style_analysis,
+    superscript_exponent,
 )
 from deepcave.utils.layout import get_select_options
 from deepcave.utils.styled_plotty import save_image
@@ -50,6 +52,13 @@ TAIL_COLOR = "#F58518"
 MEDIAN_COLOR = "#54A24B"
 DEPLETED_COLOR = "#C9CFD8"
 BASELINE_COLOR = "#D62728"
+TOP_TRIAL_COLOR = "#27364A"
+
+# Positions in paper coordinates inside the enrichment panel's existing bottom margin. The
+# line runs through the marker centers and visually defines the compact rug above the colorbar.
+TOP_TRIAL_RUG_Y = -0.22
+TOP_TRIAL_RUG_LINE_Y = TOP_TRIAL_RUG_Y
+ENRICHMENT_X_TITLE_Y = -0.415
 
 # One screen: the tall trials panel matches the stacked range panels plus the grid gap.
 # GRID_GAP has to stay in sync with the `gap` of `.analysis-grid` in custom.css.
@@ -140,17 +149,26 @@ def _style_panel(
     figure.update_xaxes(automargin=False)
 
 
-def _range_axis(figure: go.Figure, ranges: List[str], hyperparameter_name: str) -> None:
+def _range_axis(figure: go.Figure, ranges: List[str], hyperparameter_name: str) -> str:
     """Give a range panel the shared bins, order and tick labels."""
+    scale_exponent = bin_scale_exponent(ranges)
+    axis_title = hyperparameter_name
+    if scale_exponent is not None:
+        axis_title += f" (×10{superscript_exponent(scale_exponent)})"
+
     figure.update_xaxes(
-        title_text=hyperparameter_name,
+        title_text=axis_title,
         tickmode="array",
         tickvals=ranges,
-        ticktext=[bin_label(value) for value in ranges],
+        ticktext=[
+            bin_label(value, multiline=False, scale_exponent=scale_exponent)
+            for value in ranges
+        ],
         tickangle=0,
         categoryorder="array",
         categoryarray=ranges,
     )
+    return axis_title
 
 
 def _trials_figure(
@@ -238,7 +256,11 @@ def _performance_figure(
 
 def _enrichment_figure(
     summary: pd.DataFrame,
+    trials: pd.DataFrame,
+    hyperparameter: Hyperparameter,
     hyperparameter_name: str,
+    objective_name: str,
+    optimize: str,
     elite_percent: float,
     rank_maximum: int,
 ) -> go.Figure:
@@ -293,7 +315,7 @@ def _enrichment_figure(
             hoverinfo="skip",
         )
     )
-    _range_axis(figure, ranges, hyperparameter_name)
+    axis_title = _range_axis(figure, ranges, hyperparameter_name)
     figure.update_yaxes(
         title_text="Enrichment",
         ticksuffix="×",
@@ -307,6 +329,30 @@ def _enrichment_figure(
         bottom=ENRICHMENT_BOTTOM_MARGIN,
         show_legend=True,
     )
+    # Plotly may pull a native axis title back into the rug when horizontal space is tight.
+    # A paper-anchored title keeps its distance from the markers at every responsive width.
+    figure.update_xaxes(title_text=None)
+    figure.add_annotation(
+        name="enrichment_x_title",
+        text=axis_title,
+        xref="paper",
+        yref="paper",
+        x=0.5,
+        y=ENRICHMENT_X_TITLE_Y,
+        xanchor="center",
+        yanchor="middle",
+        showarrow=False,
+        font={"size": 13},
+    )
+    _add_top_trials_rug(
+        figure,
+        trials,
+        hyperparameter,
+        summary["range"].tolist(),
+        hyperparameter_name,
+        objective_name,
+        optimize,
+    )
     add_colorbar_label(
         figure,
         "Median elite rank (1 = best)",
@@ -315,6 +361,116 @@ def _enrichment_figure(
         top=TOP_MARGIN,
     )
     return figure
+
+
+def _add_top_trials_rug(
+    figure: go.Figure,
+    trials: pd.DataFrame,
+    hyperparameter: Hyperparameter,
+    ranges: List[str],
+    hyperparameter_name: str,
+    objective_name: str,
+    optimize: str,
+) -> None:
+    """Add the five best trials below the x-axis without changing the binned plot."""
+    top_trials = (
+        trials.sort_values(
+            ["objective", "trial_number"],
+            ascending=[optimize == "lower", True],
+            kind="mergesort",
+        )
+        .head(5)
+        .copy()
+    )
+    if top_trials.empty:
+        return
+
+    top_trials["top_rank"] = range(1, len(top_trials) + 1)
+    groups = _group_parameter_values(trials["hyperparameter_value"], hyperparameter)
+    is_binned = bool(len(groups.cat.categories)) and all(
+        isinstance(category, pd.Interval) for category in groups.cat.categories
+    )
+
+    if is_binned:
+        displayed_indices = {value: index for index, value in enumerate(ranges)}
+        bin_indices = [
+            displayed_indices[str(groups.loc[index])] for index in top_trials.index
+        ]
+    else:
+        values = top_trials["hyperparameter_value"].map(str).tolist()
+        category_positions = {value: index for index, value in enumerate(ranges)}
+        bin_indices = [category_positions[value] for value in values]
+
+    normalized_x = _center_rug_positions_in_bins(bin_indices, len(ranges))
+
+    for x_value, (_, trial) in zip(normalized_x, top_trials.iterrows()):
+        rank = int(trial["top_rank"])
+        hovertext = (
+            f"Rank {rank}<br>Trial: {int(trial['trial_number'])}<br>"
+            f"{hyperparameter_name}: {trial['hyperparameter_value']}<br>"
+            f"{objective_name}: {trial['objective']:.4g}"
+        )
+        annotation = {
+            "x": x_value,
+            "xref": "paper",
+            "y": TOP_TRIAL_RUG_Y,
+            "yref": "paper",
+            "xanchor": "center",
+            "yanchor": "middle",
+            "showarrow": False,
+            "hovertext": hovertext,
+            "captureevents": True,
+        }
+        figure.add_annotation(
+            **annotation,
+            text="◆",
+            font={"color": TOP_TRIAL_COLOR, "size": 17},
+            name=f"top_trial_marker_{rank}",
+        )
+        figure.add_annotation(
+            **annotation,
+            text=str(rank),
+            font={"color": "#FFFFFF", "size": 8},
+            name=f"top_trial_rank_{rank}",
+        )
+    figure.add_annotation(
+        text="Top 5 trials",
+        xref="paper",
+        yref="paper",
+        x=0,
+        xshift=-5,
+        xanchor="right",
+        y=TOP_TRIAL_RUG_Y,
+        yanchor="middle",
+        showarrow=False,
+        font={"size": 9, "color": TOP_TRIAL_COLOR},
+    )
+    figure.add_shape(
+        type="line",
+        xref="paper",
+        yref="paper",
+        x0=0,
+        x1=1,
+        y0=TOP_TRIAL_RUG_LINE_Y,
+        y1=TOP_TRIAL_RUG_LINE_Y,
+        line={"color": "#D9DEE7", "width": 1},
+    )
+
+
+def _center_rug_positions_in_bins(bin_indices: List[int], bin_count: int) -> List[float]:
+    """Center each bin's markers under its bar and distribute them side by side."""
+    positions = [0.0] * len(bin_indices)
+    bin_width = 1 / bin_count
+    minimum_gap = min(0.025, 0.2 * bin_width)
+
+    for bin_index in set(bin_indices):
+        members = [index for index, value in enumerate(bin_indices) if value == bin_index]
+        center = (bin_index + 0.5) * bin_width
+        start = center - minimum_gap * (len(members) - 1) / 2
+        for offset, member in enumerate(members):
+            positions[member] = start + offset * minimum_gap
+
+    return positions
 
 
 def _enrichment_customdata(rows: pd.DataFrame) -> List[List[Any]]:
@@ -534,7 +690,11 @@ class OneDimensionalAnalysis(DynamicPlugin):
         )
         enrichment_figure = _enrichment_figure(
             summary,
+            trials,
+            hyperparameter,
             hyperparameter_name,
+            objective.name,
+            objective.optimize,
             elite_percent,
             max(2, int(outputs["elite_count"])),
         )

@@ -1,7 +1,7 @@
-HPO Planning
-============
+HPO Planner
+===========
 
-The HPO Planning plugin is an interactive search-space planner for the next optimization run.
+The HPO Planner plugin is an interactive search-space planner for the next optimization run.
 Select an objective and three distinct elite proportions in the compact toolbar. Every parameter
 then occupies one row, and the complete planned space is collected in the sidebar.
 

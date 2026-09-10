@@ -37,6 +37,12 @@ encode the median global rank of the elite trials in the bin, where rank one is 
 darkest; bins without elite trials are gray. Trial count, elite count, elite rate, enrichment, and
 median elite rank are available in the tooltip.
 
+A compact rug below the x-axis marks the five best trials below their corresponding bins. The
+numbered diamonds follow objective rank, with ``1`` denoting the best trial. Multiple markers in
+one bin are distributed side by side and centered under the bar.
+For small numeric ranges, a shared power-of-ten factor is shown once in the x-axis title instead
+of being repeated in every tick label.
+
 Changing the study, objective, hyperparameter, or elite proportion resets the enrichment panel
 until it is processed again. Ties at the elite threshold are included, so the resulting number of
 elite trials can be slightly larger than the requested proportion; the enrichment is measured

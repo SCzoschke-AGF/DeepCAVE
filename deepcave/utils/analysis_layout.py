@@ -18,6 +18,8 @@ COLORBAR_CONTAINER_Y = 0.015
 COLORBAR_THICKNESS = 10
 COLORBAR_TICK_HEIGHT = 24
 COLORBAR_LABEL_PADDING = 7
+NONBREAKING_RANGE_SEPARATOR = "\u2060–\u2060"
+SUPERSCRIPT_TRANSLATION = str.maketrans("-0123456789", "⁻⁰¹²³⁴⁵⁶⁷⁸⁹")
 
 
 def analysis_toolbar_item(
@@ -202,7 +204,34 @@ def _bound_label(value: float, width: float) -> str:
     return f"{value:.{decimals}f}"
 
 
-def bin_label(value: str, multiline: bool = True) -> str:
+def bin_scale_exponent(values: List[str]) -> Optional[int]:
+    """Return a shared engineering exponent for a sequence of small numeric intervals."""
+    bounds = []
+    for value in values:
+        match = re.fullmatch(r"[\[(]([^,]+),\s*([^\]]+)\]", value)
+        if not match:
+            return None
+        try:
+            bounds.extend([float(match[1]), float(match[2])])
+        except ValueError:
+            return None
+
+    maximum_magnitude = max((abs(bound) for bound in bounds), default=0.0)
+    if 0 < maximum_magnitude < 0.1:
+        return 3 * math.floor(math.log10(maximum_magnitude) / 3)
+    return None
+
+
+def superscript_exponent(exponent: int) -> str:
+    """Format a signed integer exponent with Unicode superscript characters."""
+    return str(exponent).translate(SUPERSCRIPT_TRANSLATION)
+
+
+def bin_label(
+    value: str,
+    multiline: bool = True,
+    scale_exponent: Optional[int] = None,
+) -> str:
     """
     Display interval bounds on two compact lines; preserve full values in hover.
 
@@ -218,6 +247,11 @@ def bin_label(value: str, multiline: bool = True) -> str:
     except ValueError:
         return value
 
+    if scale_exponent is not None:
+        scale = 10**scale_exponent
+        lower /= scale
+        upper /= scale
+
     width = upper - lower
-    separator = " –<br>" if multiline else " – "
+    separator = " –<br>" if multiline else NONBREAKING_RANGE_SEPARATOR
     return f"{_bound_label(lower, width)}{separator}{_bound_label(upper, width)}"

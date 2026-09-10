@@ -23,6 +23,7 @@ def test_plugin_is_registered_directly_after_configuration_cube():
 
     configuration_cube_index = plugin_ids.index("ccube")
     assert plugin_ids[configuration_cube_index + 1] == "hpo_planning"
+    assert planning.HPOPlanning.name == "HPO Planner"
 
 
 def _walk_components(component):
@@ -357,6 +358,7 @@ def test_planner_layout_uses_separate_metadata_and_selection_stores():
     metadata, selection = stores[0].data, stores[1].data
     assert metadata[0]["current_min"] == pytest.approx(0)
     assert metadata[0]["current_max"] == pytest.approx(10)
+    assert planning.ELITE_MARKER_COLORS[2] == "#D95F02"
     # Raw quantiles are positioned against ConfigSpace 0–10, not observed summary 1–2.
     first_elite = metadata[0]["elite_positions"][0]
     assert first_elite["minimum_position"] == pytest.approx(0.1)
@@ -375,6 +377,9 @@ def test_planner_layout_uses_separate_metadata_and_selection_stores():
     assert dropdowns[0].multi is True
     assert dropdowns[0].value == ["a", "b"]
     assert not any(isinstance(component, dcc.Graph) for component in components)
+    assert not any(
+        getattr(component, "className", None) == "planner-tip" for component in components
+    )
 
     table_header = next(
         component
@@ -384,7 +389,7 @@ def test_planner_layout_uses_separate_metadata_and_selection_stores():
     )
     assert [cell.children for cell in table_header.children] == [
         "Parameter",
-        "Normalized position in current search space",
+        "Position in current search space",
         "Min (original)",
         "Max (original)",
     ]

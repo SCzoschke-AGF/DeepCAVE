@@ -46,7 +46,7 @@ ELITE_PROPORTION_DEFAULTS = (0.10, 0.05, 0.01)
 ELITE_PROPORTION_MIN = 0.001
 ELITE_PROPORTION_MAX = 0.99
 NUMERIC_PARAMETER_TYPES = (FloatHyperparameter, IntegerHyperparameter)
-ELITE_MARKER_COLORS = ("#440154", "#21918C", "#FDE725")
+ELITE_MARKER_COLORS = ("#440154", "#21918C", "#D95F02")
 DEFAULT_SLIDER_EXTENSION = 0.25
 SPAN_COMPARISON_TOLERANCE = 0.01
 
@@ -712,7 +712,7 @@ def _planner_layout(
                     html.Div(
                         [
                             html.Div("Parameter"),
-                            html.Div("Normalized position in current search space"),
+                            html.Div("Position in current search space"),
                             html.Div("Min (original)"),
                             html.Div("Max (original)"),
                         ],
@@ -722,13 +722,6 @@ def _planner_layout(
                         _planner_rows(metadata, selection),
                         id=ROWS_ID,
                         className="planner-rows",
-                    ),
-                    html.Div(
-                        [
-                            html.I(className="far fa-lightbulb"),
-                            " Values are normalized internally and shown in original units.",
-                        ],
-                        className="planner-tip",
                     ),
                 ],
                 className="analysis-card planner-main-card",
@@ -1053,7 +1046,7 @@ class HPOPlanning(DynamicPlugin):
     """Show empirical single-feature ranges for configurable elite groups."""
 
     id = "hpo_planning"
-    name = "HPO Planning"
+    name = "HPO Planner"
     icon = "fas fa-drafting-compass"
     help = "plugins/hpo_planning.html"
     activate_run_selection = True
@@ -1235,7 +1228,7 @@ class HPOPlanning(DynamicPlugin):
                 }
             )
         if not trials:
-            raise ValueError("No successful trials are available for HPO planning.")
+            raise ValueError("No successful trials are available for the HPO Planner.")
 
         return {
             "elite_proportions": elite_proportions,

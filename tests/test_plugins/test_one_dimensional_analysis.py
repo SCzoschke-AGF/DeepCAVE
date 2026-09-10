@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import pandas as pd
+import plotly.graph_objs as go
 import pytest
 from ConfigSpace import ConfigurationSpace
 from ConfigSpace.hyperparameters import (
@@ -99,6 +100,21 @@ def test_numeric_hyperparameters_use_linear_or_logarithmic_bins():
     assert len(logarithmic_groups.cat.categories) == 10
     assert 11.0 in linear_groups.cat.categories[0]
     assert 10.0 in logarithmic_groups.cat.categories[4]
+
+
+def test_small_range_ticks_move_the_shared_exponent_into_the_axis_title():
+    figure = go.Figure()
+    ranges = ["(0.004, 0.007]", "(0.007, 0.009]", "(0.009, 0.011]"]
+
+    axis_title = analysis._range_axis(figure, ranges, "depth")
+
+    assert axis_title == "depth (×10⁻³)"
+    assert figure.layout.xaxis.title.text == axis_title
+    assert list(figure.layout.xaxis.ticktext) == [
+        "4\u2060–\u20607",
+        "7\u2060–\u20609",
+        "9\u2060–\u206011",
+    ]
 
 
 def test_summary_uses_median_elite_rank_instead_of_mean():
@@ -263,6 +279,101 @@ def test_all_plots_are_immediate(monkeypatch):
     assert without_rank.customdata[0][-1] == "n/a"
     assert list(baseline.y) == pytest.approx([1.0, 1.0])
     assert baseline.name == "1.0× baseline"
+    assert enrichment_figure.layout.xaxis.title.text is None
+    x_title = next(
+        annotation
+        for annotation in enrichment_figure.layout.annotations
+        if annotation.name == "enrichment_x_title"
+    )
+    assert x_title.text == "kind"
+    assert x_title.y == pytest.approx(analysis.ENRICHMENT_X_TITLE_Y)
+    assert x_title.y < analysis.TOP_TRIAL_RUG_Y
+    markers = [
+        annotation
+        for annotation in enrichment_figure.layout.annotations
+        if annotation.name and annotation.name.startswith("top_trial_marker_")
+    ]
+    ranks = [
+        annotation
+        for annotation in enrichment_figure.layout.annotations
+        if annotation.name and annotation.name.startswith("top_trial_rank_")
+    ]
+    assert [marker.x for marker in markers] == pytest.approx([0.75, 0.25])
+    assert [marker.text for marker in markers] == ["◆", "◆"]
+    assert [rank.text for rank in ranks] == ["1", "2"]
+    assert any(
+        annotation.text == "Top 5 trials" for annotation in enrichment_figure.layout.annotations
+    )
+
+
+def test_top_trials_rug_uses_exact_continuous_positions_and_objective_order(monkeypatch):
+    monkeypatch.setattr(analysis, "save_image", lambda *_args: None)
+    objective = Objective("Loss", optimize="lower")
+    hyperparameter = UniformFloatHyperparameter("x", lower=0.0, upper=1.0)
+    run = SimpleNamespace(
+        configspace={"x": hyperparameter},
+        get_objective=lambda _objective_id: objective,
+    )
+    trials = pd.DataFrame(
+        {
+            "trial_number": [8, 2, 5, 1, 7, 3],
+            "hyperparameter_value": [0.91, 0.123, 0.126, 0.44, 0.7, 0.2],
+            "objective": [6.0, 1.0, 2.0, 4.0, 5.0, 3.0],
+        }
+    )
+    summary, tail_quantile, elite_threshold, elite_count = analysis._summarize_trials(
+        trials,
+        hyperparameter,
+        objective.optimize,
+        0.2,
+    )
+
+    _, _, enrichment_figure = analysis.OneDimensionalAnalysis.load_outputs(
+        run,
+        {
+            "objective_id": 0,
+            "hyperparameter_name": "x",
+            "elite_proportion": 0.2,
+        },
+        {
+            "trials": trials.to_dict(orient="records"),
+            "summary": summary,
+            "tail_quantile": tail_quantile,
+            "elite_threshold": elite_threshold,
+            "elite_count": elite_count,
+        },
+    )
+
+    markers = [
+        annotation
+        for annotation in enrichment_figure.layout.annotations
+        if annotation.name and annotation.name.startswith("top_trial_marker_")
+    ]
+    ranks = [
+        annotation
+        for annotation in enrichment_figure.layout.annotations
+        if annotation.name and annotation.name.startswith("top_trial_rank_")
+    ]
+    assert [marker.xref for marker in markers] == ["paper"] * 5
+    assert [marker.x for marker in markers] == pytest.approx([0.1, 0.125, 0.15, 0.375, 0.625])
+    assert [rank.text for rank in ranks] == ["1", "2", "3", "4", "5"]
+    assert "Trial: 2" in markers[0].hovertext
+    assert [marker.y for marker in markers] == [analysis.TOP_TRIAL_RUG_Y] * 5
+    assert "xaxis2" not in enrichment_figure.layout
+    assert len(enrichment_figure.layout.shapes) == 1
+    rug_line = enrichment_figure.layout.shapes[0]
+    assert rug_line.y0 == pytest.approx(analysis.TOP_TRIAL_RUG_Y)
+    assert rug_line.y1 == pytest.approx(analysis.TOP_TRIAL_RUG_Y)
+
+
+def test_rug_markers_are_centered_and_spread_horizontally_inside_their_bin():
+    positions = analysis._center_rug_positions_in_bins(
+        [1, 1, 1, 3, 3],
+        bin_count=5,
+    )
+
+    assert positions[:3] == pytest.approx([0.275, 0.3, 0.325])
+    assert positions[3:] == pytest.approx([0.6875, 0.7125])
 
 
 def test_range_panels_stay_aligned_and_fit_next_to_the_trials_panel(monkeypatch):

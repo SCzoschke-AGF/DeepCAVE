@@ -435,7 +435,7 @@ def _objective_median_figure(
         figure.update_xaxes(
             tickmode="array",
             tickvals=x_coordinates,
-            ticktext=[bin_label(label) for label in x_labels],
+            ticktext=[bin_label(label, multiline=False) for label in x_labels],
             type="log" if getattr(hyperparameter_1, "log", False) else "linear",
         )
         figure.update_yaxes(
@@ -456,7 +456,7 @@ def _objective_median_figure(
         figure.update_xaxes(
             tickmode="array",
             tickvals=x_labels,
-            ticktext=[bin_label(label) for label in x_labels],
+            ticktext=[bin_label(label, multiline=False) for label in x_labels],
             categoryorder="array",
             categoryarray=x_labels,
         )
