@@ -56,6 +56,7 @@ class ParetoFront(DynamicPlugin):
     """
 
     id = "pareto_front"
+    main_objective_input = "objective_id_1"
     name = "Pareto Front"
     icon = "fas fa-wind"
     help = "plugins/pareto_front.html"
@@ -138,17 +139,7 @@ class ParetoFront(DynamicPlugin):
                 [
                     dbc.Col(
                         [
-                            dbc.Label("Objective 1"),
-                            dbc.Select(
-                                id=register("objective_id_1", ["value", "options"], type=int),
-                                placeholder="Select objective ...",
-                            ),
-                        ],
-                        md=6,
-                    ),
-                    dbc.Col(
-                        [
-                            dbc.Label("Objective 2"),
+                            dbc.Label("Comparison Objective"),
                             dbc.Select(
                                 id=register("objective_id_2", ["value", "options"], type=int),
                                 placeholder="Select objective ...",

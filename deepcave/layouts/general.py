@@ -166,7 +166,7 @@ class GeneralLayout(Layout):
 
             options = [
                 {
-                    "label": short_string(study_name, 60, mode="suffix"),
+                    "label": study_name,
                     "value": study_name,
                 }
                 for study_name in study_names
@@ -488,6 +488,7 @@ class GeneralLayout(Layout):
                 options: Dict[str, str],
                 input_value: str = "",
                 dropdown_value: Optional[List[str]] = None,
+                require_configspace_congruence: bool = True,
             ) -> Component:
                 """
                 Get the layout for the groups.
@@ -502,6 +503,8 @@ class GeneralLayout(Layout):
                     The input value, by default "".
                 dropdown_value : Optional[List[str]], optional
                     The dropdown value, by default None.
+                require_configspace_congruence : bool, optional
+                    Whether identical search spaces are required, by default True.
 
                 Returns
                 -------
@@ -526,11 +529,30 @@ class GeneralLayout(Layout):
                             value=dropdown_value,
                             multi=True,
                         ),
+                        html.Div(
+                            [
+                                dbc.Checkbox(
+                                    id={
+                                        "type": "group-require-configspace-congruence",
+                                        "index": index,
+                                    },
+                                    label="Require identical search spaces",
+                                    value=require_configspace_congruence,
+                                ),
+                                help_button(
+                                    "Disable this only for runs of the same model. "
+                                    "Hyperparameter names, types and scales must still match; "
+                                    "numeric ranges will be combined."
+                                ),
+                            ],
+                            className="d-flex align-items-center mt-1",
+                        ),
                     ],
                     className="mb-2",
                 )
 
             groups = run_handler.get_selected_groups()
+            configspace_congruence = run_handler.get_groups_configspace_congruence()
             selected_run_paths = run_handler.get_selected_run_paths()
             selected_runs = {p: run_handler.get_run_name(p) for p in selected_run_paths}
             index = 0
@@ -542,7 +564,15 @@ class GeneralLayout(Layout):
                 if name is None:
                     continue
 
-                children.append(get_layout(index, selected_runs, name, paths))
+                children.append(
+                    get_layout(
+                        index,
+                        selected_runs,
+                        name,
+                        paths,
+                        configspace_congruence.get(name, True),
+                    )
+                )
 
                 index += 1
 
@@ -557,11 +587,15 @@ class GeneralLayout(Layout):
         inputs = [
             Input({"type": "group-name", "index": ALL}, "value"),
             Input({"type": "group-dropdown", "index": ALL}, "value"),
+            Input(
+                {"type": "group-require-configspace-congruence", "index": ALL},
+                "value",
+            ),
             State("general-group-trigger", "data"),
         ]
 
         @app.callback(outputs, inputs)  # type: ignore
-        def callback(group_names: List[str], all_run_paths, i):
+        def callback(group_names: List[str], all_run_paths, congruence_values, i):
             """Manage the groups."""
             # Abort on page load
             self._refresh_groups: bool
@@ -573,7 +607,12 @@ class GeneralLayout(Layout):
             group_counter = 0
 
             groups = {}
-            for group_name, run_paths in zip(group_names, all_run_paths):
+            configspace_congruence = {}
+            congruence_values = list(congruence_values or [])
+            congruence_values.extend([True] * (len(group_names) - len(congruence_values)))
+            for group_name, run_paths, require_congruence in zip(
+                group_names, all_run_paths, congruence_values
+            ):
                 if group_name is None or group_name == "":
                     # Set the default group name with a counter,
                     # so the groups dont overwrite themselves
@@ -605,6 +644,7 @@ class GeneralLayout(Layout):
                     continue
 
                 groups[group_name] = valid_run_paths
+                configspace_congruence[group_name] = bool(require_congruence)
 
             # Sort the groups alphabetically, so when added
             # they appear ordered
@@ -612,9 +652,9 @@ class GeneralLayout(Layout):
 
             try:
                 # Now save it
-                run_handler.update_groups(sorted_groups)
-            except NotMergeableError:
-                notification.update("The selected runs are not mergeable.")
+                run_handler.update_groups(sorted_groups, configspace_congruence)
+            except NotMergeableError as exception:
+                notification.update(str(exception))
 
                 # This will automatically trigger the group display s.t. the selection is redo.
                 return i + 1

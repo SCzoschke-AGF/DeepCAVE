@@ -15,7 +15,10 @@
 # noqa: D400
 """Shared empirical-analysis helpers for Optuna hyperparameter plugins."""
 
-from typing import Any, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+from collections import OrderedDict
+from threading import RLock
 
 import numpy as np
 import pandas as pd
@@ -31,6 +34,135 @@ from deepcave.runs import AbstractRun
 from deepcave.runs.status import Status
 
 N_BINS = 10
+TRIAL_TABLE_CACHE_SIZE = 8
+
+
+# Feature-specific plugin caches cannot be reused when a different feature is selected. Keep a
+# small second-level cache containing the expensive, feature-independent trial table instead.
+_TRIAL_TABLE_CACHE: "OrderedDict[Tuple[str, str, int, str], pd.DataFrame]" = OrderedDict()
+_TRIAL_TABLE_CACHE_LOCK = RLock()
+
+
+def _trial_table_cache_key(
+    run: AbstractRun,
+    objective_id: int,
+    optimize: str,
+) -> Optional[Tuple[str, str, int, str]]:
+    """Return a content-aware cache key, or no key for lightweight test doubles."""
+    try:
+        run_id = run.id
+        latest_change = run.latest_change
+    except (AttributeError, RuntimeError):
+        return None
+
+    if not isinstance(run_id, str) or not isinstance(latest_change, (int, float)):
+        return None
+    # The object identity makes an explicit study refresh invalidate the table immediately. The
+    # timestamp additionally covers in-place updates without hashing the complete Optuna pickle on
+    # every feature switch.
+    run_version = f"{id(run)}:{latest_change}:{len(run.history)}"
+    return run_id, run_version, objective_id, optimize
+
+
+def _configuration_values(run: AbstractRun, config_id: int) -> Any:
+    """Read an already stored configuration without reconstructing it through ConfigSpace."""
+    configurations = getattr(run, "configs", None)
+    if configurations is not None and config_id in configurations:
+        return configurations[config_id]
+    return run.get_config(config_id)
+
+
+def _build_trial_table(
+    run: AbstractRun,
+    objective_id: int,
+    optimize: str,
+) -> pd.DataFrame:
+    """Build the reusable objective and feature table for all successful trials."""
+    hyperparameter_names = list(run.configspace.keys())
+    configuration_cache: Dict[int, Dict[str, Any]] = {}
+    rows = []
+
+    for history_index, trial in enumerate(run.history):
+        objective_value = trial.costs[objective_id]
+        if (
+            trial.status != Status.SUCCESS
+            or objective_value is None
+            or not np.isfinite(objective_value)
+        ):
+            continue
+
+        if trial.config_id not in configuration_cache:
+            configuration = _configuration_values(run, trial.config_id)
+            configuration_cache[trial.config_id] = {
+                name: configuration.get(name) for name in hyperparameter_names
+            }
+
+        row = {
+            "trial_number": int(trial.additional.get("optuna_trial_number", history_index)),
+            "objective": float(objective_value),
+        }
+        row.update(configuration_cache[trial.config_id])
+        rows.append(row)
+
+    columns = ["trial_number", "objective", *hyperparameter_names]
+    table = pd.DataFrame(rows, columns=columns)
+    if table.empty:
+        table["objective_rank"] = pd.Series(dtype=float)
+        table["rank_quantile"] = pd.Series(dtype=float)
+        return table
+
+    table["objective_rank"] = table["objective"].rank(
+        ascending=optimize == "lower",
+        method="average",
+    )
+    table["rank_quantile"] = table["objective"].rank(
+        ascending=optimize == "upper",
+        method="average",
+        pct=True,
+    )
+    return table
+
+
+def _get_trial_table(run: AbstractRun, objective_id: int) -> pd.DataFrame:
+    """Return one cached all-feature trial table per run version and objective."""
+    objective = run.get_objective(objective_id)
+    optimize = objective.optimize if objective is not None else "lower"
+    key = _trial_table_cache_key(run, objective_id, optimize)
+    if key is None:
+        return _build_trial_table(run, objective_id, optimize)
+
+    with _TRIAL_TABLE_CACHE_LOCK:
+        table = _TRIAL_TABLE_CACHE.get(key)
+        if table is not None:
+            _TRIAL_TABLE_CACHE.move_to_end(key)
+            return table
+
+        # Discard obsolete versions of the same run instead of retaining large dataframes until
+        # the size limit happens to evict them.
+        stale_keys = [
+            cached_key
+            for cached_key in _TRIAL_TABLE_CACHE
+            if cached_key[0] == key[0] and cached_key[1] != key[1]
+        ]
+        for stale_key in stale_keys:
+            del _TRIAL_TABLE_CACHE[stale_key]
+
+        table = _build_trial_table(run, objective_id, optimize)
+        _TRIAL_TABLE_CACHE[key] = table
+        while len(_TRIAL_TABLE_CACHE) > TRIAL_TABLE_CACHE_SIZE:
+            _TRIAL_TABLE_CACHE.popitem(last=False)
+        return table
+
+
+def _is_optuna_run_or_group(run: AbstractRun) -> bool:
+    """Return whether a run is an Optuna study or a group made only from Optuna studies."""
+    if run.prefix == "Optuna":
+        return True
+    if run.prefix != "group":
+        return False
+
+    members = getattr(run, "runs", [])
+    return bool(members) and all(member.prefix == "Optuna" for member in members)
 
 
 def _group_parameter_values(
@@ -87,15 +219,19 @@ def _add_trial_statistics(
     else:
         is_elite = trials["objective"] <= elite_threshold
 
-    objective_rank = trials["objective"].rank(
-        ascending=optimize == "lower",
-        method="average",
-    )
-    rank_quantile = trials["objective"].rank(
-        ascending=optimize == "upper",
-        method="average",
-        pct=True,
-    )
+    objective_rank = trials.get("objective_rank")
+    if objective_rank is None:
+        objective_rank = trials["objective"].rank(
+            ascending=optimize == "lower",
+            method="average",
+        )
+    rank_quantile = trials.get("rank_quantile")
+    if rank_quantile is None:
+        rank_quantile = trials["objective"].rank(
+            ascending=optimize == "upper",
+            method="average",
+            pct=True,
+        )
     return (
         trials.assign(
             objective_rank=objective_rank,
@@ -113,30 +249,16 @@ def _collect_trials(
     objective_id: int,
     hyperparameter_names: List[str],
 ) -> pd.DataFrame:
-    """Collect successful finite trials in which all selected parameters are active."""
-    rows = []
-    for history_index, trial in enumerate(run.history):
-        objective_value = trial.costs[objective_id]
-        if (
-            trial.status != Status.SUCCESS
-            or objective_value is None
-            or not np.isfinite(objective_value)
-        ):
-            continue
-
-        configuration = run.get_config(trial.config_id)
-        values = [configuration.get(name) for name in hyperparameter_names]
-        if any(value is None for value in values):
-            continue
-
-        row = {
-            "trial_number": int(trial.additional.get("optuna_trial_number", history_index)),
-            "objective": float(objective_value),
-        }
-        row.update(dict(zip(hyperparameter_names, values)))
-        rows.append(row)
-
-    return pd.DataFrame(rows)
+    """Select active parameters from the cached objective-wide trial table."""
+    table = _get_trial_table(run, objective_id)
+    columns = [
+        "trial_number",
+        "objective",
+        "objective_rank",
+        "rank_quantile",
+        *hyperparameter_names,
+    ]
+    return table.loc[:, columns].dropna(subset=hyperparameter_names).copy()
 
 
 def _get_objectives_without_time(run: AbstractRun) -> List[Any]:

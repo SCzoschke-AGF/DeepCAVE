@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import dash_bootstrap_components as dbc
+import numpy as np
 import pandas as pd
 import pytest
 from ConfigSpace import ConfigurationSpace
@@ -7,7 +9,7 @@ from ConfigSpace.hyperparameters import (
     CategoricalHyperparameter,
     UniformFloatHyperparameter,
 )
-from dash import html
+from dash import dcc, html
 
 from deepcave import config
 from deepcave.plugins.hyperparameter import analysis_utils
@@ -33,7 +35,7 @@ def _walk_components(component):
     if not isinstance(children, (list, tuple)):
         children = [children]
     for child in children:
-        if hasattr(child, "children"):
+        if hasattr(child, "to_plotly_json"):
             yield from _walk_components(child)
 
 
@@ -44,7 +46,9 @@ def test_every_control_shares_the_single_toolbar_row():
     )
 
     assert registered == [
-        "objective_id",
+        "n_bins_1",
+        "n_bins_2",
+        "color_by_rank",
         "hyperparameter_name_1",
         "hyperparameter_name_2",
         "elite_proportion",
@@ -53,7 +57,7 @@ def test_every_control_shares_the_single_toolbar_row():
     assert not any(isinstance(component, html.Button) for component in _walk_components(toolbar))
 
 
-def test_output_layout_is_a_two_by_two_grid_with_an_empty_final_cell():
+def test_output_layout_uses_the_final_grid_cell_for_binning_controls():
     registered = []
     (grid,) = analysis.TwoDimensionalAnalysis.get_output_layout(
         lambda name, *_args, **_kwargs: registered.append(name) or name
@@ -65,13 +69,37 @@ def test_output_layout_is_a_two_by_two_grid_with_an_empty_final_cell():
         "analysis-card",
         "analysis-card",
         "analysis-card",
-        "analysis-card analysis-card--empty",
+        "analysis-card",
     ]
-    assert [card.children[0].children for card in grid.children[:3]] == [
+    assert [card.children[0].children for card in grid.children] == [
         "Observed trials",
         "Elite enrichement (1x = Baseline)",
         "Empirical objective median contour",
+        "Plot controls",
     ]
+    bin_sliders = [
+        component
+        for component in _walk_components(grid.children[3])
+        if isinstance(component, dcc.Slider)
+    ]
+    assert [component.id for component in bin_sliders] == [
+        "two_dimensional_analysis-n_bins_1-input",
+        "two_dimensional_analysis-n_bins_2-input",
+    ]
+    assert all(component.value == analysis.N_BINS for component in bin_sliders)
+    assert all(component.min == analysis.MIN_BINS for component in bin_sliders)
+    assert all(component.max == analysis.MAX_BINS for component in bin_sliders)
+    assert all(component.step == 1 for component in bin_sliders)
+    color_switches = [
+        component
+        for component in _walk_components(grid.children[3])
+        if isinstance(component, dbc.Switch)
+    ]
+    assert len(color_switches) == 1
+    assert color_switches[0].id == "two_dimensional_analysis-color_by_rank-input"
+    assert color_switches[0].label == "Color observed trials by trial rank"
+    assert color_switches[0].value is False
+    assert "Set the numeric resolution" not in str(grid.children[3])
 
 
 def test_dependencies_exclude_time_and_enforce_distinct_hyperparameters():
@@ -108,6 +136,9 @@ def test_dependencies_exclude_time_and_enforce_distinct_hyperparameters():
     assert result["hyperparameter_name_1"]["value"] == "x"
     assert result["hyperparameter_name_2"]["value"] != "x"
     assert "x" not in [option["value"] for option in result["hyperparameter_name_2"]["options"]]
+    assert result["n_bins_1"]["value"] == analysis.N_BINS
+    assert result["n_bins_2"]["value"] == analysis.N_BINS
+    assert result["color_by_rank"]["value"] is False
 
 
 def test_numeric_grouping_uses_four_linear_or_logarithmic_bins():
@@ -131,6 +162,28 @@ def test_numeric_grouping_uses_four_linear_or_logarithmic_bins():
     assert len(logarithmic_groups.cat.categories) == 4
     assert 26.0 in linear_groups.cat.categories[0]
     assert 10.0 in logarithmic_groups.cat.categories[0]
+
+
+def test_logarithmic_group_coordinate_stays_inside_positive_domain():
+    hyperparameter = UniformFloatHyperparameter(
+        "gamma",
+        lower=0.0001,
+        upper=20.0,
+        log=True,
+    )
+    # pandas expands the first interval below zero for include_lowest=True.
+    group = pd.Interval(-0.0009, 0.00211, closed="right")
+
+    coordinate = analysis._group_coordinate(group, hyperparameter)
+
+    assert coordinate == pytest.approx(np.sqrt(hyperparameter.lower * group.right))
+    assert coordinate > 0
+
+    # Previously cached analyses can still contain the invalid zero coordinate.
+    assert analysis._contour_coordinates(
+        [{"coordinate": 0.0}, {"coordinate": 0.01}],
+        hyperparameter,
+    ) == pytest.approx([hyperparameter.lower, 0.01])
 
 
 def test_axis_groups_trim_empty_edges_but_keep_internal_gaps():
@@ -249,6 +302,109 @@ def test_process_keeps_repeated_configurations_and_original_trial_numbers():
     assert [trial["trial_number"] for trial in outputs["trials"]] == [4, 9]
 
 
+def test_feature_changes_reuse_the_objective_wide_trial_table():
+    objective = Objective("Accuracy", optimize="upper")
+    configspace = ConfigurationSpace(
+        space={"x": (0.0, 1.0), "y": (0.0, 1.0), "z": (0.0, 1.0)}
+    )
+    configurations = {
+        0: {"x": 0.1, "y": 0.2, "z": 0.3},
+        1: {"x": 0.4, "y": 0.5, "z": 0.6},
+    }
+
+    class CachedRun:
+        id = "cached-run"
+        latest_change = 1.0
+        configs = configurations
+        history = [
+            Trial(0, 0, -1, [0.8], 0.0, 0.0, 1.0, Status.SUCCESS, {}),
+            Trial(1, 0, -1, [0.9], 0.0, 1.0, 2.0, Status.SUCCESS, {}),
+        ]
+
+        def __init__(self):
+            self.configspace = configspace
+
+        def get_objective(self, _objective_id):
+            return objective
+
+        def get_config(self, _config_id):
+            raise AssertionError("stored configurations should be read without reconstruction")
+
+    run = CachedRun()
+    analysis_utils._TRIAL_TABLE_CACHE.clear()
+    first_table = analysis_utils._get_trial_table(run, 0)
+    second_table = analysis_utils._get_trial_table(run, 0)
+
+    assert first_table is second_table
+    assert list(first_table.columns) == [
+        "trial_number",
+        "objective",
+        "x",
+        "y",
+        "z",
+        "objective_rank",
+        "rank_quantile",
+    ]
+    assert analysis._collect_trials(run, 0, ["x", "y"])["x"].tolist() == [0.1, 0.4]
+    assert analysis._collect_trials(run, 0, ["x", "z"])["z"].tolist() == [0.3, 0.6]
+
+    run.latest_change = 2.0
+    refreshed_table = analysis_utils._get_trial_table(run, 0)
+    assert refreshed_table is not first_table
+    assert all(":2.0:" in key[1] for key in analysis_utils._TRIAL_TABLE_CACHE)
+
+
+def test_independent_bin_counts_feed_enrichment_and_contour(monkeypatch):
+    monkeypatch.setattr(analysis, "save_image", lambda *_args: None)
+    objective = Objective("Accuracy", optimize="upper")
+    configspace = ConfigurationSpace(space={"x": (0.0, 1.0), "y": (0.0, 1.0)})
+    configurations = [
+        {"x": x / 5, "y": y / 5}
+        for y in range(6)
+        for x in range(6)
+    ]
+    history = [
+        Trial(
+            index,
+            0,
+            -1,
+            [float(index)],
+            0.0,
+            0.0,
+            float(index),
+            Status.SUCCESS,
+            {"optuna_trial_number": index},
+        )
+        for index in range(len(configurations))
+    ]
+    run = SimpleNamespace(
+        history=history,
+        configspace=configspace,
+        get_config=lambda config_id: configurations[config_id],
+        get_objective=lambda _objective_id: objective,
+    )
+    inputs = {
+        "objective_id": 0,
+        "hyperparameter_name_1": "x",
+        "hyperparameter_name_2": "y",
+        "elite_proportion": 0.25,
+        "n_bins_1": 3,
+        "n_bins_2": 5,
+    }
+
+    outputs = analysis.TwoDimensionalAnalysis.process(run, inputs)
+    _, enrichment_figure, contour_figure = analysis.TwoDimensionalAnalysis.load_outputs(
+        run,
+        inputs,
+        outputs,
+    )
+
+    assert len(outputs["axis_1"]) == 3
+    assert len(outputs["axis_2"]) == 5
+    assert np.asarray(enrichment_figure.data[0].z).shape == (5, 3)
+    assert np.asarray(contour_figure.data[0].z).shape == (5, 3)
+
+
 def test_numeric_outputs_use_contour_and_preserve_missing_cells(monkeypatch):
     monkeypatch.setattr(analysis, "save_image", lambda *_args: None)
     objective = Objective("Accuracy", optimize="upper")
@@ -328,10 +484,10 @@ def test_numeric_outputs_use_contour_and_preserve_missing_cells(monkeypatch):
         )
     )
 
-    assert trials_figure.data[0].type == "scatter"
+    assert trials_figure.data[0].type == "scattergl"
     assert trials_figure.layout.xaxis.type == "log"
-    assert trials_figure.data[0].marker.reversescale is True
-    assert list(trials_figure.data[0].marker.color) == pytest.approx([2.0, 1.0])
+    assert trials_figure.data[0].marker.reversescale is False
+    assert list(trials_figure.data[0].marker.color) == pytest.approx([0.8, 0.9])
     assert elite_rate_figure.data[0].type == "heatmap"
     assert elite_rate_figure.data[0].z[0][1] is None
     assert elite_rate_figure.data[0].z[1][1] == pytest.approx(2.0)
@@ -350,10 +506,24 @@ def test_numeric_outputs_use_contour_and_preserve_missing_cells(monkeypatch):
     )
     assert trials_figure.data[0].marker.colorbar.orientation == "h"
     assert objective_figure.data[0].colorbar.orientation == "h"
+    assert trials_figure.data[0].marker.colorbar.title.text == "Accuracy"
+    assert objective_figure.data[0].colorbar.title.text == "Accuracy"
+    assert trials_figure.layout.annotations == ()
+    assert objective_figure.layout.annotations == ()
     assert all(
         figure.layout.title.text is None
         for figure in (trials_figure, elite_rate_figure, objective_figure)
     )
+
+    rank_inputs = {**inputs, "color_by_rank": True}
+    rank_figure, _, _ = analysis.TwoDimensionalAnalysis.load_outputs(
+        run,
+        rank_inputs,
+        outputs,
+    )
+    assert list(rank_figure.data[0].marker.color) == pytest.approx([2.0, 1.0])
+    assert rank_figure.data[0].marker.reversescale is True
+    assert rank_figure.data[0].marker.colorbar.title.text == "Trial rank"
 
 
 def test_enrichment_distinguishes_observed_zero_from_an_empty_bin():
@@ -410,9 +580,7 @@ def test_enrichment_distinguishes_observed_zero_from_an_empty_bin():
     assert all("<br>" not in label for label in figure.layout.xaxis.ticktext)
     assert figure.layout.xaxis.title.standoff == 4
     assert figure.layout.margin.b == analysis.ENRICHMENT_BOTTOM_MARGIN
-    assert "Elite enrichment" not in [
-        annotation.text for annotation in figure.layout.annotations
-    ]
+    assert "Elite enrichment" not in [annotation.text for annotation in figure.layout.annotations]
 
     figure_with_twenty_percent_elite = analysis._elite_enrichment_figure(
         cells,
@@ -424,6 +592,48 @@ def test_enrichment_distinguishes_observed_zero_from_an_empty_bin():
         elite_proportion=0.2,
     )
     assert list(figure_with_twenty_percent_elite.data[0].z[0]) == [0.0, 1.0, None]
+
+
+@pytest.mark.parametrize(
+    ("x_bin_count", "y_bin_count", "shows_cell_text"),
+    [
+        (15, 6, True),
+        (16, 6, False),
+        (15, 7, False),
+    ],
+)
+def test_enrichment_hides_cell_text_for_dense_grids(
+    x_bin_count,
+    y_bin_count,
+    shows_cell_text,
+):
+    x_labels = [f"x-{index}" for index in range(x_bin_count)]
+    y_labels = [f"y-{index}" for index in range(y_bin_count)]
+    cells = pd.DataFrame(
+        [
+            {
+                "group_1": x_labels[0],
+                "group_2": y_labels[0],
+                "n": 1,
+                "elite": 1,
+                "elite_rate_pct": 100.0,
+                "elite_median_rank": 1.0,
+            }
+        ]
+    )
+
+    figure = analysis._elite_enrichment_figure(
+        cells,
+        x_labels,
+        y_labels,
+        "feature-1",
+        "feature-2",
+        elite_threshold=0.5,
+        elite_proportion=0.1,
+    )
+
+    assert bool(figure.layout.annotations) is shows_cell_text
+    assert "Elite enrichment" in figure.data[0].hovertemplate
 
 
 def test_categorical_axis_uses_objective_heatmap(monkeypatch):
@@ -481,8 +691,13 @@ def test_categorical_axis_uses_objective_heatmap(monkeypatch):
 def test_only_suitable_optuna_studies_are_compatible():
     suitable = SimpleNamespace(prefix="Optuna", empty=lambda: False, configspace={"x": 1, "y": 2})
     one_parameter = SimpleNamespace(prefix="Optuna", empty=lambda: False, configspace={"x": 1})
-    group = SimpleNamespace(prefix="group", empty=lambda: False, configspace={"x": 1, "y": 2})
+    group = SimpleNamespace(
+        prefix="group",
+        runs=[suitable],
+        empty=lambda: False,
+        configspace={"x": 1, "y": 2},
+    )
 
     assert analysis.TwoDimensionalAnalysis.check_run_compatibility(suitable)
     assert not analysis.TwoDimensionalAnalysis.check_run_compatibility(one_parameter)
-    assert not analysis.TwoDimensionalAnalysis.check_run_compatibility(group)
+    assert analysis.TwoDimensionalAnalysis.check_run_compatibility(group)

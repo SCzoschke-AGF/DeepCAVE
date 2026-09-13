@@ -53,6 +53,7 @@ class ParallelCoordinates(StaticPlugin):
     name = "Parallel Coordinates"
     icon = "far fa-map"
     activate_run_selection = True
+    main_objective_input = "objective_id"
     help = "plugins/parallel_coordinates.html"
 
     @staticmethod
@@ -76,16 +77,6 @@ class ParallelCoordinates(StaticPlugin):
                 [
                     dbc.Col(
                         [
-                            dbc.Label("Objective"),
-                            dbc.Select(
-                                id=register("objective_id", ["value", "options"], type=int),
-                                placeholder="Select objective ...",
-                            ),
-                        ],
-                        md=6,
-                    ),
-                    dbc.Col(
-                        [
                             dbc.Label("Budget"),
                             help_button(
                                 "Budget refers to the multi-fidelity budget. "
@@ -100,7 +91,7 @@ class ParallelCoordinates(StaticPlugin):
                                 placeholder="Select budget ...",
                             ),
                         ],
-                        md=6,
+                        md=12,
                     ),
                 ],
                 className="mb-3",

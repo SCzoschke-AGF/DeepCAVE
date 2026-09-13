@@ -26,7 +26,7 @@ from ConfigSpace.hyperparameters import (
     Hyperparameter,
     IntegerHyperparameter,
 )
-from dash import html
+from dash import dcc, html
 from dash.development.base_component import Component
 from dash.exceptions import PreventUpdate
 
@@ -37,10 +37,10 @@ from deepcave.plugins.hyperparameter.analysis_utils import (
     _collect_trials,
     _get_objectives_without_time,
     _group_parameter_values,
+    _is_optuna_run_or_group,
 )
 from deepcave.runs import AbstractRun
 from deepcave.utils.analysis_layout import (
-    add_colorbar_label,
     analysis_card,
     analysis_graph,
     analysis_toolbar_item,
@@ -52,12 +52,16 @@ from deepcave.utils.layout import get_select_options
 from deepcave.utils.styled_plotty import save_image
 
 N_BINS = 4
+MIN_BINS = 2
+MAX_BINS = 20
 ELITE_PROPORTION_DEFAULT = 0.10
 COLOR_SCALE = "Viridis"
 PANEL_HEIGHT = 270
 PANEL_BOTTOM_MARGIN = 94
 ENRICHMENT_TOP_MARGIN = 30
 ENRICHMENT_BOTTOM_MARGIN = 60
+MAX_ANNOTATED_X_BINS = 15
+MAX_ANNOTATED_Y_BINS = 6
 
 
 def _observed_categories(groups: pd.Series) -> List[Any]:
@@ -76,7 +80,14 @@ def _group_coordinate(group: Any, hyperparameter: Hyperparameter) -> Any:
     """Return an axis coordinate for an empirical group."""
     if isinstance(group, pd.Interval):
         if getattr(hyperparameter, "log", False):
-            return float(np.sqrt(max(group.left, 0) * group.right))
+            # ``pd.cut(..., include_lowest=True)`` moves the displayed left edge
+            # slightly below the configured lower bound. For small positive log
+            # ranges that edge can become negative. Zero is not a valid Plotly
+            # coordinate on a logarithmic contour axis, so clip the display-only
+            # interval back to the actual hyperparameter domain.
+            lower = max(float(group.left), float(hyperparameter.lower))
+            upper = min(float(group.right), float(hyperparameter.upper))
+            return float(np.sqrt(lower * upper))
         return float(group.mid)
     if isinstance(hyperparameter, (FloatHyperparameter, IntegerHyperparameter)):
         return float(group)
@@ -88,12 +99,26 @@ def _supports_contour(hyperparameter: Hyperparameter) -> bool:
     return isinstance(hyperparameter, (FloatHyperparameter, IntegerHyperparameter))
 
 
+def _contour_coordinates(
+    axes: List[Dict[str, Any]],
+    hyperparameter: Hyperparameter,
+) -> List[float]:
+    """Return valid numeric coordinates, including for caches created before the log fix."""
+    coordinates = [float(axis["coordinate"]) for axis in axes]
+    if getattr(hyperparameter, "log", False):
+        lower = float(hyperparameter.lower)
+        coordinates = [max(coordinate, lower) for coordinate in coordinates]
+    return coordinates
+
+
 def _summarize_pair(
     trials: pd.DataFrame,
     hyperparameter_1: Hyperparameter,
     hyperparameter_2: Hyperparameter,
     optimize: str,
     elite_proportion: float,
+    n_bins_1: int = N_BINS,
+    n_bins_2: int = N_BINS,
 ) -> Tuple[pd.DataFrame, List[Any], List[Any], float, int, List[Dict[str, Any]]]:
     """Calculate direction-aware trial and joint-bin statistics."""
     trials, elite_threshold, elite_count = _add_trial_statistics(
@@ -104,13 +129,13 @@ def _summarize_pair(
     groups_1 = _group_parameter_values(
         trials["hyperparameter_1"],
         hyperparameter_1,
-        n_bins=N_BINS,
+        n_bins=n_bins_1,
         discrete_numeric=True,
     )
     groups_2 = _group_parameter_values(
         trials["hyperparameter_2"],
         hyperparameter_2,
-        n_bins=N_BINS,
+        n_bins=n_bins_2,
         discrete_numeric=True,
     )
     categories_1 = _observed_categories(groups_1)
@@ -172,21 +197,23 @@ def _observed_trials_figure(
     hyperparameter_name_1: str,
     hyperparameter_name_2: str,
     objective_name: str,
+    optimize: str,
+    color_by_rank: bool = False,
 ) -> go.Figure:
-    """Build the unbinned trial scatter with rank one on Viridis' bright end."""
+    """Build the unbinned trial scatter colored by objective value or trial rank."""
+    marker_color = trials["objective_rank"] if color_by_rank else trials["objective"]
+    colorbar_title = "Trial rank" if color_by_rank else objective_name
     figure = go.Figure(
-        go.Scatter(
+        go.Scattergl(
             x=trials["hyperparameter_1"],
             y=trials["hyperparameter_2"],
             mode="markers",
             marker={
-                "color": trials["objective_rank"],
+                "color": marker_color,
                 "colorscale": COLOR_SCALE,
-                "reversescale": True,
-                "cmin": 1,
-                "cmax": float(trials["objective_rank"].max()),
+                "reversescale": color_by_rank or optimize == "lower",
                 "showscale": True,
-                "colorbar": horizontal_colorbar(),
+                "colorbar": horizontal_colorbar(colorbar_title),
                 "size": 6,
                 "opacity": 0.7,
             },
@@ -210,12 +237,6 @@ def _observed_trials_figure(
         title_text=hyperparameter_name_2,
         type="log" if getattr(hyperparameter_2, "log", False) else None,
     )
-    add_colorbar_label(
-        figure,
-        "Trial rank (1 = best)",
-        PANEL_HEIGHT,
-        PANEL_BOTTOM_MARGIN,
-    )
     return figure
 
 
@@ -236,6 +257,9 @@ def _elite_enrichment_figure(
     elite_proportion: float,
 ) -> go.Figure:
     """Build the joint-bin elite-enrichment heatmap using the existing bins."""
+    show_cell_text = (
+        len(x_labels) <= MAX_ANNOTATED_X_BINS and len(y_labels) <= MAX_ANNOTATED_Y_BINS
+    )
     observed_enrichments = [
         float(cell["elite_rate_pct"]) / 100 / elite_proportion
         for _, cell in cells.iterrows()
@@ -257,26 +281,27 @@ def _elite_enrichment_figure(
                 customdata_row.append(
                     [x_label, y_label, None, None, 0, elite_proportion * 100, "n/a"]
                 )
-                annotations.extend(
-                    [
-                        {
-                            "x": x_label,
-                            "y": y_label,
-                            "text": "No data",
-                            "showarrow": False,
-                            "yshift": 6,
-                            "font": {"size": 11, "color": "#64748b", "weight": 600},
-                        },
-                        {
-                            "x": x_label,
-                            "y": y_label,
-                            "text": "n = 0",
-                            "showarrow": False,
-                            "yshift": -8,
-                            "font": {"size": 9, "color": "#64748b"},
-                        },
-                    ]
-                )
+                if show_cell_text:
+                    annotations.extend(
+                        [
+                            {
+                                "x": x_label,
+                                "y": y_label,
+                                "text": "No data",
+                                "showarrow": False,
+                                "yshift": 6,
+                                "font": {"size": 11, "color": "#64748b", "weight": 600},
+                            },
+                            {
+                                "x": x_label,
+                                "y": y_label,
+                                "text": "n = 0",
+                                "showarrow": False,
+                                "yshift": -8,
+                                "font": {"size": 9, "color": "#64748b"},
+                            },
+                        ]
+                    )
                 continue
 
             elite_rate_pct = float(cell["elite_rate_pct"])
@@ -298,26 +323,27 @@ def _elite_enrichment_figure(
                     ),
                 ]
             )
-            annotations.extend(
-                [
-                    {
-                        "x": x_label,
-                        "y": y_label,
-                        "text": _format_enrichment(enrichment),
-                        "showarrow": False,
-                        "yshift": 6,
-                        "font": {"size": 13, "color": text_color, "weight": 600},
-                    },
-                    {
-                        "x": x_label,
-                        "y": y_label,
-                        "text": f"n = {int(cell['n'])}",
-                        "showarrow": False,
-                        "yshift": -8,
-                        "font": {"size": 9, "color": text_color},
-                    },
-                ]
-            )
+            if show_cell_text:
+                annotations.extend(
+                    [
+                        {
+                            "x": x_label,
+                            "y": y_label,
+                            "text": _format_enrichment(enrichment),
+                            "showarrow": False,
+                            "yshift": 6,
+                            "font": {"size": 13, "color": text_color, "weight": 600},
+                        },
+                        {
+                            "x": x_label,
+                            "y": y_label,
+                            "text": f"n = {int(cell['n'])}",
+                            "showarrow": False,
+                            "yshift": -8,
+                            "font": {"size": 9, "color": text_color},
+                        },
+                    ]
+                )
         enrichments.append(enrichment_row)
         elite_customdata.append(customdata_row)
 
@@ -405,7 +431,7 @@ def _objective_median_figure(
         "z": objective_medians,
         "colorscale": COLOR_SCALE,
         "reversescale": optimize == "lower",
-        "colorbar": horizontal_colorbar(),
+        "colorbar": horizontal_colorbar(objective_name),
         "customdata": objective_customdata,
         "hovertemplate": (
             f"{hyperparameter_name_1} bin: %{{customdata[0]}}<br>"
@@ -422,8 +448,8 @@ def _objective_median_figure(
     )
     figure = go.Figure()
     if use_contour:
-        x_coordinates = [axis["coordinate"] for axis in axes_1]
-        y_coordinates = [axis["coordinate"] for axis in axes_2]
+        x_coordinates = _contour_coordinates(axes_1, hyperparameter_1)
+        y_coordinates = _contour_coordinates(axes_2, hyperparameter_2)
         figure.add_trace(
             go.Contour(
                 x=x_coordinates,
@@ -471,7 +497,6 @@ def _objective_median_figure(
     _style_two_dimensional_panel(figure)
     figure.update_xaxes(title_text=hyperparameter_name_1)
     figure.update_yaxes(title_text=hyperparameter_name_2)
-    add_colorbar_label(figure, objective_name, PANEL_HEIGHT, PANEL_BOTTOM_MARGIN)
     return figure
 
 
@@ -483,26 +508,23 @@ class TwoDimensionalAnalysis(DynamicPlugin):
     icon = "fas fa-th"
     help = "plugins/two_dimensional_analysis.html"
     activate_run_selection = True
+    main_objective_input = "objective_id"
 
     @staticmethod
     def check_run_compatibility(run: AbstractRun) -> bool:
-        """Accept non-empty Optuna studies with at least two hyperparameters."""
-        return run.prefix == "Optuna" and not run.empty() and len(run.configspace) >= 2
+        """Accept suitable Optuna studies and Optuna-only groups."""
+        return _is_optuna_run_or_group(run) and not run.empty() and len(run.configspace) >= 2
 
     @staticmethod
     def get_input_layout(register: Callable) -> List[Component]:
         """Return the analysis controls; the active run lives in the sidebar."""
+        # Register these inputs here even though their components live in the fourth grid card.
+        register("n_bins_1", "value", type=int)
+        register("n_bins_2", "value", type=int)
+        register("color_by_rank", "value", filter=True, type=bool)
         return [
             html.Div(
                 [
-                    analysis_toolbar_item(
-                        "Objective",
-                        dbc.Select(
-                            id=register("objective_id", ["value", "options"], type=int),
-                            placeholder="Select objective ...",
-                        ),
-                        width="9rem",
-                    ),
                     analysis_toolbar_item(
                         "Hyperparameter #1",
                         dbc.Select(
@@ -551,6 +573,9 @@ class TwoDimensionalAnalysis(DynamicPlugin):
             "hyperparameter_name_1": {"options": [], "value": None},
             "hyperparameter_name_2": {"options": [], "value": None},
             "elite_proportion": {"value": ELITE_PROPORTION_DEFAULT},
+            "n_bins_1": {"value": N_BINS},
+            "n_bins_2": {"value": N_BINS},
+            "color_by_rank": {"value": False},
         }
 
     def load_dependency_inputs(
@@ -593,6 +618,15 @@ class TwoDimensionalAnalysis(DynamicPlugin):
                 "value": hyperparameter_2,
             },
             "elite_proportion": {"value": inputs["elite_proportion"]["value"]},
+            "n_bins_1": {
+                "value": inputs.get("n_bins_1", {}).get("value") or N_BINS,
+            },
+            "n_bins_2": {
+                "value": inputs.get("n_bins_2", {}).get("value") or N_BINS,
+            },
+            "color_by_rank": {
+                "value": bool(inputs.get("color_by_rank", {}).get("value", False)),
+            },
         }
 
     @staticmethod
@@ -610,6 +644,13 @@ class TwoDimensionalAnalysis(DynamicPlugin):
         elite_proportion = float(inputs["elite_proportion"])
         if not 0.01 <= elite_proportion <= 0.99:
             raise ValueError("Elite trial proportion must be between 0.01 and 0.99.")
+
+        n_bins_1 = int(inputs.get("n_bins_1", N_BINS))
+        n_bins_2 = int(inputs.get("n_bins_2", N_BINS))
+        if not MIN_BINS <= n_bins_1 <= MAX_BINS:
+            raise ValueError(f"Feature #1 bin count must be between {MIN_BINS} and {MAX_BINS}.")
+        if not MIN_BINS <= n_bins_2 <= MAX_BINS:
+            raise ValueError(f"Feature #2 bin count must be between {MIN_BINS} and {MAX_BINS}.")
 
         trials = _collect_trials(
             run,
@@ -638,6 +679,8 @@ class TwoDimensionalAnalysis(DynamicPlugin):
             run.configspace[hyperparameter_name_2],
             objective.optimize,
             elite_proportion,
+            n_bins_1,
+            n_bins_2,
         )
         trial_columns = [
             "trial_number",
@@ -677,7 +720,7 @@ class TwoDimensionalAnalysis(DynamicPlugin):
 
     @staticmethod
     def get_output_layout(register: Callable) -> List[Any]:
-        """Return the three analysis cards in a responsive two-column grid."""
+        """Return three plots and binning controls in a responsive two-column grid."""
         return [
             html.Div(
                 [
@@ -705,9 +748,58 @@ class TwoDimensionalAnalysis(DynamicPlugin):
                             config.FIGURE_DOWNLOAD_SCALE,
                         ),
                     ),
-                    html.Div(
-                        className="analysis-card analysis-card--empty",
-                        **{"aria-hidden": "true"},
+                    analysis_card(
+                        "Plot controls",
+                        html.Div(
+                            [
+                                html.Div(
+                                    [
+                                        dbc.Label("Feature #1 bins", className="small mb-1"),
+                                        dcc.Slider(
+                                            id=f"{TwoDimensionalAnalysis.id}-n_bins_1-input",
+                                            min=MIN_BINS,
+                                            max=MAX_BINS,
+                                            step=1,
+                                            value=N_BINS,
+                                            marks={
+                                                value: str(value)
+                                                for value in range(MIN_BINS, MAX_BINS + 1, 2)
+                                            },
+                                            tooltip={"placement": "bottom"},
+                                        ),
+                                    ],
+                                    className="two-dimensional-binning-control",
+                                ),
+                                html.Div(
+                                    [
+                                        dbc.Label("Feature #2 bins", className="small mb-1"),
+                                        dcc.Slider(
+                                            id=f"{TwoDimensionalAnalysis.id}-n_bins_2-input",
+                                            min=MIN_BINS,
+                                            max=MAX_BINS,
+                                            step=1,
+                                            value=N_BINS,
+                                            marks={
+                                                value: str(value)
+                                                for value in range(MIN_BINS, MAX_BINS + 1, 2)
+                                            },
+                                            tooltip={"placement": "bottom"},
+                                        ),
+                                    ],
+                                    className="two-dimensional-binning-control",
+                                ),
+                                dbc.Switch(
+                                    id=(
+                                        f"{TwoDimensionalAnalysis.id}"
+                                        "-color_by_rank-input"
+                                    ),
+                                    label="Color observed trials by trial rank",
+                                    value=False,
+                                    className="two-dimensional-color-control",
+                                ),
+                            ],
+                            className="two-dimensional-binning-controls",
+                        ),
                     ),
                 ],
                 className="analysis-grid analysis-grid--two-dimensional",
@@ -741,6 +833,8 @@ class TwoDimensionalAnalysis(DynamicPlugin):
             hyperparameter_name_1,
             hyperparameter_name_2,
             objective.name,
+            objective.optimize,
+            bool(inputs.get("color_by_rank", False)),
         )
         elite_enrichment_figure = _elite_enrichment_figure(
             cells,

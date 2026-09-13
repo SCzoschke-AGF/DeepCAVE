@@ -65,6 +65,7 @@ class PartialDependencies(StaticPlugin):
     icon = "fas fa-grip-lines"
     help = "plugins/partial_dependencies.html"
     activate_run_selection = True
+    main_objective_input = "objective_id"
 
     @staticmethod
     def get_input_layout(register: Callable) -> List[dbc.Row]:
@@ -87,16 +88,6 @@ class PartialDependencies(StaticPlugin):
                 [
                     dbc.Col(
                         [
-                            dbc.Label("Objective"),
-                            dbc.Select(
-                                id=register("objective_id", ["value", "options"], type=int),
-                                placeholder="Select objective ...",
-                            ),
-                        ],
-                        md=6,
-                    ),
-                    dbc.Col(
-                        [
                             dbc.Label("Budget"),
                             help_button(
                                 "Budget refers to the multi-fidelity budget. "
@@ -112,7 +103,7 @@ class PartialDependencies(StaticPlugin):
                                 placeholder="Select budget ...",
                             ),
                         ],
-                        md=6,
+                        md=12,
                     ),
                 ],
                 className="mb-3",

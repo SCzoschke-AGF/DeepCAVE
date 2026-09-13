@@ -94,9 +94,9 @@ def style_analysis_panel(
     figure.update_xaxes(automargin=False)
 
 
-def horizontal_colorbar() -> Dict[str, Any]:
+def horizontal_colorbar(title: Optional[str] = None) -> Dict[str, Any]:
     """Return a compact colorbar positioned below an analysis plot."""
-    return {
+    colorbar: Dict[str, Any] = {
         "orientation": "h",
         "x": 0.5,
         "xanchor": "center",
@@ -108,6 +108,13 @@ def horizontal_colorbar() -> Dict[str, Any]:
         "tickfont": {"size": 10},
         "nticks": 6,
     }
+    if title is not None:
+        colorbar["title"] = {
+            "text": title,
+            "side": "top",
+            "font": {"size": 11},
+        }
+    return colorbar
 
 
 def add_colorbar_label(

@@ -28,12 +28,108 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 from copy import deepcopy
 
 import numpy as np
-from ConfigSpace.configuration_space import Configuration
+from ConfigSpace import (
+    CategoricalHyperparameter,
+    UniformFloatHyperparameter,
+    UniformIntegerHyperparameter,
+)
+from ConfigSpace.configuration_space import Configuration, ConfigurationSpace
 from ConfigSpace.hyperparameters.hp_components import ROUND_PLACES
 
-from deepcave.runs import AbstractRun, NotMergeableError, check_equality
+from deepcave.runs import AbstractRun, NotMergeableError, RunInequality, check_equality
 from deepcave.utils.hash import string_to_hash
 from deepcave.utils.util import config_to_tuple
+
+
+def merge_configspaces(runs: List[AbstractRun]) -> ConfigurationSpace:
+    """Build a common search space for runs with matching parameter signatures."""
+    if len(runs) == 0:
+        return ConfigurationSpace()
+
+    model_families = [
+        run.meta.get("model_family") for run in runs if run.meta.get("model_family") is not None
+    ]
+    if model_families and any(
+        model_family != model_families[0] for model_family in model_families[1:]
+    ):
+        raise NotMergeableError("Model families of runs are not equal.", RunInequality.INEQ_META)
+
+    configspaces = [run.configspace for run in runs]
+    if all(configspace == configspaces[0] for configspace in configspaces[1:]):
+        return deepcopy(configspaces[0])
+
+    reference_names = list(configspaces[0].keys())
+    if any(set(configspace.keys()) != set(reference_names) for configspace in configspaces[1:]):
+        raise NotMergeableError(
+            "Hyperparameter names of runs are not equal.", RunInequality.INEQ_CONFIGSPACE
+        )
+
+    if any(configspace.conditions or configspace.forbidden_clauses for configspace in configspaces):
+        raise NotMergeableError(
+            "Relaxed grouping does not support conditional or forbidden configuration spaces.",
+            RunInequality.INEQ_CONFIGSPACE,
+        )
+
+    merged_hyperparameters = []
+    for name in reference_names:
+        hyperparameters = [configspace[name] for configspace in configspaces]
+        reference = hyperparameters[0]
+
+        if any(type(hyperparameter) is not type(reference) for hyperparameter in hyperparameters):
+            raise NotMergeableError(
+                f'Hyperparameter "{name}" does not have the same type in every run.',
+                RunInequality.INEQ_CONFIGSPACE,
+            )
+
+        if isinstance(reference, (UniformFloatHyperparameter, UniformIntegerHyperparameter)):
+            if any(hyperparameter.log != reference.log for hyperparameter in hyperparameters[1:]):
+                raise NotMergeableError(
+                    f'Hyperparameter "{name}" does not use the same scale in every run.',
+                    RunInequality.INEQ_CONFIGSPACE,
+                )
+
+            metadata = reference.meta
+            if any(hyperparameter.meta != metadata for hyperparameter in hyperparameters[1:]):
+                metadata = None
+            merged_hyperparameters.append(
+                type(reference)(
+                    name=name,
+                    lower=min(hyperparameter.lower for hyperparameter in hyperparameters),
+                    upper=max(hyperparameter.upper for hyperparameter in hyperparameters),
+                    default_value=reference.default_value,
+                    log=reference.log,
+                    meta=deepcopy(metadata),
+                )
+            )
+        elif isinstance(reference, CategoricalHyperparameter):
+            choices = list(reference.choices)
+            for hyperparameter in hyperparameters[1:]:
+                for choice in hyperparameter.choices:
+                    if choice not in choices:
+                        choices.append(choice)
+
+            metadata = reference.meta
+            if any(hyperparameter.meta != metadata for hyperparameter in hyperparameters[1:]):
+                metadata = None
+            merged_hyperparameters.append(
+                CategoricalHyperparameter(
+                    name=name,
+                    choices=choices,
+                    default_value=reference.default_value,
+                    meta=deepcopy(metadata),
+                )
+            )
+        elif all(hyperparameter == reference for hyperparameter in hyperparameters[1:]):
+            merged_hyperparameters.append(deepcopy(reference))
+        else:
+            raise NotMergeableError(
+                f'Hyperparameter "{name}" can not be combined safely.',
+                RunInequality.INEQ_CONFIGSPACE,
+            )
+
+    configspace = ConfigurationSpace()
+    configspace.add(merged_hyperparameters)
+    return configspace
 
 
 class Group(AbstractRun):
@@ -70,7 +166,12 @@ class Group(AbstractRun):
 
     prefix = "group"
 
-    def __init__(self, name: str, runs: List[AbstractRun]):
+    def __init__(
+        self,
+        name: str,
+        runs: List[AbstractRun],
+        require_configspace_congruence: bool = True,
+    ):
         super(Group, self).__init__(name)
         self.runs = [run for run in runs if run is not None]  # Filter for Nones
         self.reset()
@@ -79,16 +180,32 @@ class Group(AbstractRun):
             return
 
         try:
-            attributes = check_equality(self.runs)
+            attributes = check_equality(
+                self.runs,
+                configspace=require_configspace_congruence,
+            )
+            configspace = (
+                attributes["configspace"]
+                if require_configspace_congruence
+                else merge_configspaces(self.runs)
+            )
             # abstract run requires meta to contain budgets / objectives
             self.meta = {
                 "budgets": attributes["budgets"],
                 "objectives": attributes["objectives"],
             }
+            user_attr_objectives = [
+                run.meta.get("user_attr_objectives", {}) for run in self.runs
+            ]
+            if user_attr_objectives and all(
+                mapping == user_attr_objectives[0] for mapping in user_attr_objectives[1:]
+            ):
+                self.meta["user_attr_objectives"] = deepcopy(user_attr_objectives[0])
             self.meta["seeds"] = list(
                 set([seed for run in self.runs for seed in run.meta["seeds"].copy()])
             )
-            self.configspace = attributes["configspace"]
+            self.meta["require_configspace_congruence"] = require_configspace_congruence
+            self.configspace = configspace
             self.objectives = attributes["objectives"]
             self.budgets = attributes["budgets"]
             self.seeds = self.meta["seeds"]
@@ -123,9 +240,9 @@ class Group(AbstractRun):
                         self.configs[current_config_id] = config
                         self.origins[current_config_id] = origin
                         # Use same rounding as ConfigSpace does
-                        self.config_id_mapping[
-                            config_to_tuple(config, ROUND_PLACES)
-                        ] = current_config_id
+                        self.config_id_mapping[config_to_tuple(config, ROUND_PLACES)] = (
+                            current_config_id
+                        )
                         config_mapping[config_id] = current_config_id
                         current_config_id += 1
 
@@ -134,7 +251,7 @@ class Group(AbstractRun):
                     # Deep copy trial
                     trial = deepcopy(trial)
 
-                    (config_id, budget, seed) = trial.get_key()
+                    config_id, budget, seed = trial.get_key()
 
                     # Config id might have changed
                     new_config_id = config_mapping[config_id]

@@ -53,6 +53,7 @@ class FootPrint(StaticPlugin):
     icon = "fas fa-shoe-prints"
     help = "plugins/configuration_footprint.html"
     activate_run_selection = True
+    main_objective_input = "objective_id"
 
     @staticmethod
     def get_input_layout(register: Callable) -> List[Any]:
@@ -75,16 +76,6 @@ class FootPrint(StaticPlugin):
                 [
                     dbc.Col(
                         [
-                            dbc.Label("Objective"),
-                            dbc.Select(
-                                id=register("objective_id", ["value", "options"], type=int),
-                                placeholder="Select objective ...",
-                            ),
-                        ],
-                        md=6,
-                    ),
-                    dbc.Col(
-                        [
                             dbc.Label("Budget"),
                             help_button(
                                 "Budget refers to the multi-fidelity budget. "
@@ -100,7 +91,7 @@ class FootPrint(StaticPlugin):
                                 placeholder="Select budget ...",
                             ),
                         ],
-                        md=6,
+                        md=12,
                     ),
                 ],
                 className="mb-3",

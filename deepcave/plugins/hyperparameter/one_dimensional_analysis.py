@@ -32,6 +32,7 @@ from deepcave.plugins.hyperparameter.analysis_utils import (
     _collect_trials,
     _get_objectives_without_time,
     _group_parameter_values,
+    _is_optuna_run_or_group,
 )
 from deepcave.runs import AbstractRun
 from deepcave.utils.analysis_layout import (
@@ -161,8 +162,7 @@ def _range_axis(figure: go.Figure, ranges: List[str], hyperparameter_name: str) 
         tickmode="array",
         tickvals=ranges,
         ticktext=[
-            bin_label(value, multiline=False, scale_exponent=scale_exponent)
-            for value in ranges
+            bin_label(value, multiline=False, scale_exponent=scale_exponent) for value in ranges
         ],
         tickangle=0,
         categoryorder="array",
@@ -393,9 +393,7 @@ def _add_top_trials_rug(
 
     if is_binned:
         displayed_indices = {value: index for index, value in enumerate(ranges)}
-        bin_indices = [
-            displayed_indices[str(groups.loc[index])] for index in top_trials.index
-        ]
+        bin_indices = [displayed_indices[str(groups.loc[index])] for index in top_trials.index]
     else:
         values = top_trials["hyperparameter_value"].map(str).tolist()
         category_positions = {value: index for index, value in enumerate(ranges)}
@@ -496,11 +494,12 @@ class OneDimensionalAnalysis(DynamicPlugin):
     icon = "fas fa-chart-bar"
     help = "plugins/one_dimensional_analysis.html"
     activate_run_selection = True
+    main_objective_input = "objective_id"
 
     @staticmethod
     def check_run_compatibility(run: AbstractRun) -> bool:
-        """Accept non-empty individual Optuna studies only."""
-        return run.prefix == "Optuna" and not run.empty() and len(run.configspace) > 0
+        """Accept non-empty Optuna studies and Optuna-only groups."""
+        return _is_optuna_run_or_group(run) and not run.empty() and len(run.configspace) > 0
 
     @staticmethod
     def get_input_layout(register: Callable) -> List[Component]:
@@ -513,14 +512,6 @@ class OneDimensionalAnalysis(DynamicPlugin):
         return [
             html.Div(
                 [
-                    analysis_toolbar_item(
-                        "Objective",
-                        dbc.Select(
-                            id=register("objective_id", ["value", "options"], type=int),
-                            placeholder="Select objective ...",
-                        ),
-                        width="14rem",
-                    ),
                     analysis_toolbar_item(
                         "Hyperparameter",
                         dbc.Select(

@@ -61,6 +61,7 @@ class AblationPaths(StaticPlugin):
     icon = "fas fa-sort-amount-up"
     help = "plugins/ablation_paths.html"
     activate_run_selection = True
+    main_objective_input = "objective_id1"
 
     @staticmethod
     def get_input_layout(register: Callable) -> List[Any]:
@@ -83,17 +84,7 @@ class AblationPaths(StaticPlugin):
                 [
                     dbc.Col(
                         [
-                            dbc.Label("Objective 1"),
-                            dbc.Select(
-                                id=register("objective_id1", ["value", "options"], type=int),
-                                placeholder="Select objective ...",
-                            ),
-                        ],
-                        md=6,
-                    ),
-                    dbc.Col(
-                        [
-                            dbc.Label("Objective 2"),
+                            dbc.Label("Comparison Objective"),
                             dbc.Select(
                                 id=register("objective_id2", ["value", "options"], type=int),
                                 placeholder="Select objective ...",

@@ -73,6 +73,25 @@ def test_converter_handles_live_trial_states(tmp_path: Path) -> None:
     assert run.history[2].costs == [None, None, None]
 
 
+def test_converter_uses_original_study_name_instead_of_snapshot_directory(
+    tmp_path: Path,
+) -> None:
+    study_name = "xgboost_data:original-study-name_with_full_details"
+    study = optuna.create_study(study_name=study_name, direction="minimize")
+    study.add_trial(
+        create_trial(
+            params={"x": 0.1},
+            distributions={"x": FloatDistribution(0.0, 1.0)},
+            value=0.4,
+        )
+    )
+
+    run = OptunaRun.from_path(_write_study(tmp_path / "technical-slug-a1b2c3", study))
+
+    assert run.name == study_name
+    assert run.meta["optuna_study_name"] == study_name
+
+
 def test_converter_handles_missing_timestamps(tmp_path: Path) -> None:
     study = optuna.create_study(direction="minimize")
     study.add_trial(
@@ -112,6 +131,70 @@ def test_converter_preserves_duplicate_configurations_and_trial_numbers(tmp_path
     assert [trial.additional["optuna_trial_number"] for trial in run.history] == [0, 1]
 
 
+def test_converter_preserves_trial_user_attrs(tmp_path: Path) -> None:
+    study = optuna.create_study(direction="maximize")
+    study.add_trial(
+        create_trial(
+            params={"x": 0.5},
+            distributions={"x": FloatDistribution(0.0, 1.0)},
+            value=0.8,
+            user_attrs={
+                "average_precision": 0.8,
+                "fold_average_precision": [0.81, 0.76, 0.84, 0.79, 0.82],
+            },
+        )
+    )
+
+    run = OptunaRun.from_path(_write_study(tmp_path / "run", study))
+
+    assert run.history[0].additional == {
+        "optuna_trial_number": 0,
+        "user_attrs": {
+            "average_precision": 0.8,
+            "fold_average_precision": [0.81, 0.76, 0.84, 0.79, 0.82],
+        },
+    }
+
+
+def test_converter_promotes_only_complete_finite_scalar_user_attrs(tmp_path: Path) -> None:
+    study = optuna.create_study(direction="minimize")
+    distribution = {"x": FloatDistribution(0.0, 1.0)}
+    study.add_trial(
+        create_trial(
+            params={"x": 0.25},
+            distributions=distribution,
+            value=0.4,
+            user_attrs={
+                "score": 0.8,
+                "incomplete": 1.0,
+                "flag": True,
+                "non_finite": float("inf"),
+                "fold_scores": [0.7, 0.9],
+            },
+        )
+    )
+    study.add_trial(
+        create_trial(
+            params={"x": 0.75},
+            distributions=distribution,
+            value=0.2,
+            user_attrs={
+                "score": 0.9,
+                "flag": False,
+                "non_finite": 0.5,
+                "fold_scores": [0.8, 1.0],
+            },
+        )
+    )
+
+    run = OptunaRun.from_path(_write_study(tmp_path / "run", study))
+
+    assert run.get_objective_names() == ["Objective0", "user_attr:score", "Time"]
+    assert run.meta["user_attr_objectives"] == {"score": 1}
+    assert run.history[0].costs[:2] == pytest.approx([0.4, 0.8])
+    assert run.history[1].costs[:2] == pytest.approx([0.2, 0.9])
+
+
 def test_converter_retains_optuna_step_as_parameter_metadata(tmp_path: Path) -> None:
     study = optuna.create_study(direction="minimize")
     study.add_trial(
@@ -125,6 +208,22 @@ def test_converter_retains_optuna_step_as_parameter_metadata(tmp_path: Path) -> 
     run = OptunaRun.from_path(_write_study(tmp_path / "run", study))
 
     assert run.configspace["n_estimators"].meta["step"] == 50
+
+
+def test_converter_retains_model_family(tmp_path: Path) -> None:
+    study = optuna.create_study(direction="minimize")
+    study.set_user_attr("model_family", "xgboost")
+    study.add_trial(
+        create_trial(
+            params={"x": 0.1},
+            distributions={"x": FloatDistribution(0.0, 1.0)},
+            value=0.4,
+        )
+    )
+
+    run = OptunaRun.from_path(_write_study(tmp_path / "run", study))
+
+    assert run.meta["model_family"] == "xgboost"
 
 
 def test_converter_rejects_study_without_completed_trial(tmp_path: Path) -> None:

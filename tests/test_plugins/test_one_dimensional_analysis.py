@@ -38,7 +38,6 @@ def test_every_control_shares_the_single_toolbar_row():
     )
 
     assert registered == [
-        "objective_id",
         "hyperparameter_name",
         "elite_proportion",
     ]
@@ -449,9 +448,21 @@ def test_output_layout_is_one_grid_of_three_cards():
     ]
 
 
-def test_only_optuna_studies_are_compatible():
+def test_optuna_studies_and_optuna_only_groups_are_compatible():
     optuna_run = SimpleNamespace(prefix="Optuna", empty=lambda: False, configspace={"x": 1})
-    group = SimpleNamespace(prefix="group", empty=lambda: False, configspace={"x": 1})
+    group = SimpleNamespace(
+        prefix="group",
+        runs=[optuna_run],
+        empty=lambda: False,
+        configspace={"x": 1},
+    )
+    mixed_group = SimpleNamespace(
+        prefix="group",
+        runs=[optuna_run, SimpleNamespace(prefix="SMAC3")],
+        empty=lambda: False,
+        configspace={"x": 1},
+    )
 
     assert analysis.OneDimensionalAnalysis.check_run_compatibility(optuna_run)
-    assert not analysis.OneDimensionalAnalysis.check_run_compatibility(group)
+    assert analysis.OneDimensionalAnalysis.check_run_compatibility(group)
+    assert not analysis.OneDimensionalAnalysis.check_run_compatibility(mixed_group)

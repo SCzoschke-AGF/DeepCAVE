@@ -1,5 +1,11 @@
 <img src="docs/images/DeepCAVE_Logo_wide.png" alt="Logo"/> 
 
+# ATTENTION! SC DeepCave
+
+Die Kernfunktionen (original und erweitert) funktionieren mit dem nativen Optuna Output der out-of-the-box in optuna.dbs abgelegt wird. Sie verwenden nur den Input der über den default optuna namespace geliefert wird. Damit können sie auf allen aktuellen und vergangenen optuna studies (optuna.db Inhalte) seit Optuna Version x.xx.xx problemlos genutzt werden.
+
+Darüber hinaus gibt es Zusatzfunktionen, die ein spezifisches Präparieren des Optuna-Loggings erfordern und entsprechend nur dann angewählt werden können, wenn die Voraussetzungen erfüllt sind. 
+
 # DeepCAVE
 
 DeepCAVE is a visualization and analysis tool for AutoML, with a particular focus on

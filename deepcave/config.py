@@ -86,6 +86,7 @@ class Config:
         "working_dir": None,  # str(DEFAULT_WORKING_DIRECTORY),
         "selected_run_paths": [],
         "groups": {},  # {group_name: [run_path, ...]}
+        "groups_configspace_congruence": {},  # {group_name: bool}
         "active_run_id": None,
     }
 

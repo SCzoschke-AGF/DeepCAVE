@@ -22,8 +22,9 @@ This module provides utilities to create an Optuna run.
     - OptunaRun: Define an Optuna run object.
 """
 
-from typing import List, Union
+from typing import Any, List, Union
 
+import math
 import pickle
 from pathlib import Path
 
@@ -44,6 +45,25 @@ from deepcave.utils.hash import file_to_hash
 from deepcave.utils.logs import get_logger
 
 logger = get_logger(__name__)
+
+
+def _is_finite_numeric_user_attr(value: Any) -> bool:
+    """Return whether an Optuna user attribute can serve as a scalar objective."""
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+
+
+def _complete_numeric_user_attrs(trials: List[Any]) -> List[str]:
+    """Return scalar numeric user attributes available on every completed trial."""
+    if not trials:
+        return []
+    names = set(trials[0].user_attrs)
+    for trial in trials[1:]:
+        names.intersection_update(trial.user_attrs)
+    return sorted(
+        name
+        for name in names
+        if all(_is_finite_numeric_user_attr(trial.user_attrs.get(name)) for trial in trials)
+    )
 
 
 class OptunaRun(Run):
@@ -210,6 +230,18 @@ class OptunaRun(Run):
                 )
         configspace.add(hyperparameters)
 
+        supported_trials = [
+            trial
+            for trial in optuna_study.trials
+            if trial.state in (TrialState.COMPLETE, TrialState.FAIL, TrialState.PRUNED)
+        ]
+        completed_trials = [
+            trial for trial in supported_trials if trial.state == TrialState.COMPLETE
+        ]
+        if not completed_trials:
+            raise ValueError("The Optuna study does not contain a completed trial yet.")
+        user_attr_objective_names = _complete_numeric_user_attrs(completed_trials)
+
         n_objectives = len(optuna_study.directions)
         obj_list = list()
         for i in range(n_objectives):
@@ -228,21 +260,27 @@ class OptunaRun(Run):
                 )
             )
 
+        user_attr_objective_offset = len(obj_list)
+        obj_list.extend(
+            Objective(f"user_attr:{name}", optimize="upper") for name in user_attr_objective_names
+        )
         obj_list.append(Objective("Time"))
 
         # Let's create a new run object
-        run = OptunaRun(name=path.stem, configspace=configspace, objectives=obj_list, meta=None)
+        study_name = optuna_study.study_name
+        meta = {"optuna_study_name": study_name}
+        model_family = optuna_study.user_attrs.get("model_family")
+        if model_family is not None:
+            meta["model_family"] = model_family
+        meta["user_attr_objectives"] = {
+            name: user_attr_objective_offset + index
+            for index, name in enumerate(user_attr_objective_names)
+        }
+
+        run = OptunaRun(name=study_name, configspace=configspace, objectives=obj_list, meta=meta)
 
         # The path has to be set manually
         run._path = path
-
-        supported_trials = [
-            trial
-            for trial in optuna_study.trials
-            if trial.state in (TrialState.COMPLETE, TrialState.FAIL, TrialState.PRUNED)
-        ]
-        if not any(trial.state == TrialState.COMPLETE for trial in supported_trials):
-            raise ValueError("The Optuna study does not contain a completed trial yet.")
 
         start_times = [
             trial.datetime_start for trial in supported_trials if trial.datetime_start is not None
@@ -282,12 +320,13 @@ class OptunaRun(Run):
                         "objective values."
                     )
                 costs = list(trial.values)
+                costs.extend(float(trial.user_attrs[name]) for name in user_attr_objective_names)
                 if trial.datetime_start is not None and trial.datetime_complete is not None:
                     time = float(endtime - starttime)
                 else:
                     time = None
             else:
-                costs = [None] * n_objectives
+                costs = [None] * (n_objectives + len(user_attr_objective_names))
                 time = None
 
             run.add(
@@ -299,7 +338,10 @@ class OptunaRun(Run):
                 end_time=endtime,
                 status=status,
                 origin=None,
-                additional={"optuna_trial_number": trial.number},
+                additional={
+                    "optuna_trial_number": trial.number,
+                    "user_attrs": dict(trial.user_attrs),
+                },
                 allow_duplicate_trials=True,
             )
 

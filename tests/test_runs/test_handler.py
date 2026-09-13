@@ -60,6 +60,16 @@ def test_active_run_stays_selected_when_no_runs_are_loaded():
     assert handler.c.get("active_run_id") == "removed"
 
 
+def test_run_name_prefers_loaded_run_display_name():
+    handler = _handler()
+    handler.runs = {
+        "/runs/technical-slug-a1b2c3": SimpleNamespace(name="original Optuna study")
+    }
+
+    assert handler.get_run_name("/runs/technical-slug-a1b2c3") == "original Optuna study"
+    assert handler.get_run_name("/runs/not-loaded") == "not-loaded"
+
+
 def test_active_run_setter_accepts_only_loaded_runs():
     handler = _handler()
     handler.runs = {"/run-a": SimpleNamespace(id="run-a")}
@@ -105,3 +115,32 @@ def test_concurrent_updates_are_serialized():
             future.result()
 
     assert handler.rc.max_active_updates == 1
+
+
+def test_group_configspace_congruence_is_forwarded_and_persisted(monkeypatch):
+    created_groups = []
+
+    class FakeGroup:
+        def __init__(self, name, runs, require_configspace_congruence=True):
+            self.id = name
+            created_groups.append((name, runs, require_configspace_congruence))
+
+    handler = _handler()
+    handler.runs = {
+        "/run-a": SimpleNamespace(id="run-a"),
+        "/run-b": SimpleNamespace(id="run-b"),
+    }
+    handler.rc = SimpleNamespace(update=lambda _group: False)
+    monkeypatch.setattr("deepcave.runs.handler.Group", FakeGroup)
+
+    handler.update_groups(
+        {"comparison": ["/run-a", "/run-b"]},
+        {"comparison": False},
+    )
+
+    assert created_groups[0][2] is False
+    assert handler.c.get("groups_configspace_congruence") == {"comparison": False}
+
+    created_groups.clear()
+    handler.update_groups()
+    assert created_groups[0][2] is False

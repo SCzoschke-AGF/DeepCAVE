@@ -85,6 +85,8 @@ class DynamicPlugin(Plugin, ABC):
         ]
         for id, attribute, _, _ in self.inputs:
             inputs.append(Input(self.get_internal_input_id(id), attribute))
+        if self.main_objective_input is not None:
+            inputs.append(Input("global-main-objective-state", "data"))
 
         # Register updates from inputs
         @app.callback(outputs, inputs)  # type: ignore
@@ -104,13 +106,24 @@ class DynamicPlugin(Plugin, ABC):
             """
             # Map the list `inputs_list` to a dict s.t.
             # it's easier to access them.
+            global_objective_state = None
+            if self.main_objective_input is not None:
+                global_objective_state = inputs_list[-1]
+                inputs_list = inputs_list[:-1]
             inputs = self._list_to_dict(list(inputs_list), input=True)
             inputs["run"] = {"value": global_run_id}
+            runs = self.get_selected_runs(inputs)
+            for index, run in enumerate(runs):
+                self.apply_global_main_objective(
+                    inputs,
+                    run,
+                    global_objective_state,
+                    include_cache_signature=index == 0,
+                )
             # The Optional[str] would need tobe changed to a str as return type annotation
             # of the function _dict_as_key.
             inputs_key = self._dict_as_key(inputs, remove_filters=True)
             cleaned_inputs = self._clean_inputs(inputs)
-            runs = self.get_selected_runs(inputs)
             self.check_runs_compatibility(runs)
 
             raw_outputs = {}

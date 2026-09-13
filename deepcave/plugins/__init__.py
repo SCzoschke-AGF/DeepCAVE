@@ -42,6 +42,10 @@ from deepcave.layouts import Layout
 from deepcave.runs import AbstractRun, check_equality
 from deepcave.runs.group import Group, NotMergeableError
 from deepcave.utils.data_structures import update_dict
+from deepcave.utils.global_objective import (
+    apply_main_objective_direction,
+    resolve_main_objective_id,
+)
 from deepcave.utils.hash import string_to_hash
 from deepcave.utils.layout import get_select_options
 from deepcave.utils.logs import get_logger
@@ -95,6 +99,8 @@ class Plugin(Layout, ABC):
     button_caption: str = "Process"
     activate_run_selection: bool = False
     allow_additional_runs: bool = False
+    main_objective_input: Optional[str] = None
+    main_objective_input_type: Any = int
 
     def __init__(self) -> None:
         # Registered inputs and outputs
@@ -104,6 +110,15 @@ class Plugin(Layout, ABC):
         # For runtime
         self.previous_inputs: Dict[str, Dict[str, str]] = {}
         self.raw_outputs: Optional[Dict[str, Any]] = None
+
+        # Objective-driven plugins keep a hidden run-local index as an implementation detail.
+        # The user-facing selection lives exclusively in the global sidebar.
+        if self.main_objective_input is not None:
+            self.register_input(
+                self.main_objective_input,
+                ["value", "options"],
+                type=self.main_objective_input_type,
+            )
 
         # The output layout has to be called one time to register
         # the values
@@ -291,6 +306,8 @@ class Plugin(Layout, ABC):
         # Define also inputs if they are declared as interactive
         for id, attribute, _, _ in self.inputs:
             callback_inputs.append(Input(self.get_internal_input_id(id), attribute))
+        if self.main_objective_input is not None:
+            callback_inputs.append(Input("global-main-objective-state", "data"))
 
         for id, attribute, _, _ in self.inputs:
             outputs.append(Output(self.get_internal_input_id(id), attribute))
@@ -302,6 +319,10 @@ class Plugin(Layout, ABC):
                 pathname: str, global_run_id: Optional[str], *inputs_list: str
             ) -> List[Optional[str]]:
                 """Update the input of the plugin."""
+                global_objective_state = None
+                if self.main_objective_input is not None:
+                    global_objective_state = inputs_list[-1]
+                    inputs_list = inputs_list[:-1]
                 init = len(self.previous_inputs) == 0
                 cached_inputs = c.get("last_inputs", self.id) or {}
                 cached_run_id = cached_inputs.get("run", {}).get("value")
@@ -360,6 +381,11 @@ class Plugin(Layout, ABC):
                         selected_run, previous_inputs, inputs
                     )
                     update_dict(inputs, dependency_inputs)
+                    self.apply_global_main_objective(
+                        inputs,
+                        selected_run,
+                        global_objective_state,
+                    )
 
                 # Let's cast the inputs
                 inputs = self._cast_inputs(inputs)
@@ -823,6 +849,14 @@ class Plugin(Layout, ABC):
             ]
         else:
             components += [html.H1(self.name)]
+
+        if self.main_objective_input is not None:
+            components.append(
+                dcc.Dropdown(
+                    id=self.get_internal_input_id(self.main_objective_input),
+                    style={"display": "none"},
+                )
+            )
         active_run_id = run_handler.get_active_run_id()
         active_runs = [] if active_run_id is None else [run_handler.get_run(active_run_id)]
         try:
@@ -1150,6 +1184,29 @@ class Plugin(Layout, ABC):
 
         return self.all_runs
 
+    def apply_global_main_objective(
+        self,
+        inputs: Dict[str, Any],
+        run: AbstractRun,
+        state: Any,
+        include_cache_signature: bool = False,
+    ) -> None:
+        """Apply the shared sidebar objective to a plugin's primary objective input."""
+        if self.main_objective_input is None or not isinstance(state, dict):
+            return
+        value = state.get("value")
+        direction = state.get("direction")
+        objective_id = resolve_main_objective_id(run, value)
+        if objective_id is None:
+            return
+        inputs.setdefault(self.main_objective_input, {})["value"] = objective_id
+        apply_main_objective_direction(run, value, direction)
+        if include_cache_signature:
+            inputs["_global_main_objective"] = {
+                "value": value,
+                "direction": direction,
+            }
+
     def load_inputs(self) -> Dict[str, Any]:
         """
         Load the content for the defined inputs in `get_input_layout` and `get_filter_layout`.
@@ -1198,7 +1255,6 @@ class Plugin(Layout, ABC):
         """
         return inputs
 
-    @staticmethod
     def get_input_layout(register: Callable) -> List[Component]:
         """
         Layout for the input block.

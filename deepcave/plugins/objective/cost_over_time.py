@@ -31,6 +31,7 @@ import dash_bootstrap_components as dbc
 import numpy as np
 import plotly.graph_objs as go
 from dash import dcc, html
+from dash.development.base_component import Component
 from dash.exceptions import PreventUpdate
 from plotly.subplots import make_subplots
 
@@ -39,8 +40,8 @@ from deepcave.plugins.dynamic import DynamicPlugin
 from deepcave.runs import AbstractRun, check_equality
 from deepcave.runs.exceptions import NotMergeableError, RunInequality
 from deepcave.runs.status import Status
-from deepcave.utils.analysis_layout import style_analysis
-from deepcave.utils.layout import get_select_options, help_button
+from deepcave.utils.analysis_layout import analysis_toolbar_item, style_analysis
+from deepcave.utils.layout import get_select_options
 from deepcave.utils.styled_plotty import (
     get_color,
     get_hovertext_from_config,
@@ -61,6 +62,7 @@ class CostOverTime(DynamicPlugin):
     """
 
     id = "cost_over_time"
+    main_objective_input = "objective_id"
     name = "Cost Over Time"
     icon = "fas fa-chart-line"
     help = "plugins/cost_over_time.html"
@@ -75,6 +77,24 @@ class CostOverTime(DynamicPlugin):
     def check_run_compatibility(run: AbstractRun) -> bool:
         """Accept individual Optuna studies as the global basis."""
         return run.prefix == "Optuna"
+
+    @staticmethod
+    def get_additional_run_input_layout(register: Callable) -> Component:
+        """Return the optional comparison studies as a compact toolbar control."""
+        return html.Div(
+            analysis_toolbar_item(
+                "Additional Runs",
+                dcc.Dropdown(
+                    id=register("additional_runs", ["value", "options"]),
+                    multi=True,
+                    placeholder="Add runs ...",
+                    className="cost-over-time__runs-dropdown",
+                    style={"flex": "1 1 auto", "minWidth": 0},
+                ),
+                width="20rem",
+            ),
+            className="analysis-toolbar cost-over-time-toolbar",
+        )
 
     def get_additional_run_candidates(self, active_run: AbstractRun) -> List[AbstractRun]:
         """Return compatible individual Optuna studies except for the active study."""
@@ -145,7 +165,7 @@ class CostOverTime(DynamicPlugin):
         self.budget_options = min(budget_options, key=len)
 
     @staticmethod
-    def get_input_layout(register: Callable) -> List[dbc.Row]:
+    def get_input_layout(register: Callable) -> List[Component]:
         """
         Get the layout for the input block.
 
@@ -157,69 +177,45 @@ class CostOverTime(DynamicPlugin):
 
         Returns
         -------
-        List[dbc.Row]
+        List[Component]
             Layouts for the input block.
         """
         return [
-            dbc.Row(
+            html.Div(
                 [
-                    dbc.Col(
-                        [
-                            dbc.Label("Objective"),
-                            dbc.Select(
-                                id=register("objective_id", ["value", "options"], type=int),
-                                placeholder="Select objective ...",
-                            ),
-                        ],
-                        md=6,
+                    analysis_toolbar_item(
+                        "Budget",
+                        dbc.Select(
+                            id=register("budget_id", ["value", "options"], type=int),
+                            placeholder="Select budget ...",
+                        ),
+                        width="10rem",
+                        help_text=(
+                            "Budget refers to the multi-fidelity budget. Combined budget means "
+                            "that the trial on the highest evaluated budget is used."
+                        ),
                     ),
-                    dbc.Col(
-                        [
-                            dbc.Label("Budget"),
-                            help_button(
-                                "Budget refers to the multi-fidelity budget. "
-                                "Combined budget means that the trial on the highest evaluated "
-                                "budget is used."
+                    analysis_toolbar_item(
+                        "X-Axis",
+                        dbc.Select(
+                            id=register(
+                                "xaxis",
+                                ["value", "options"],
+                                filter=True,
                             ),
-                            dbc.Select(
-                                id=register("budget_id", ["value", "options"], type=int),
-                                placeholder="Select budget ...",
-                            ),
-                        ],
-                        md=6,
+                            placeholder="Select ...",
+                        ),
+                        width="12rem",
                     ),
                 ],
+                className="analysis-toolbar cost-over-time-toolbar",
             ),
         ]
 
     @staticmethod
     def get_filter_layout(register: Callable) -> List[Any]:
-        """
-        Get the layout for the filter block.
-
-        Parameters
-        ----------
-        register : Callable
-            Method to register (user) variables.
-            The register_input function is located in the Plugin superclass.
-
-        Returns
-        -------
-        List[Any]
-            Layouts for the filter block.
-        """
-        return [
-            html.Div(
-                [
-                    dbc.Label("X-Axis"),
-                    dbc.Select(
-                        id=register("xaxis", ["value", "options"]),
-                        placeholder="Select ...",
-                    ),
-                ],
-                className="mb-3",
-            ),
-        ]
+        """Return no separate filter card; the x-axis filter lives in the toolbar."""
+        return []
 
     def load_inputs(self) -> Dict[str, Any]:
         """

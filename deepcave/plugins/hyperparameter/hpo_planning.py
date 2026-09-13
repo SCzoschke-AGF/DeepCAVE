@@ -17,11 +17,13 @@
 
 from typing import Any, Callable, Dict, List, Sequence, Tuple
 
+import math
 import pprint
 
 import dash_bootstrap_components as dbc
 import numpy as np
 import pandas as pd
+import plotly.graph_objs as go
 from ConfigSpace.hyperparameters import (
     CategoricalHyperparameter,
     Constant,
@@ -34,12 +36,22 @@ from dash import ALL, Input, Output, State, ctx, dcc, html, no_update
 from dash.development.base_component import Component
 from dash.exceptions import PreventUpdate
 
-from deepcave import interactive
+from deepcave import config, interactive
 from deepcave.plugins.dynamic import DynamicPlugin
-from deepcave.plugins.hyperparameter.analysis_utils import _get_objectives_without_time
+from deepcave.plugins.hyperparameter.analysis_utils import (
+    _get_objectives_without_time,
+    _is_optuna_run_or_group,
+)
 from deepcave.runs import AbstractRun
 from deepcave.runs.status import Status
-from deepcave.utils.analysis_layout import analysis_toolbar_item
+from deepcave.utils.analysis_layout import (
+    NONBREAKING_RANGE_SEPARATOR,
+    analysis_toolbar_item,
+    bin_label,
+    bin_scale_exponent,
+    style_analysis_panel,
+    superscript_exponent,
+)
 from deepcave.utils.layout import get_select_options, help_button
 
 ELITE_PROPORTION_DEFAULTS = (0.10, 0.05, 0.01)
@@ -49,14 +61,47 @@ NUMERIC_PARAMETER_TYPES = (FloatHyperparameter, IntegerHyperparameter)
 ELITE_MARKER_COLORS = ("#440154", "#21918C", "#D95F02")
 DEFAULT_SLIDER_EXTENSION = 0.25
 SPAN_COMPARISON_TOLERANCE = 0.01
+DEFAULT_TOP_TRIAL_COUNT = 10
+TOP_TRIAL_LIMIT = 100
+INCLUDED_TRIAL_COLOR = "#52B788"
+EXCLUDED_TRIAL_COLOR = "#DC3545"
+INSIGHT_BIN_COUNT = 10
+INSIGHT_Q90_COLOR = "#FF7F0E"
+INSIGHT_MEDIAN_COLOR = "#43A047"
+INSIGHT_TOP_TRIAL_COLOR = "#27364A"
+INSIGHT_ELITE_BAR_OPACITY = 0.65
+INSIGHT_TOP_TRIAL_RUG_Y = -0.12
+INSIGHT_TOP_TRIAL_STEM_Y = -0.07
+INSIGHT_X_TITLE_Y = -0.22
+CACHE_SCHEMA_VERSION = 10
+
+USER_ATTR_PREFIX = "user_attr:"
 
 METADATA_STORE_ID = "hpo-planning-metadata"
 SELECTION_STORE_ID = "hpo-planning-selection"
+TRIALS_STORE_ID = "hpo-planning-trials"
 SIDEBAR_BODY_ID = "hpo-planning-sidebar-body"
 ROWS_ID = "hpo-planning-rows"
 DICT_PREVIEW_ID = "hpo-planning-dict-preview"
 COPY_ID = "hpo-planning-copy"
 RESET_ID = "hpo-planning-reset"
+COVERAGE_GRAPH_ID = "hpo-planning-coverage-graph"
+COVERAGE_BADGE_ID = "hpo-planning-coverage-badge"
+COVERAGE_TITLE_ID = "hpo-planning-coverage-title"
+COVERAGE_SUBTITLE_ID = "hpo-planning-coverage-subtitle"
+SPREAD_ATTRIBUTE_ID = "hpo-planning-spread-attribute"
+SPREAD_TOGGLE_ID = "hpo-planning-spread-toggle"
+SPREAD_MODE_ID = "hpo-planning-spread-mode"
+SPREAD_SCATTER_ID = "hpo-planning-spread-scatter"
+TOP_TRIAL_COUNT_ID = "hpo-planning-top-trial-count"
+INSIGHTS_STORE_ID = "hpo-planning-insights"
+INSIGHT_SELECTION_STORE_ID = "hpo-planning-insight-selection"
+INSIGHT_MODAL_ID = "hpo-planning-insight-modal"
+INSIGHT_MODAL_TITLE_ID = "hpo-planning-insight-modal-title"
+INSIGHT_GRAPH_ID = "hpo-planning-insight-graph"
+INSIGHT_ELITE_CONTROL_ID = "hpo-planning-insight-elite-group"
+INSIGHT_CLOSE_ID = "hpo-planning-insight-close"
+INSIGHT_BUTTON_TYPE = "hpo-planner-insight"
 
 
 def _validate_elite_proportions(values: Sequence[Any]) -> List[float]:
@@ -86,6 +131,45 @@ def _as_python_value(value: Any) -> Any:
     if isinstance(value, np.generic):
         return value.item()
     return value
+
+
+def _is_finite_number(value: Any) -> bool:
+    """Return whether a value is a finite real number, excluding booleans."""
+    return (
+        not isinstance(value, (bool, np.bool_))
+        and isinstance(value, (int, float, np.integer, np.floating))
+        and bool(np.isfinite(value))
+    )
+
+
+def _is_numeric_list(value: Any) -> bool:
+    """Return whether a value is a non-empty list of finite real numbers."""
+    return (
+        isinstance(value, list) and bool(value) and all(_is_finite_number(item) for item in value)
+    )
+
+
+def _trial_user_attrs(trial: Any) -> Dict[str, Any]:
+    """Return one trial's preserved Optuna user attributes."""
+    additional = trial.additional if isinstance(trial.additional, dict) else {}
+    user_attrs = additional.get("user_attrs", {})
+    return user_attrs if isinstance(user_attrs, dict) else {}
+
+
+def _complete_user_attr_names(trials: Sequence[Any], list_values: bool = False) -> List[str]:
+    """Return sorted attributes with valid values on every successful trial."""
+    successful_trials = [trial for trial in trials if trial.status == Status.SUCCESS]
+    if not successful_trials:
+        return []
+    candidate_names = set(_trial_user_attrs(successful_trials[0]))
+    for trial in successful_trials[1:]:
+        candidate_names.intersection_update(_trial_user_attrs(trial))
+    validator = _is_numeric_list if list_values else _is_finite_number
+    return sorted(
+        name
+        for name in candidate_names
+        if all(validator(_trial_user_attrs(trial).get(name)) for trial in successful_trials)
+    )
 
 
 def _nearest_quantile(values: pd.Series, quantile: float) -> float:
@@ -217,6 +301,261 @@ def _summarize_features(
                 )
             rows.append(row)
     return rows
+
+
+def _elite_mask(objectives: pd.Series, optimize: str, proportion: float) -> pd.Series:
+    """Return the run-wide elite mask for one objective and proportion."""
+    threshold_quantile = 1 - proportion if optimize == "upper" else proportion
+    threshold = float(objectives.quantile(threshold_quantile))
+    if optimize == "upper":
+        return objectives >= threshold
+    return objectives <= threshold
+
+
+def _numeric_bin_index(value: Any, edges: np.ndarray, log: bool) -> int:
+    """Map a numerical ConfigSpace value to one of the fixed insight bins."""
+    transformed = _transform_value(float(value), log)
+    return int(np.clip(np.searchsorted(edges, transformed, side="right") - 1, 0, len(edges) - 2))
+
+
+def _center_rug_positions(bin_indices: Sequence[int], bin_count: int) -> List[float]:
+    """Center ranked trial markers in their bins and separate overlapping markers."""
+    positions = [0.0] * len(bin_indices)
+    bin_width = 1 / bin_count
+    minimum_gap = min(0.025, 0.2 * bin_width)
+    for bin_index in set(bin_indices):
+        members = [index for index, value in enumerate(bin_indices) if value == bin_index]
+        center = (bin_index + 0.5) * bin_width
+        start = center - minimum_gap * (len(members) - 1) / 2
+        for offset, member in enumerate(members):
+            positions[member] = start + offset * minimum_gap
+    return positions
+
+
+def _compact_insight_bin_label(value: str) -> str:
+    """Format a regular numeric interval and omit redundant integer decimals."""
+    label = bin_label(value, multiline=False)
+    bounds = label.split(NONBREAKING_RANGE_SEPARATOR)
+    if len(bounds) != 2:
+        return label
+    compact_bounds = [bound[:-2] if bound.endswith(".0") else bound for bound in bounds]
+    return NONBREAKING_RANGE_SEPARATOR.join(compact_bounds)
+
+
+def _scaled_insight_bin_label(left: float, right: float, exponent: int) -> str:
+    """Format a small numeric interval using one shared engineering exponent."""
+    scale = 10**exponent
+    lower = left / scale
+    upper = right / scale
+    width = upper - lower
+    decimals = 2
+    if width > 0 and math.isfinite(width):
+        decimals = max(decimals, min(6, math.ceil(round(-math.log10(width), 6))))
+
+    def format_bound(bound: float) -> str:
+        text = f"{bound:.{decimals}f}"
+        if decimals and text.endswith(f".{('0' * decimals)}"):
+            return text[: -(decimals + 1)]
+        return text
+
+    return NONBREAKING_RANGE_SEPARATOR.join((format_bound(lower), format_bound(upper)))
+
+
+def _insight_numeric_axis(
+    name: str,
+    display_edges: np.ndarray,
+) -> Tuple[List[str], List[str], str]:
+    """Build stable numeric bin keys plus compact tick labels and an axis title."""
+    edge_pairs = list(zip(display_edges[:-1], display_edges[1:]))
+    labels = [f"{_format_value(left)}–{_format_value(right)}" for left, right in edge_pairs]
+    interval_values = [f"({float(left)!r}, {float(right)!r}]" for left, right in edge_pairs]
+    scale_exponent = bin_scale_exponent(interval_values)
+    if scale_exponent is None:
+        tick_labels = [_compact_insight_bin_label(value) for value in interval_values]
+        return labels, tick_labels, name
+
+    tick_labels = [
+        _scaled_insight_bin_label(float(left), float(right), scale_exponent)
+        for left, right in edge_pairs
+    ]
+    axis_title = f"{name} (×10{superscript_exponent(scale_exponent)})"
+    return labels, tick_labels, axis_title
+
+
+def _insight_integer_bins(
+    hyperparameter: IntegerHyperparameter,
+) -> Tuple[List[Tuple[int, int]], List[str], List[str]]:
+    """Split an integer domain into at most ten inclusive, discrete ranges."""
+    lower = int(hyperparameter.lower)
+    upper = int(hyperparameter.upper)
+    value_count = upper - lower + 1
+    bin_count = min(INSIGHT_BIN_COUNT, value_count)
+    base_size, larger_bins = divmod(value_count, bin_count)
+    ranges = []
+    start = lower
+    for index in range(bin_count):
+        size = base_size + (1 if index < larger_bins else 0)
+        end = start + size - 1
+        ranges.append((start, end))
+        start = end + 1
+
+    labels = [str(start) if start == end else f"{start}–{end}" for start, end in ranges]
+    tick_labels = [
+        str(start) if start == end else NONBREAKING_RANGE_SEPARATOR.join((str(start), str(end)))
+        for start, end in ranges
+    ]
+    return ranges, labels, tick_labels
+
+
+def _integer_bin_index(value: Any, ranges: Sequence[Tuple[int, int]]) -> int:
+    """Map an integer value to its inclusive discrete insight range."""
+    integer_value = int(value)
+    for index, (lower, upper) in enumerate(ranges):
+        if lower <= integer_value <= upper:
+            return index
+    return 0 if integer_value < ranges[0][0] else len(ranges) - 1
+
+
+def _parameter_insights(
+    trials: Sequence[Dict[str, Any]],
+    configspace: Any,
+    optimize: str,
+    elite_proportions: Sequence[float],
+) -> List[Dict[str, Any]]:
+    """Aggregate performance and elite enrichment over shared parameter ranges."""
+    objectives = pd.Series([trial["objective"] for trial in trials], dtype=float)
+    elite_masks = {
+        float(proportion): _elite_mask(objectives, optimize, float(proportion))
+        for proportion in elite_proportions
+    }
+    insights = []
+
+    for index, name in enumerate(configspace.keys()):
+        hyperparameter = configspace[name]
+        parameter_type = _parameter_type(hyperparameter)
+        active_rows = [
+            (trial["configuration"].get(name), trial["objective"], row_index)
+            for row_index, trial in enumerate(trials)
+            if trial["configuration"].get(name) is not None
+        ]
+        row_bin_indices: Dict[int, int] = {}
+
+        if isinstance(hyperparameter, IntegerHyperparameter):
+            integer_ranges, labels, tick_labels = _insight_integer_bins(hyperparameter)
+            axis_title = name
+            grouped_rows = [[] for _ in integer_ranges]
+            for row in active_rows:
+                bin_index = _integer_bin_index(row[0], integer_ranges)
+                grouped_rows[bin_index].append(row)
+                row_bin_indices[row[2]] = bin_index
+        elif isinstance(hyperparameter, FloatHyperparameter):
+            log = bool(getattr(hyperparameter, "log", False))
+            transformed_edges = np.linspace(
+                _transform_value(float(hyperparameter.lower), log),
+                _transform_value(float(hyperparameter.upper), log),
+                INSIGHT_BIN_COUNT + 1,
+            )
+            display_edges = np.exp(transformed_edges) if log else transformed_edges
+            labels, tick_labels, axis_title = _insight_numeric_axis(
+                name,
+                display_edges,
+            )
+            grouped_rows: List[List[Tuple[Any, float, int]]] = [
+                [] for _ in range(INSIGHT_BIN_COUNT)
+            ]
+            for row in active_rows:
+                bin_index = _numeric_bin_index(row[0], transformed_edges, log)
+                grouped_rows[bin_index].append(row)
+                row_bin_indices[row[2]] = bin_index
+        else:
+            choices = _categorical_choices(hyperparameter)
+            labels = [_format_value(choice) for choice in choices]
+            tick_labels = labels
+            axis_title = name
+            grouped_rows = [[] for _ in choices]
+            for row in active_rows:
+                bin_index = next(
+                    (
+                        choice_index
+                        for choice_index, choice in enumerate(choices)
+                        if row[0] == choice
+                    ),
+                    None,
+                )
+                if bin_index is not None:
+                    grouped_rows[bin_index].append(row)
+                    row_bin_indices[row[2]] = bin_index
+
+        active_count = len(active_rows)
+        medians = []
+        q90_values = []
+        trial_counts = []
+        for rows in grouped_rows:
+            values = pd.Series([row[1] for row in rows], dtype=float)
+            trial_count = len(rows)
+            medians.append(None if values.empty else float(values.median()))
+            q90_values.append(None if values.empty else float(values.quantile(0.90)))
+            trial_counts.append(trial_count)
+
+        elite_groups = []
+        for color, proportion in zip(ELITE_MARKER_COLORS, elite_proportions):
+            proportion = float(proportion)
+            elite_mask = elite_masks[proportion]
+            active_elite_count = sum(bool(elite_mask.iloc[row[2]]) for row in active_rows)
+            enrichments = []
+            elite_counts = []
+            for rows, trial_count in zip(grouped_rows, trial_counts):
+                elite_count = sum(bool(elite_mask.iloc[row[2]]) for row in rows)
+                overall_share = trial_count / active_count if active_count else 0.0
+                elite_share = elite_count / active_elite_count if active_elite_count else 0.0
+                enrichment = elite_share / overall_share if overall_share else 0.0
+                enrichments.append(float(enrichment))
+                elite_counts.append(elite_count)
+            elite_groups.append(
+                {
+                    "proportion": proportion,
+                    "label": _group_label(proportion),
+                    "color": color,
+                    "enrichment": enrichments,
+                    "elite_counts": elite_counts,
+                }
+            )
+
+        ranked_active_rows = sorted(
+            active_rows,
+            key=lambda row: (
+                row[1] if optimize == "lower" else -row[1],
+                int(trials[row[2]].get("trial_number", row[2])),
+            ),
+        )[:5]
+        top_trials = [
+            {
+                "rank": rank,
+                "bin_index": row_bin_indices[row[2]],
+                "trial_number": trials[row[2]].get("trial_number", row[2]),
+                "objective": row[1],
+                "value": _as_python_value(row[0]),
+            }
+            for rank, row in enumerate(ranked_active_rows, start=1)
+            if row[2] in row_bin_indices
+        ]
+
+        insights.append(
+            {
+                "index": index,
+                "name": name,
+                "parameter_type": parameter_type,
+                "labels": labels,
+                "tick_labels": tick_labels,
+                "axis_title": axis_title,
+                "median": medians,
+                "q90": q90_values,
+                "trial_counts": trial_counts,
+                "elite_groups": elite_groups,
+                "top_trials": top_trials,
+            }
+        )
+    return insights
 
 
 def _format_value(value: Any) -> str:
@@ -477,6 +816,19 @@ def _python_space_preview(
     return pprint.pformat(_python_space(metadata, selection), sort_dicts=False, width=56)
 
 
+def _insight_button(parameter: Dict[str, Any]) -> Component:
+    """Return the button opening the combined parameter-insight plot."""
+    return dbc.Button(
+        html.I(className="fas fa-chart-bar"),
+        id={"type": INSIGHT_BUTTON_TYPE, "index": parameter["index"]},
+        n_clicks=0,
+        color="link",
+        size="sm",
+        title=f"Show performance and elite enrichment for {parameter['name']}",
+        className="planner-insight-button",
+    )
+
+
 def _numeric_row(parameter: Dict[str, Any], selection: Dict[str, Any]) -> Component:
     """Render one compact numerical planning row."""
     index = parameter["index"]
@@ -486,7 +838,13 @@ def _numeric_row(parameter: Dict[str, Any], selection: Dict[str, Any]) -> Compon
     input_step = step if step is not None else "any"
     return html.Div(
         [
-            html.Div(parameter["name"], className="planner-parameter-name"),
+            html.Div(
+                [
+                    html.Span(parameter["name"], className="planner-parameter-name"),
+                    _insight_button(parameter),
+                ],
+                className="planner-parameter-heading",
+            ),
             html.Div(
                 [
                     html.Div(
@@ -581,7 +939,13 @@ def _categorical_row(parameter: Dict[str, Any], selection: Dict[str, Any]) -> Co
         )
     return html.Div(
         [
-            html.Div(parameter["name"], className="planner-parameter-name"),
+            html.Div(
+                [
+                    html.Span(parameter["name"], className="planner-parameter-name"),
+                    _insight_button(parameter),
+                ],
+                className="planner-parameter-heading",
+            ),
             html.Div(
                 [
                     dcc.Dropdown(
@@ -676,15 +1040,513 @@ def _planner_legend() -> Component:
     )
 
 
+def _trial_violations(
+    trial: Dict[str, Any],
+    metadata: Sequence[Dict[str, Any]],
+    selection: Dict[str, Dict[str, Any]],
+) -> List[str]:
+    """Return selected-space constraints violated by one trial configuration."""
+    configuration = trial["configuration"]
+    violations = []
+    for parameter in metadata:
+        name = parameter["name"]
+        # Inactive conditional parameters do not constrain the configuration.
+        if name not in configuration or configuration[name] is None:
+            continue
+        value = configuration[name]
+        selected = selection[name]
+        if parameter["parameter_type"] in ("integer", "float"):
+            try:
+                included = float(selected["min"]) <= float(value) <= float(selected["max"])
+            except (TypeError, ValueError):
+                included = False
+        else:
+            included = value in selected["choices"]
+        if not included:
+            violations.append(name)
+    return violations
+
+
+def _coverage_state(
+    trials: Sequence[Dict[str, Any]],
+    metadata: Sequence[Dict[str, Any]],
+    selection: Dict[str, Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Attach live inclusion and violation information to ranked top trials."""
+    state = []
+    for trial in trials:
+        violations = _trial_violations(trial, metadata, selection)
+        state.append({**trial, "included": not violations, "violations": violations})
+    return state
+
+
+def _coverage_badge(coverage: Sequence[Dict[str, Any]]) -> str:
+    """Return the compact top-trial coverage summary."""
+    included = sum(trial["included"] for trial in coverage)
+    return f"Included top trials: {included} / {len(coverage)}"
+
+
+def _spread_control_state(spread_attribute: Any) -> Tuple[bool, bool]:
+    """Enable and initially select spread display when an attribute is selected."""
+    selected = bool(spread_attribute)
+    return not selected, selected
+
+
+def _spread_mode_options(disabled: bool) -> List[Dict[str, Any]]:
+    """Return SD and range options with a shared disabled state."""
+    return [
+        {"label": "SD", "value": "sd", "disabled": disabled},
+        {"label": "Range", "value": "range", "disabled": disabled},
+    ]
+
+
+def _coverage_trial_count(
+    total_trials: int,
+    top_trial_count: Any = DEFAULT_TOP_TRIAL_COUNT,
+) -> int:
+    """Return the requested number of trials, bounded by availability and 100."""
+    try:
+        requested_count = min(TOP_TRIAL_LIMIT, max(1, int(float(top_trial_count))))
+    except (OverflowError, TypeError, ValueError):
+        requested_count = DEFAULT_TOP_TRIAL_COUNT
+    return min(max(0, int(total_trials)), requested_count)
+
+
+def _visible_coverage_trials(
+    coverage_data: Dict[str, Any],
+    top_trial_count: Any,
+) -> List[Dict[str, Any]]:
+    """Slice the pre-ranked coverage candidates to the selected trial count."""
+    trial_count = _coverage_trial_count(coverage_data["total_trials"], top_trial_count)
+    return list(coverage_data["trials"][:trial_count])
+
+
+def _coverage_title(top_trial_count: Any) -> str:
+    """Return the live coverage card title."""
+    trial_count = _coverage_trial_count(TOP_TRIAL_LIMIT, top_trial_count)
+    return f"Top-{trial_count} trial coverage (max. {TOP_TRIAL_LIMIT})"
+
+
+def _coverage_subtitle(top_trial_count: Any) -> str:
+    """Return the live coverage card explanation."""
+    trial_count = _coverage_trial_count(TOP_TRIAL_LIMIT, top_trial_count)
+    noun = "trial" if trial_count == 1 else "trials"
+    return (
+        f"Best {trial_count} {noun} ranked by the main objective; green points are "
+        "still inside the current selection."
+    )
+
+
+def _coverage_figure(
+    trials: Sequence[Dict[str, Any]],
+    metadata: Sequence[Dict[str, Any]],
+    selection: Dict[str, Dict[str, Any]],
+    objective_name: str,
+    optimize: str,
+    spread_attribute: Any = None,
+    show_spread: bool = False,
+    spread_mode: str = "sd",
+    show_scatter: bool = False,
+) -> go.Figure:
+    """Plot direction-aware trial rank against objective and current range coverage."""
+    coverage = _coverage_state(trials, metadata, selection)
+    figure = go.Figure()
+    spread_enabled = bool(
+        show_spread
+        and spread_attribute
+        and all(spread_attribute in trial.get("spread_values", {}) for trial in coverage)
+    )
+    range_traces = []
+    scatter_traces = []
+    for included, name, color, opacity in (
+        (True, "Included in current range", INCLUDED_TRIAL_COLOR, 0.95),
+        (False, "Excluded from current range", EXCLUDED_TRIAL_COLOR, 0.62),
+    ):
+        matching = [trial for trial in coverage if trial["included"] is included]
+        customdata = [
+            [
+                trial["trial_number"],
+                len(trial["violations"]),
+                ", ".join(trial["violations"]) or "None",
+            ]
+            for trial in matching
+        ]
+        error_y = None
+        spread_hover = ""
+        if spread_enabled:
+            spread_values = [trial["spread_values"][spread_attribute] for trial in matching]
+            if spread_mode == "range":
+                spread_minima = [float(min(values)) for values in spread_values]
+                spread_maxima = [float(max(values)) for values in spread_values]
+                for row, values, minimum, maximum in zip(
+                    customdata, spread_values, spread_minima, spread_maxima
+                ):
+                    row.extend(
+                        [
+                            minimum,
+                            maximum,
+                            "[" + ", ".join(_format_value(value) for value in values) + "]",
+                        ]
+                    )
+                if matching:
+                    range_centers = [
+                        (minimum + maximum) / 2
+                        for minimum, maximum in zip(spread_minima, spread_maxima)
+                    ]
+                    range_half_widths = [
+                        (maximum - minimum) / 2
+                        for minimum, maximum in zip(spread_minima, spread_maxima)
+                    ]
+                    range_traces.append(
+                        go.Scatter(
+                            x=[trial["rank"] for trial in matching],
+                            y=range_centers,
+                            mode="markers",
+                            showlegend=False,
+                            marker={"size": 1, "opacity": 0},
+                            error_y={
+                                "type": "data",
+                                "array": range_half_widths,
+                                "visible": True,
+                                "color": color,
+                                "thickness": 1.2,
+                                "width": 3,
+                            },
+                            hoverinfo="skip",
+                        )
+                    )
+                spread_hover = (
+                    f"{spread_attribute} range: %{{customdata[3]:.6g}}–"
+                    "%{customdata[4]:.6g}<br>Values: %{customdata[5]}<br>"
+                )
+            else:
+                spread_deviations = [float(np.std(values, ddof=0)) for values in spread_values]
+                for row, values, deviation in zip(customdata, spread_values, spread_deviations):
+                    row.extend(
+                        [
+                            deviation,
+                            "[" + ", ".join(_format_value(value) for value in values) + "]",
+                        ]
+                    )
+                error_y = {
+                    "type": "data",
+                    "array": spread_deviations,
+                    "visible": True,
+                    "color": color,
+                    "thickness": 1.2,
+                    "width": 3,
+                }
+                spread_hover = (
+                    f"{spread_attribute} SD: %{{customdata[3]:.6g}}<br>"
+                    "Values: %{customdata[4]}<br>"
+                )
+
+            if show_scatter and matching:
+                scatter_x = []
+                scatter_y = []
+                scatter_customdata = []
+                for trial, values in zip(matching, spread_values):
+                    offsets = np.linspace(-0.12, 0.12, len(values)) if len(values) > 1 else [0.0]
+                    for offset, value in zip(offsets, values):
+                        scatter_x.append(float(trial["rank"]) + float(offset))
+                        scatter_y.append(float(value))
+                        scatter_customdata.append([trial["trial_number"], trial["rank"]])
+                scatter_traces.append(
+                    go.Scatter(
+                        x=scatter_x,
+                        y=scatter_y,
+                        mode="markers",
+                        name=f"{spread_attribute} values",
+                        showlegend=False,
+                        marker={"color": color, "size": 5, "opacity": 0.55},
+                        customdata=scatter_customdata,
+                        hovertemplate=(
+                            "<b>Trial %{customdata[0]}</b><br>"
+                            "Rank: %{customdata[1]}<br>"
+                            f"{spread_attribute}: %{{y:.6g}}<extra></extra>"
+                        ),
+                    )
+                )
+        figure.add_trace(
+            go.Scatter(
+                x=[trial["rank"] for trial in matching],
+                y=[trial["objective"] for trial in matching],
+                mode="markers",
+                name=name,
+                showlegend=not included,
+                marker={"color": color, "size": 8, "opacity": opacity},
+                error_y=error_y,
+                customdata=customdata,
+                hovertemplate=(
+                    "<b>Trial %{customdata[0]}</b><br>"
+                    "Rank: %{x}<br>"
+                    f"{objective_name}: %{{y:.6g}}<br>"
+                    f"{spread_hover}"
+                    f"Included: {'Yes' if included else 'No'}<br>"
+                    "Violated parameters: %{customdata[1]}<br>"
+                    "%{customdata[2]}<extra></extra>"
+                ),
+            )
+        )
+
+    for range_trace in range_traces:
+        figure.add_trace(range_trace)
+    for scatter_trace in scatter_traces:
+        figure.add_trace(scatter_trace)
+
+    trial_count = len(coverage)
+    tick_values = [1]
+    tick_values.extend(range(5, trial_count + 1, 5))
+    if trial_count > 1 and trial_count not in tick_values:
+        tick_values.append(trial_count)
+    tick_values = sorted(set(value for value in tick_values if value <= trial_count))
+    direction = "higher is better" if optimize == "upper" else "lower is better"
+    figure.update_xaxes(
+        title_text="Trial rank",
+        tickmode="array",
+        tickvals=tick_values,
+        range=[0.3, max(1.7, trial_count + 0.7)],
+    )
+    figure.update_yaxes(title_text=f"{objective_name} ({direction})")
+
+    positive_objectives = [trial["objective"] for trial in coverage if trial["objective"] > 0]
+    if (
+        len(positive_objectives) == trial_count
+        and trial_count > 1
+        and max(positive_objectives) / min(positive_objectives) >= 100
+    ):
+        figure.update_yaxes(type="log")
+
+    style_analysis_panel(
+        figure,
+        height=300,
+        bottom=54,
+        top=36,
+        left=70,
+        right=22,
+        show_legend=any(not trial["included"] for trial in coverage),
+    )
+    figure.update_layout(
+        legend={
+            "orientation": "h",
+            "x": 1,
+            "xanchor": "right",
+            "y": 1.03,
+            "yanchor": "bottom",
+            "font": {"size": 11},
+        },
+        hovermode="closest",
+        uirevision="hpo-planning-coverage",
+    )
+    return figure
+
+
+def _add_insight_top_trials_rug(figure: go.Figure, insight: Dict[str, Any]) -> None:
+    """Mark the five best active trials below their corresponding panel bins."""
+    top_trials = insight.get("top_trials") or []
+    labels = insight["labels"]
+    if not top_trials or not labels:
+        return
+    positions = _center_rug_positions(
+        [trial["bin_index"] for trial in top_trials],
+        len(labels),
+    )
+    for x_value, trial in zip(positions, top_trials):
+        figure.add_shape(
+            type="line",
+            xref="paper",
+            yref="paper",
+            x0=x_value,
+            x1=x_value,
+            y0=INSIGHT_TOP_TRIAL_RUG_Y,
+            y1=INSIGHT_TOP_TRIAL_STEM_Y,
+            line={"color": "#D9DEE7", "width": 1},
+        )
+        annotation = {
+            "x": x_value,
+            "xref": "paper",
+            "y": INSIGHT_TOP_TRIAL_RUG_Y,
+            "yref": "paper",
+            "xanchor": "center",
+            "yanchor": "middle",
+            "showarrow": False,
+            "captureevents": False,
+        }
+        figure.add_annotation(
+            **annotation,
+            text="◆",
+            font={"color": INSIGHT_TOP_TRIAL_COLOR, "size": 21},
+            name=f"top_trial_marker_{trial['rank']}",
+        )
+        figure.add_annotation(
+            **annotation,
+            text=str(trial["rank"]),
+            font={"color": "#FFFFFF", "size": 9},
+            name=f"top_trial_rank_{trial['rank']}",
+        )
+    figure.add_annotation(
+        text="Top 5 trials",
+        xref="paper",
+        yref="paper",
+        x=0,
+        xshift=-5,
+        xanchor="right",
+        y=INSIGHT_TOP_TRIAL_RUG_Y,
+        yanchor="middle",
+        showarrow=False,
+        font={"size": 9, "color": INSIGHT_TOP_TRIAL_COLOR},
+    )
+    figure.add_shape(
+        type="line",
+        xref="paper",
+        yref="paper",
+        x0=0,
+        x1=1,
+        y0=INSIGHT_TOP_TRIAL_RUG_Y,
+        y1=INSIGHT_TOP_TRIAL_RUG_Y,
+        line={"color": "#D9DEE7", "width": 1},
+    )
+
+
+def _parameter_insight_figure(
+    insight: Dict[str, Any],
+    objective_name: str,
+    elite_proportion: Any,
+) -> go.Figure:
+    """Combine elite enrichment and objective summaries on two vertical axes."""
+    labels = insight["labels"]
+    elite_group = next(
+        (
+            group
+            for group in insight["elite_groups"]
+            if elite_proportion is not None and np.isclose(group["proportion"], elite_proportion)
+        ),
+        insight["elite_groups"][0],
+    )
+    figure = go.Figure()
+    figure.add_trace(
+        go.Bar(
+            x=labels,
+            y=elite_group["enrichment"],
+            name=f"Elite enrichment ({elite_group['label']})",
+            marker={
+                "color": elite_group["color"],
+                "opacity": INSIGHT_ELITE_BAR_OPACITY,
+            },
+            hoverinfo="skip",
+        )
+    )
+    figure.add_trace(
+        go.Scatter(
+            x=labels,
+            y=insight["q90"],
+            name="q90",
+            mode="lines+markers",
+            yaxis="y2",
+            line={"color": INSIGHT_Q90_COLOR, "width": 2},
+            marker={"size": 6},
+            hoverinfo="skip",
+        )
+    )
+    figure.add_trace(
+        go.Scatter(
+            x=labels,
+            y=insight["median"],
+            name="median",
+            mode="lines+markers",
+            yaxis="y2",
+            line={"color": INSIGHT_MEDIAN_COLOR, "width": 2},
+            marker={"size": 6},
+            hoverinfo="skip",
+        )
+    )
+    figure.add_trace(
+        go.Scatter(
+            x=labels,
+            y=[1.0] * len(labels),
+            name="1.0× baseline",
+            mode="lines",
+            line={"color": "#DC3545", "width": 1.5, "dash": "dash"},
+            hoverinfo="skip",
+        )
+    )
+
+    style_analysis_panel(
+        figure,
+        height=520,
+        bottom=110,
+        top=62,
+        left=72,
+        right=82,
+        show_legend=True,
+    )
+    figure.update_layout(
+        barmode="overlay",
+        hovermode=False,
+        legend={
+            "orientation": "h",
+            "x": 1,
+            "xanchor": "right",
+            "y": 1.04,
+            "yanchor": "bottom",
+            "font": {"size": 11},
+        },
+        yaxis={"title": "Elite enrichment", "rangemode": "tozero"},
+        yaxis2={
+            "title": objective_name,
+            "overlaying": "y",
+            "side": "right",
+            "showgrid": False,
+        },
+        uirevision=(f"hpo-planning-insight-{insight['name']}-{elite_group['proportion']}"),
+    )
+    figure.update_xaxes(
+        title_text=None,
+        type="category",
+        tickmode="array",
+        tickvals=labels,
+        ticktext=insight.get("tick_labels", labels),
+        tickangle=0,
+        categoryorder="array",
+        categoryarray=labels,
+    )
+    _add_insight_top_trials_rug(figure, insight)
+    figure.add_annotation(
+        name="insight_x_title",
+        text=insight.get("axis_title", insight["name"]),
+        xref="paper",
+        yref="paper",
+        x=0.5,
+        y=INSIGHT_X_TITLE_Y,
+        xanchor="center",
+        yanchor="middle",
+        showarrow=False,
+        font={"size": 13},
+    )
+    return figure
+
+
 def _planner_layout(
     metadata: List[Dict[str, Any]],
     selection: Dict[str, Dict[str, Any]],
+    coverage_data: Dict[str, Any],
+    insights: List[Dict[str, Any]],
 ) -> Component:
-    """Return the two-column planner with immutable metadata and mutable selection stores."""
+    """Return the planner, sidebar, and live top-trial coverage card."""
+    visible_trials = _visible_coverage_trials(coverage_data, DEFAULT_TOP_TRIAL_COUNT)
+    coverage = _coverage_state(visible_trials, metadata, selection)
+    elite_groups = insights[0]["elite_groups"] if insights else []
+    elite_options = [
+        {"label": group["label"], "value": group["proportion"]} for group in elite_groups
+    ]
+    default_elite_proportion = elite_groups[0]["proportion"] if elite_groups else None
     return html.Div(
         [
             dcc.Store(id=METADATA_STORE_ID, data=metadata),
             dcc.Store(id=SELECTION_STORE_ID, data=selection),
+            dcc.Store(id=TRIALS_STORE_ID, data=coverage_data),
+            dcc.Store(id=INSIGHTS_STORE_ID, data=insights),
+            dcc.Store(id=INSIGHT_SELECTION_STORE_ID, data=None),
             html.Div(
                 [
                     html.Div(
@@ -694,10 +1556,6 @@ def _planner_layout(
                                     html.Div(
                                         "Parameter range planner",
                                         className="planner-card-title",
-                                    ),
-                                    html.Div(
-                                        "Adjust ranges graphically or edit original values.",
-                                        className="planner-card-subtitle",
                                     ),
                                 ]
                             ),
@@ -772,6 +1630,198 @@ def _planner_layout(
                     ),
                 ],
                 className="analysis-card planner-sidebar-card",
+            ),
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Div(
+                                        _coverage_title(DEFAULT_TOP_TRIAL_COUNT),
+                                        id=COVERAGE_TITLE_ID,
+                                        className="planner-card-title",
+                                    ),
+                                    html.Div(
+                                        _coverage_subtitle(DEFAULT_TOP_TRIAL_COUNT),
+                                        id=COVERAGE_SUBTITLE_ID,
+                                        className="planner-card-subtitle",
+                                    ),
+                                ]
+                            ),
+                            html.Span(
+                                _coverage_badge(coverage),
+                                id=COVERAGE_BADGE_ID,
+                                className="planner-coverage-badge",
+                            ),
+                        ],
+                        className="planner-coverage-heading",
+                    ),
+                    dcc.Graph(
+                        id=COVERAGE_GRAPH_ID,
+                        figure=_coverage_figure(
+                            visible_trials,
+                            metadata,
+                            selection,
+                            coverage_data["objective_name"],
+                            coverage_data["optimize"],
+                        ),
+                        responsive=True,
+                        style={"width": "100%", "height": "300px"},
+                        config={
+                            "displaylogo": False,
+                            "toImageButtonOptions": {"scale": config.FIGURE_DOWNLOAD_SCALE},
+                        },
+                    ),
+                    html.Div(
+                        [
+                            dbc.Label(
+                                "Top trials",
+                                html_for=TOP_TRIAL_COUNT_ID,
+                                className="small text-muted mb-1",
+                            ),
+                            dcc.Slider(
+                                id=TOP_TRIAL_COUNT_ID,
+                                min=1,
+                                max=100,
+                                step=1,
+                                value=DEFAULT_TOP_TRIAL_COUNT,
+                                marks={1: "1", 10: "10", 25: "25", 50: "50", 100: "100"},
+                                tooltip={"placement": "bottom", "always_visible": False},
+                            ),
+                        ],
+                        className="planner-coverage-trial-count",
+                    ),
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    dbc.Label(
+                                        "Spread attribute",
+                                        html_for=SPREAD_ATTRIBUTE_ID,
+                                        className="small text-muted mb-1",
+                                    ),
+                                    dcc.Dropdown(
+                                        id=SPREAD_ATTRIBUTE_ID,
+                                        options=get_select_options(
+                                            coverage_data["spread_attributes"]
+                                        ),
+                                        value=None,
+                                        clearable=True,
+                                        disabled=not bool(coverage_data["spread_attributes"]),
+                                        placeholder="Select numeric list user_attr ...",
+                                    ),
+                                ],
+                                className="planner-coverage-spread-select",
+                            ),
+                            html.Div(
+                                [
+                                    html.Div(
+                                        [
+                                            dbc.Label(
+                                                "Error bars",
+                                                html_for=SPREAD_MODE_ID,
+                                                className="small text-muted mb-1",
+                                            ),
+                                            dbc.RadioItems(
+                                                id=SPREAD_MODE_ID,
+                                                options=_spread_mode_options(disabled=True),
+                                                value="sd",
+                                                inline=True,
+                                                className="planner-coverage-spread-mode",
+                                            ),
+                                        ]
+                                    ),
+                                    html.Div(
+                                        [
+                                            dbc.Label(
+                                                "Options",
+                                                className="small text-muted mb-1",
+                                            ),
+                                            html.Div(
+                                                [
+                                                    dbc.Checkbox(
+                                                        id=SPREAD_TOGGLE_ID,
+                                                        label="Show spread",
+                                                        value=False,
+                                                        disabled=True,
+                                                        className=(
+                                                            "planner-coverage-spread-toggle"
+                                                        ),
+                                                    ),
+                                                    dbc.Checkbox(
+                                                        id=SPREAD_SCATTER_ID,
+                                                        label="Scatter",
+                                                        value=False,
+                                                        disabled=True,
+                                                        className=(
+                                                            "planner-coverage-spread-toggle"
+                                                        ),
+                                                    ),
+                                                ],
+                                                className="planner-coverage-option-toggles",
+                                            ),
+                                        ],
+                                        className="planner-coverage-options-group",
+                                    ),
+                                ],
+                                className="planner-coverage-spread-options",
+                            ),
+                        ],
+                        className="planner-coverage-controls",
+                    ),
+                ],
+                className="analysis-card planner-coverage-card",
+            ),
+            dbc.Offcanvas(
+                [
+                    html.Div(
+                        id=INSIGHT_MODAL_TITLE_ID,
+                        className="planner-insight-panel-subtitle",
+                    ),
+                    html.Div(
+                        [
+                            html.Span(
+                                "Elite group",
+                                className="planner-insight-elite-label",
+                            ),
+                            dbc.RadioItems(
+                                id=INSIGHT_ELITE_CONTROL_ID,
+                                options=elite_options,
+                                value=default_elite_proportion,
+                                className="btn-group planner-insight-elite-control",
+                                inputClassName="btn-check",
+                                labelClassName="btn btn-outline-primary btn-sm",
+                                labelCheckedClassName="active",
+                            ),
+                        ],
+                        className="planner-insight-elite-selector",
+                    ),
+                    dcc.Graph(
+                        id=INSIGHT_GRAPH_ID,
+                        responsive=True,
+                        style={"width": "100%", "height": "520px"},
+                        config={
+                            "displaylogo": False,
+                            "toImageButtonOptions": {"scale": config.FIGURE_DOWNLOAD_SCALE},
+                        },
+                    ),
+                    dbc.Button(
+                        "Close",
+                        id=INSIGHT_CLOSE_ID,
+                        color="secondary",
+                        className="planner-insight-close",
+                        n_clicks=0,
+                    ),
+                ],
+                id=INSIGHT_MODAL_ID,
+                title="Parameter detail",
+                is_open=False,
+                placement="end",
+                backdrop=False,
+                scrollable=True,
+                autofocus=False,
+                className="planner-insight-panel",
             ),
         ],
         className="hpo-planning-grid",
@@ -1050,11 +2100,18 @@ class HPOPlanning(DynamicPlugin):
     icon = "fas fa-drafting-compass"
     help = "plugins/hpo_planning.html"
     activate_run_selection = True
+    main_objective_input = "objective_id"
+    main_objective_input_type = None
+
+    def _dict_as_key(self, data: Dict[str, Any], remove_filters: bool = False) -> str:
+        """Version cached process outputs when their serialized schema changes."""
+        key = super()._dict_as_key(data, remove_filters=remove_filters)
+        return f"{key}-v{CACHE_SCHEMA_VERSION}"
 
     @staticmethod
     def check_run_compatibility(run: AbstractRun) -> bool:
-        """Accept non-empty Optuna studies with at least one hyperparameter."""
-        return run.prefix == "Optuna" and not run.empty() and len(run.configspace) > 0
+        """Accept non-empty Optuna studies and Optuna-only groups."""
+        return _is_optuna_run_or_group(run) and not run.empty() and len(run.configspace) > 0
 
     @staticmethod
     def get_input_layout(register: Callable) -> List[Component]:
@@ -1062,13 +2119,9 @@ class HPOPlanning(DynamicPlugin):
         return [
             html.Div(
                 [
-                    analysis_toolbar_item(
-                        "Objective",
-                        dbc.Select(
-                            id=register("objective_id", ["value", "options"], type=int),
-                            placeholder="Select objective ...",
-                        ),
-                        width="11rem",
+                    dcc.Dropdown(
+                        id=register("objective_direction", ["value", "options"]),
+                        style={"display": "none"},
                     ),
                     html.Div(
                         [
@@ -1118,6 +2171,10 @@ class HPOPlanning(DynamicPlugin):
                 Output(SIDEBAR_BODY_ID, "children"),
                 Output(DICT_PREVIEW_ID, "children"),
                 Output(COPY_ID, "content"),
+                Output(COVERAGE_GRAPH_ID, "figure"),
+                Output(COVERAGE_BADGE_ID, "children"),
+                Output(COVERAGE_TITLE_ID, "children"),
+                Output(COVERAGE_SUBTITLE_ID, "children"),
             ],
             [
                 Input({"type": "hpo-planner-range", "index": ALL}, "value"),
@@ -1125,10 +2182,16 @@ class HPOPlanning(DynamicPlugin):
                 Input({"type": "hpo-planner-max", "index": ALL}, "value"),
                 Input({"type": "hpo-planner-categories", "index": ALL}, "value"),
                 Input(RESET_ID, "n_clicks"),
+                Input(SPREAD_ATTRIBUTE_ID, "value"),
+                Input(SPREAD_TOGGLE_ID, "value"),
+                Input(SPREAD_MODE_ID, "value"),
+                Input(SPREAD_SCATTER_ID, "value"),
+                Input(TOP_TRIAL_COUNT_ID, "value"),
             ],
             [
                 State(METADATA_STORE_ID, "data"),
                 State(SELECTION_STORE_ID, "data"),
+                State(TRIALS_STORE_ID, "data"),
             ],
             prevent_initial_call=True,
         )
@@ -1138,11 +2201,48 @@ class HPOPlanning(DynamicPlugin):
             _maxima: List[Any],
             _categories: List[Any],
             _reset_clicks: int,
+            spread_attribute: Any,
+            show_spread: bool,
+            spread_mode: str,
+            show_scatter: bool,
+            top_trial_count: Any,
             metadata: List[Dict[str, Any]],
             selection: Dict[str, Dict[str, Any]],
+            coverage_data: Dict[str, Any],
         ) -> Any:
-            if not metadata or not selection:
-                return [no_update] * 5
+            if not metadata or not selection or not coverage_data:
+                return [no_update] * 9
+            visible_trials = _visible_coverage_trials(coverage_data, top_trial_count)
+            coverage_control_triggered = isinstance(ctx.triggered_id, str) and ctx.triggered_id in {
+                SPREAD_ATTRIBUTE_ID,
+                SPREAD_TOGGLE_ID,
+                SPREAD_MODE_ID,
+                SPREAD_SCATTER_ID,
+                TOP_TRIAL_COUNT_ID,
+            }
+            if coverage_control_triggered:
+                coverage = _coverage_state(visible_trials, metadata, selection)
+                return [
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    _coverage_figure(
+                        visible_trials,
+                        metadata,
+                        selection,
+                        coverage_data["objective_name"],
+                        coverage_data["optimize"],
+                        spread_attribute,
+                        show_spread,
+                        spread_mode,
+                        show_scatter,
+                    ),
+                    _coverage_badge(coverage),
+                    _coverage_title(top_trial_count),
+                    _coverage_subtitle(top_trial_count),
+                ]
             triggered_value = ctx.triggered[0].get("value") if ctx.triggered else None
             updated = _updated_selection(metadata, selection, ctx.triggered_id, triggered_value)
             if updated == selection:
@@ -1152,27 +2252,134 @@ class HPOPlanning(DynamicPlugin):
                     ctx.triggered_id,
                     triggered_value,
                 ):
-                    return [
-                        no_update,
-                        _planner_rows(metadata, selection),
-                        no_update,
-                        no_update,
-                        no_update,
-                    ]
-                return [no_update] * 5
+                    return [no_update, _planner_rows(metadata, selection)] + [no_update] * 7
+                return [no_update] * 9
             preview = _python_space_preview(metadata, updated)
+            coverage = _coverage_state(visible_trials, metadata, updated)
             return [
                 updated,
                 _planner_rows(metadata, updated),
                 _sidebar_summary(metadata, updated),
                 preview,
                 preview,
+                _coverage_figure(
+                    visible_trials,
+                    metadata,
+                    updated,
+                    coverage_data["objective_name"],
+                    coverage_data["optimize"],
+                    spread_attribute,
+                    show_spread,
+                    spread_mode,
+                    show_scatter,
+                ),
+                _coverage_badge(coverage),
+                _coverage_title(top_trial_count),
+                _coverage_subtitle(top_trial_count),
             ]
+
+        @app.callback(  # type: ignore
+            [
+                Output(SPREAD_TOGGLE_ID, "disabled"),
+                Output(SPREAD_TOGGLE_ID, "value"),
+                Output(SPREAD_MODE_ID, "options"),
+                Output(SPREAD_SCATTER_ID, "disabled"),
+            ],
+            Input(SPREAD_ATTRIBUTE_ID, "value"),
+        )
+        def toggle_spread_control(spread_attribute: Any) -> Tuple[bool, bool, Any, bool]:
+            """Enable and select the spread checkbox when an attribute is selected."""
+            disabled, show_spread = _spread_control_state(spread_attribute)
+            return disabled, show_spread, _spread_mode_options(disabled), disabled
+
+        @app.callback(  # type: ignore
+            [
+                Output(INSIGHT_MODAL_ID, "is_open"),
+                Output(INSIGHT_MODAL_TITLE_ID, "children"),
+                Output(INSIGHT_GRAPH_ID, "figure"),
+                Output(INSIGHT_SELECTION_STORE_ID, "data"),
+            ],
+            [
+                Input({"type": INSIGHT_BUTTON_TYPE, "index": ALL}, "n_clicks"),
+                Input(INSIGHT_CLOSE_ID, "n_clicks"),
+                Input(INSIGHT_ELITE_CONTROL_ID, "value"),
+            ],
+            [
+                State(INSIGHTS_STORE_ID, "data"),
+                State(TRIALS_STORE_ID, "data"),
+                State(INSIGHT_MODAL_ID, "is_open"),
+                State(INSIGHT_SELECTION_STORE_ID, "data"),
+            ],
+            prevent_initial_call=True,
+        )
+        def show_parameter_insight(
+            _open_clicks: List[int],
+            _close_clicks: int,
+            elite_proportion: Any,
+            insights: List[Dict[str, Any]],
+            coverage_data: Dict[str, Any],
+            is_open: bool,
+            selected_index: Any,
+        ) -> Any:
+            """Open the combined plot for the clicked parameter or close its modal."""
+            if ctx.triggered_id == INSIGHT_CLOSE_ID:
+                return False, no_update, no_update, None
+            if ctx.triggered_id == INSIGHT_ELITE_CONTROL_ID:
+                if not is_open or selected_index is None:
+                    raise PreventUpdate
+                insight = next(
+                    (item for item in insights or [] if item.get("index") == selected_index),
+                    None,
+                )
+                if insight is None or not coverage_data:
+                    raise PreventUpdate
+                return (
+                    no_update,
+                    no_update,
+                    _parameter_insight_figure(
+                        insight,
+                        coverage_data["objective_name"],
+                        elite_proportion,
+                    ),
+                    no_update,
+                )
+            if not isinstance(ctx.triggered_id, dict):
+                raise PreventUpdate
+            if not ctx.triggered or not ctx.triggered[0].get("value"):
+                raise PreventUpdate
+
+            index = ctx.triggered_id.get("index")
+            if is_open and selected_index == index:
+                return False, no_update, no_update, None
+            insight = next(
+                (item for item in insights or [] if item.get("index") == index),
+                None,
+            )
+            if insight is None or not coverage_data:
+                raise PreventUpdate
+            title = f"Performance and elite enrichment — {insight['name']}"
+            return (
+                True,
+                title,
+                _parameter_insight_figure(
+                    insight,
+                    coverage_data["objective_name"],
+                    elite_proportion,
+                ),
+                index,
+            )
 
     def load_inputs(self) -> Dict[str, Dict[str, Any]]:
         """Return defaults before an Optuna study is selected."""
         return {
             "objective_id": {"options": [], "value": None},
+            "objective_direction": {
+                "options": get_select_options(
+                    ["Maximize", "Minimize"],
+                    ["upper", "lower"],
+                ),
+                "value": "upper",
+            },
             **{
                 f"elite_proportion_{index}": {"value": proportion}
                 for index, proportion in enumerate(ELITE_PROPORTION_DEFAULTS, start=1)
@@ -1185,58 +2392,138 @@ class HPOPlanning(DynamicPlugin):
         previous_inputs: Dict[str, Any],
         inputs: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Populate objective choices for the selected study."""
+        """Populate native and complete scalar-user-attribute objective choices."""
         objectives = _get_objectives_without_time(run)
         objective_ids = [run.get_objective_id(objective) for objective in objectives]
+        user_attr_names = _complete_user_attr_names(getattr(run, "history", []))
+        user_attr_values = [f"{USER_ATTR_PREFIX}{name}" for name in user_attr_names]
         objective_value = inputs["objective_id"]["value"]
-        if objective_value not in objective_ids:
-            objective_value = objective_ids[0]
+        if isinstance(objective_value, str) and not objective_value.startswith(USER_ATTR_PREFIX):
+            try:
+                numeric_objective_value = int(objective_value)
+            except ValueError:
+                numeric_objective_value = None
+            if numeric_objective_value in objective_ids:
+                objective_value = numeric_objective_value
+        if objective_value not in [*objective_ids, *user_attr_values]:
+            objective_value = 0 if 0 in objective_ids else objective_ids[0]
+
+        previous_objective = previous_inputs.get("objective_id", {}).get("value")
+        if isinstance(objective_value, str) and objective_value.startswith(USER_ATTR_PREFIX):
+            current_direction = inputs.get("objective_direction", {}).get("value")
+            direction = (
+                current_direction
+                if previous_objective == objective_value and current_direction in ("upper", "lower")
+                else "upper"
+            )
+        else:
+            selected_objective = objectives[objective_ids.index(objective_value)]
+            direction = selected_objective.optimize
 
         return {
             "objective_id": {
                 "options": get_select_options(
-                    [objective.name for objective in objectives],
-                    objective_ids,
+                    [
+                        *[f"Objective · {objective.name}" for objective in objectives],
+                        *[f"User attr · {name}" for name in user_attr_names],
+                    ],
+                    [*objective_ids, *user_attr_values],
                 ),
                 "value": objective_value,
-            }
+            },
+            "objective_direction": {
+                "options": get_select_options(
+                    ["Maximize", "Minimize"],
+                    ["upper", "lower"],
+                ),
+                "value": direction,
+            },
         }
 
     @staticmethod
     def process(run: AbstractRun, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """Collect successful trials and calculate all single-feature ranges."""
-        objective = run.get_objective(inputs["objective_id"])
-        if objective is None:
-            raise PreventUpdate
+        objective_selection = inputs["objective_id"]
+        user_attr_name = None
+        objective_id = None
+        if isinstance(objective_selection, str) and objective_selection.startswith(
+            USER_ATTR_PREFIX
+        ):
+            user_attr_name = objective_selection[len(USER_ATTR_PREFIX) :]
+            objective_name = user_attr_name
+            optimize = inputs.get("objective_direction", "upper")
+            if optimize not in ("upper", "lower"):
+                optimize = "upper"
+        else:
+            try:
+                objective_id = int(objective_selection)
+            except (TypeError, ValueError):
+                raise PreventUpdate
+            objective = run.get_objective(objective_id)
+            if objective is None:
+                raise PreventUpdate
+            objective_name = objective.name
+            optimize = objective.optimize
 
         elite_proportions = _validate_elite_proportions(
             [inputs[f"elite_proportion_{index}"] for index in range(1, 4)]
         )
-        trials = []
-        for trial in run.history:
-            objective_value = trial.costs[inputs["objective_id"]]
-            if (
-                trial.status != Status.SUCCESS
-                or objective_value is None
-                or not np.isfinite(objective_value)
-            ):
+        spread_attributes = _complete_user_attr_names(run.history, list_values=True)
+        trials: List[Dict[str, Any]] = []
+        for history_index, history_trial in enumerate(run.history):
+            objective_value: Any
+            if user_attr_name is None:
+                objective_value = history_trial.costs[objective_id]  # type: ignore[index]
+            else:
+                objective_value = _trial_user_attrs(history_trial).get(user_attr_name)
+            if history_trial.status != Status.SUCCESS or not _is_finite_number(objective_value):
                 continue
+            user_attrs = _trial_user_attrs(history_trial)
             trials.append(
                 {
+                    "trial_number": _as_python_value(
+                        history_trial.additional.get("optuna_trial_number", history_index)
+                    ),
                     "objective": float(objective_value),
-                    "configuration": dict(run.get_config(trial.config_id)),
+                    "configuration": {
+                        name: _as_python_value(value)
+                        for name, value in dict(run.get_config(history_trial.config_id)).items()
+                    },
+                    "spread_values": {
+                        name: [float(value) for value in user_attrs[name]]
+                        for name in spread_attributes
+                    },
                 }
             )
         if not trials:
             raise ValueError("No successful trials are available for the HPO Planner.")
 
+        ranked_trials = sorted(
+            trials,
+            key=lambda trial: trial["objective"],
+            reverse=optimize == "upper",
+        )[:TOP_TRIAL_LIMIT]
+        for rank, ranked_trial in enumerate(ranked_trials, start=1):
+            ranked_trial["rank"] = rank
+
         return {
             "elite_proportions": elite_proportions,
             "features": list(run.configspace.keys()),
+            "objective_name": objective_name,
+            "optimize": optimize,
+            "trials": ranked_trials,
+            "total_trials": len(trials),
+            "spread_attributes": spread_attributes,
+            "insights": _parameter_insights(
+                trials,
+                run.configspace,
+                optimize,
+                elite_proportions,
+            ),
             "summary": _summarize_features(
                 trials,
                 run.configspace,
-                objective.optimize,
+                optimize,
                 elite_proportions,
             ),
         }
@@ -1260,4 +2547,11 @@ class HPOPlanning(DynamicPlugin):
             outputs["summary"],
         )
         selection = _initial_selection(metadata)
-        return [_planner_layout(metadata, selection)]
+        coverage_data = {
+            "trials": outputs["trials"],
+            "total_trials": outputs.get("total_trials", len(outputs["trials"])),
+            "spread_attributes": outputs.get("spread_attributes", []),
+            "objective_name": outputs["objective_name"],
+            "optimize": outputs["optimize"],
+        }
+        return [_planner_layout(metadata, selection, coverage_data, outputs["insights"])]

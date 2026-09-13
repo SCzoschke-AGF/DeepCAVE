@@ -37,6 +37,11 @@ from deepcave import app, queue
 from deepcave.layouts import Layout
 from deepcave.plugins import Plugin
 from deepcave.runs.group import Group
+from deepcave.utils.global_objective import (
+    DEFAULT_MAIN_OBJECTIVE,
+    is_user_attr_objective,
+    main_objective_options,
+)
 
 
 class SidebarLayout(Layout):
@@ -120,7 +125,7 @@ class SidebarLayout(Layout):
                         html.Li(
                             className="nav-item",
                             children=[
-                                html.A(
+                                dcc.Link(
                                     [html.I(className=icon), name],
                                     className=f"nav-link {'active' if href in pathname else ''}",
                                     href=href,
@@ -197,6 +202,59 @@ class SidebarLayout(Layout):
                 raise PreventUpdate()
 
             return (trigger or 0) + 1
+
+        @app.callback(  # type: ignore
+            [
+                Output("global-main-objective-selector", "options"),
+                Output("global-main-objective-selector", "disabled"),
+                Output("global-main-objective-selector", "value"),
+            ],
+            Input("global-run-selector", "value"),
+            [
+                State("global-main-objective-selector", "options"),
+                State("global-main-objective-selector", "value"),
+            ],
+        )
+        def refresh_global_main_objective(
+            run_id: Optional[str],
+            current_options: List[Dict[str, Any]],
+            current_value: Any,
+        ) -> Any:
+            """Refresh objective choices when the selected run changes."""
+            options = self._get_global_objective_options(run_id)
+            valid_values = {option["value"] for option in options}
+            disabled = not options
+            value = current_value if current_value in valid_values else None
+            if value is None and options:
+                value = (
+                    DEFAULT_MAIN_OBJECTIVE
+                    if DEFAULT_MAIN_OBJECTIVE in valid_values
+                    else options[0]["value"]
+                )
+            if options == (current_options or []) and current_value == value:
+                return no_update, no_update, no_update
+            return options, disabled, value
+
+        @app.callback(  # type: ignore
+            Output("global-objective-direction-container", "hidden"),
+            Input("global-main-objective-selector", "value"),
+        )
+        def toggle_global_objective_direction(objective_value: Any) -> bool:
+            """Show direction only for a derived user-attribute objective."""
+            return not is_user_attr_objective(objective_value)
+
+        @app.callback(  # type: ignore
+            Output("global-main-objective-state", "data"),
+            [
+                Input("global-main-objective-selector", "value"),
+                Input("global-objective-direction", "value"),
+            ],
+        )
+        def update_global_main_objective_state(
+            objective_value: Any, direction: Any
+        ) -> Dict[str, Any]:
+            """Publish the objective selection to every objective-driven plugin."""
+            return {"value": objective_value, "direction": direction}
 
         # Callback to cancel jobs
         @app.callback(
@@ -291,6 +349,13 @@ class SidebarLayout(Layout):
 
     def __call__(self) -> Union[List[Component], Component]:  # noqa: D102
         options, active_run_id = self._get_global_run_state()
+        objective_options = self._get_global_objective_options(active_run_id)
+        objective_values = {option["value"] for option in objective_options}
+        objective_value = (
+            DEFAULT_MAIN_OBJECTIVE
+            if DEFAULT_MAIN_OBJECTIVE in objective_values
+            else objective_options[0]["value"] if objective_options else None
+        )
         return html.Nav(
             className="col-md-3 col-lg-2 d-md-block sidebar collapse",
             id="sidebarMenu",
@@ -301,7 +366,7 @@ class SidebarLayout(Layout):
                         html.Ul(
                             className="nav flex-column",
                             children=[
-                                html.A(
+                                dcc.Link(
                                     "General",
                                     id="general-navigation-link",
                                     className="nav-link",
@@ -319,8 +384,60 @@ class SidebarLayout(Layout):
                                     clearable=False,
                                     disabled=len(options) == 0,
                                     placeholder="Select run ...",
+                                    # The application layout is created once when the server
+                                    # starts. Persist the user's value in the browser so a page
+                                    # reload cannot restore that original layout value.
+                                    persistence=True,
+                                    persistence_type="local",
                                 ),
                                 dcc.Store(id="global-run-selection-trigger", data=0),
+                                html.Div(
+                                    [
+                                        dbc.Label(
+                                            "Main Objective",
+                                            className="small text-muted mb-1",
+                                        ),
+                                        dcc.Dropdown(
+                                            id="global-main-objective-selector",
+                                            options=objective_options,
+                                            value=objective_value,
+                                            clearable=False,
+                                            disabled=not objective_options,
+                                            placeholder="Select objective ...",
+                                            persistence=True,
+                                            persistence_type="local",
+                                        ),
+                                        html.Div(
+                                            [
+                                                dbc.Label(
+                                                    "Direction",
+                                                    className="small text-muted mb-1",
+                                                ),
+                                                dbc.Select(
+                                                    id="global-objective-direction",
+                                                    options=[
+                                                        {"label": "Maximize", "value": "upper"},
+                                                        {"label": "Minimize", "value": "lower"},
+                                                    ],
+                                                    value="upper",
+                                                    persistence=True,
+                                                    persistence_type="local",
+                                                ),
+                                            ],
+                                            id="global-objective-direction-container",
+                                            hidden=True,
+                                            className="mt-2",
+                                        ),
+                                        dcc.Store(
+                                            id="global-main-objective-state",
+                                            data={
+                                                "value": objective_value,
+                                                "direction": "upper",
+                                            },
+                                        ),
+                                    ],
+                                    className="global-main-objective pt-3",
+                                ),
                             ],
                             className="global-run-selector px-3 pt-2 pb-1",
                         ),
@@ -341,3 +458,20 @@ class SidebarLayout(Layout):
         groups = [run for run in loaded_runs if isinstance(run, Group)]
         inputs = Plugin.load_run_inputs(runs, groups, lambda _: True)
         return inputs["run"]["options"], run_handler.get_active_run_id()
+
+    @staticmethod
+    def _get_global_objective_options(run_id: Optional[str]) -> List[Dict[str, Any]]:
+        """Return global objective options for the selected run."""
+        if run_id is None:
+            return []
+        try:
+            from deepcave import run_handler
+        except ImportError:
+            # Runtime-only globals are deliberately unavailable in API/test mode.
+            return []
+
+        try:
+            run = run_handler.get_run(run_id)
+        except RuntimeError:
+            return []
+        return main_objective_options(run)

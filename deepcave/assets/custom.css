@@ -118,8 +118,46 @@ table.table.exclude-head tbody {
 }
 */
 /* Compact single-row control toolbar for the dense analysis views. */
-:is(#one_dimensional_analysis-input, #two_dimensional_analysis-input, #hpo_planning-input) {
+:is(#one_dimensional_analysis-input, #two_dimensional_analysis-input, #hpo_planning-input, #cost_over_time-input) {
     padding: 0.6rem 0.75rem !important;
+}
+
+#cost_over_time-input {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+#cost_over_time-input > hr {
+    display: none;
+}
+
+#cost_over_time-input > .cost-over-time-toolbar {
+    display: contents;
+}
+
+#cost_over_time-input .analysis-toolbar__item {
+    margin-right: 0 !important;
+}
+
+#cost_over_time-input .cost-over-time__runs-dropdown {
+    min-width: 0;
+}
+
+#cost_over_time-input .cost-over-time__runs-dropdown .Select-control {
+    height: 31px;
+    min-height: 31px;
+    border-radius: 0 0.2rem 0.2rem 0;
+}
+
+#cost_over_time-input .cost-over-time__runs-dropdown .Select-placeholder,
+#cost_over_time-input .cost-over-time__runs-dropdown .Select--single > .Select-control .Select-value {
+    line-height: 29px;
+}
+
+#cost_over_time-input .cost-over-time__runs-dropdown .Select-input {
+    height: 29px;
 }
 
 .analysis-toolbar .input-group-text {
@@ -182,8 +220,79 @@ table.table.exclude-head tbody {
 }
 
 .planner-main-card,
-.planner-sidebar-card {
+.planner-sidebar-card,
+.planner-coverage-card {
     min-width: 0;
+}
+
+.planner-coverage-card {
+    grid-column: 1;
+}
+
+.planner-coverage-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.planner-coverage-badge {
+    flex: 0 0 auto;
+    padding: 0.38rem 0.7rem;
+    border-radius: 0.45rem;
+    background: #edf3ff;
+    color: #3267b2;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+.planner-coverage-card .dash-graph {
+    margin-top: 0.25rem;
+}
+
+.planner-coverage-controls {
+    margin-top: 0.65rem;
+}
+
+.planner-coverage-spread-select {
+    min-width: 0;
+}
+
+.planner-coverage-spread-options {
+    display: flex;
+    align-items: flex-start;
+    gap: 1.25rem;
+    margin-top: 0.65rem;
+}
+
+.planner-coverage-spread-mode .form-check-inline {
+    margin-right: 1rem;
+}
+
+.planner-coverage-spread-toggle {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.planner-coverage-options-group {
+    flex: 0 0 auto;
+}
+
+.planner-coverage-option-toggles {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+}
+
+.planner-coverage-trial-count {
+    margin-top: 0.35rem;
+    padding: 0.8rem 0.35rem 0.35rem;
+    border-top: 1px solid #e6eaf0;
+}
+
+.hpo-planning-sidebar-inputs {
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+    margin-top: 0.75rem;
 }
 
 .planner-sidebar-card {
@@ -355,10 +464,79 @@ table.table.exclude-head tbody {
 .planner-parameter-name {
     overflow: hidden;
     color: #26385f;
-    font-size: 0.86rem;
+    font-size: 0.92rem;
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.planner-parameter-heading {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.4rem;
+}
+
+.planner-parameter-heading .planner-parameter-name {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.planner-insight-button.btn {
+    height: auto;
+    flex: 0 0 auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #287d8e;
+    line-height: 1;
+    box-shadow: none;
+}
+
+.planner-insight-button.btn:hover,
+.planner-insight-button.btn:focus {
+    border: 0;
+    background: transparent;
+    color: #1f6573;
+    text-decoration: none;
+    box-shadow: none;
+}
+
+.planner-insight-panel.offcanvas-end {
+    width: clamp(20rem, 46vw, 46rem);
+    border-left: 1px solid #dbe4ef;
+    box-shadow: -0.5rem 0 1.5rem rgba(38, 56, 95, 0.15);
+}
+
+.planner-insight-panel-subtitle {
+    margin: 0 0 0.35rem;
+    color: #52627b;
+    font-size: 0.86rem;
+    font-weight: 600;
+}
+
+.planner-insight-elite-selector {
+    display: flex;
+    margin: 0.35rem 0 0.8rem;
+    align-items: center;
+    gap: 0.65rem;
+}
+
+.planner-insight-elite-label {
+    color: #52627b;
+    font-size: 0.78rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.planner-insight-elite-control .btn {
+    min-width: 4.8rem;
+}
+
+.planner-insight-close {
+    float: right;
+    margin-top: 0.5rem;
 }
 
 .planner-range-control {
@@ -533,7 +711,7 @@ table.table.exclude-head tbody {
     display: block;
     margin: 0.8rem 0 0.35rem;
     color: #26385f;
-    font-size: 0.8rem;
+    font-size: 0.88rem;
     font-weight: 600;
 }
 
@@ -546,7 +724,7 @@ table.table.exclude-head tbody {
     border-radius: 1rem;
     background: #edf3ff;
     color: #3267b2;
-    font-size: 0.64rem;
+    font-size: 0.72rem;
 }
 
 .planner-selection-table-wrap {
@@ -560,7 +738,7 @@ table.table.exclude-head tbody {
     margin: 0;
     border-collapse: collapse;
     color: #26385f;
-    font-size: 0.7rem;
+    font-size: 0.8rem;
 }
 
 .planner-selection-table th,
@@ -586,7 +764,7 @@ table.table.exclude-head tbody {
     align-items: center;
     margin: 0.35rem 0;
     color: #52627b;
-    font-size: 0.7rem;
+    font-size: 0.8rem;
 }
 
 .planner-summary-bar {
@@ -621,7 +799,7 @@ table.table.exclude-head tbody {
     border-radius: 0.3rem;
     background: #f7f9fc;
     color: #26385f;
-    font-size: 0.68rem;
+    font-size: 0.8rem;
     line-height: 1.45;
     white-space: pre-wrap;
 }
@@ -634,7 +812,7 @@ table.table.exclude-head tbody {
     flex: 1 1 0;
     position: relative;
     white-space: nowrap;
-    font-size: 0.72rem;
+    font-size: 0.8rem;
 }
 
 .planner-copy-button {
@@ -661,6 +839,25 @@ table.table.exclude-head tbody {
 }
 
 @media (max-width: 760px) {
+    .planner-coverage-heading {
+        flex-direction: column;
+        gap: 0.55rem;
+    }
+
+    .planner-coverage-spread-options {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .planner-coverage-spread-select {
+        flex-basis: auto;
+    }
+
+    .planner-coverage-spread-options .planner-coverage-spread-toggle {
+        padding-bottom: 0;
+    }
+
     .planner-table-header {
         display: none;
     }
@@ -689,6 +886,19 @@ table.table.exclude-head tbody {
 
 .analysis-grid--two-dimensional {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.two-dimensional-binning-controls {
+    min-height: 270px;
+    padding: 3rem 1rem 1rem;
+}
+
+.two-dimensional-binning-control + .two-dimensional-binning-control {
+    margin-top: 1.25rem;
+}
+
+.two-dimensional-color-control {
+    margin-top: 1.75rem;
 }
 
 @media (max-width: 1200px) {

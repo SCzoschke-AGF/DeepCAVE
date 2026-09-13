@@ -220,7 +220,7 @@ class RunHandler:
 
     def get_run_name(self, run_path: Union[Path, str]) -> str:
         """
-        Return the stem of the path.
+        Return the display name of a loaded run or otherwise the path stem.
 
         Parameters
         ----------
@@ -230,8 +230,11 @@ class RunHandler:
         Returns
         -------
         str
-            Run name of the path.
+            Display name of the run.
         """
+        run = self.runs.get(str(run_path))
+        if run is not None:
+            return run.name
         return Path(run_path).stem
 
     def get_selected_groups(self) -> Dict[str, List[str]]:
@@ -253,6 +256,13 @@ class RunHandler:
             selected_groups, dict
         ), "The groups aquired from the cache must be a dictionary."
         return selected_groups
+
+    def get_groups_configspace_congruence(self) -> Dict[str, bool]:
+        """Return whether each selected group requires an identical configuration space."""
+        requirements = self.c.get("groups_configspace_congruence")
+        if not isinstance(requirements, dict):
+            return {}
+        return {name: bool(value) for name, value in requirements.items()}
 
     def add_run(self, run_path: str) -> bool:
         """
@@ -451,7 +461,11 @@ class RunHandler:
 
         return run
 
-    def update_groups(self, groups: Optional[Dict[str, List[str]]] = None) -> None:
+    def update_groups(
+        self,
+        groups: Optional[Dict[str, List[str]]] = None,
+        configspace_congruence: Optional[Dict[str, bool]] = None,
+    ) -> None:
         """
         Load chosen groups.
 
@@ -463,6 +477,9 @@ class RunHandler:
         groups : Optional[Dict[str, str]], optional
             A dictionary with the groups.
             Default is None.
+        configspace_congruence : Optional[Dict[str, bool]], optional
+            Whether each group requires identical configuration spaces. Missing groups default
+            to strict checking.
 
         Raises
         ------
@@ -478,6 +495,8 @@ class RunHandler:
             # This check is necessary because groups could still be None
             if groups is None:
                 raise TypeError("Groups can not be None.")
+            if configspace_congruence is None:
+                configspace_congruence = self.get_groups_configspace_congruence()
             # Add grouped runs
             for group_name, run_paths in groups.items():
                 runs = []
@@ -489,7 +508,11 @@ class RunHandler:
                     continue
 
                 # Throws NotMergeableError
-                instantiated_groups[group_name] = Group(group_name, runs)
+                instantiated_groups[group_name] = Group(
+                    group_name,
+                    runs,
+                    require_configspace_congruence=configspace_congruence.get(group_name, True),
+                )
 
             # Add groups to rc
             for group in instantiated_groups.values():
@@ -498,6 +521,13 @@ class RunHandler:
 
             # Save in cache
             self.c.set("groups", value=groups)
+            self.c.set(
+                "groups_configspace_congruence",
+                value={
+                    group_name: configspace_congruence.get(group_name, True)
+                    for group_name in groups
+                },
+            )
 
             # Save in memory
             self.groups = instantiated_groups

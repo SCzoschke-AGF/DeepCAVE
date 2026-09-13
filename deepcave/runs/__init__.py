@@ -116,9 +116,9 @@ class AbstractRun(ABC):
         ] = {}
 
         self.history: List[Trial] = []
-        self.trial_keys: Dict[
-            Tuple[int, Optional[Union[int, float]], Optional[int]], int
-        ] = {}  # (config_id, budget, seed) -> trial_id
+        self.trial_keys: Dict[Tuple[int, Optional[Union[int, float]], Optional[int]], int] = (
+            {}
+        )  # (config_id, budget, seed) -> trial_id
 
         # Cached data
         self._highest_budget: Dict[int, Union[int, float]] = {}  # config_id -> budget
@@ -1136,18 +1136,15 @@ class AbstractRun(ABC):
         if budget is None:
             budget = self.get_highest_budget()
 
-        costs_mean = []
-        costs_std = []
-        ids = []
-        config_ids = []
-        times = []
+        costs_mean: List[float] = []
+        costs_std: List[float] = []
+        ids: List[int] = []
+        config_ids: List[int] = []
+        times: List[float] = []
 
-        order = []
-
-        # Sort self.history by end-time
-        for id, trial in enumerate(self.history):
-            order.append((id, trial.end_time))
-        order.sort(key=lambda tup: tup[1])
+        # Sorting is necessary for parallel runs whose trials can finish out of submission order.
+        order = sorted(enumerate(self.history), key=lambda item: item[1].end_time)
+        objective_id = self.get_objective_id(objective)
 
         # Important: Objective can be minimized or maximized
         if objective.optimize == "lower":
@@ -1155,35 +1152,81 @@ class AbstractRun(ABC):
         else:
             current_cost = -np.inf
 
-        # Iterate over the history ordered by end-time and calculate the current incumbent
-        for i, (id, _) in enumerate(order):
-            trial = self.history[id]
+        # Keep the latest objective value per configuration and seed.  The previous
+        # implementation recomputed the incumbent over every history prefix, resulting in
+        # quadratic runtime.  Since only the current trial's configuration changes at each step,
+        # maintaining its aggregate is sufficient to find every new all-time incumbent.
+        values_by_config: Dict[int, Dict[int, Optional[float]]] = {}
+        finite_sums: Dict[int, float] = {}
+        invalid_counts: Dict[int, int] = {}
+        positive_infinity_counts: Dict[int, int] = {}
+        negative_infinity_counts: Dict[int, int] = {}
+        max_seed_count = 0
+        first_budget_by_config: Dict[int, Union[int, float]] = {}
 
-            # Get the incumbent over all trials up to this point
-            try:
-                _, cost = self.get_incumbent(
-                    objectives=objective,
-                    budget=budget,
-                    seed=seed,
-                    selected_ids=[selected_id for selected_id, _ in order[: i + 1]],
+        def update_aggregate(config_id: int, value: Optional[float], direction: int) -> None:
+            """Add or remove one value from a configuration's running aggregate."""
+            if value is None or np.isnan(value):
+                invalid_counts[config_id] = invalid_counts.get(config_id, 0) + direction
+            elif np.isposinf(value):
+                positive_infinity_counts[config_id] = (
+                    positive_infinity_counts.get(config_id, 0) + direction
                 )
-            except RuntimeError:
+            elif np.isneginf(value):
+                negative_infinity_counts[config_id] = (
+                    negative_infinity_counts.get(config_id, 0) + direction
+                )
+            else:
+                finite_sums[config_id] = finite_sums.get(config_id, 0.0) + direction * value
+
+        for id, trial in order:
+            if seed is not None and trial.seed != seed:
+                continue
+            if budget == COMBINED_BUDGET:
+                if trial.config_id not in first_budget_by_config:
+                    first_budget_by_config[trial.config_id] = trial.budget
+                if trial.budget < first_budget_by_config[trial.config_id]:
+                    continue
+            elif trial.budget is not None and trial.budget != budget:
                 continue
 
-            # Now it's important to check whether the cost was minimized or maximized
-            if objective.optimize == "lower":
-                improvement = cost < current_cost
+            config_values = values_by_config.setdefault(trial.config_id, {})
+            if trial.seed in config_values:
+                update_aggregate(trial.config_id, config_values[trial.seed], -1)
+
+            value = trial.costs[objective_id]
+            config_values[trial.seed] = value
+            update_aggregate(trial.config_id, value, 1)
+
+            seed_count = len(config_values)
+            max_seed_count = max(max_seed_count, seed_count)
+            if seed_count != max_seed_count:
+                continue
+
+            invalid = invalid_counts.get(trial.config_id, 0)
+            positive_infinities = positive_infinity_counts.get(trial.config_id, 0)
+            negative_infinities = negative_infinity_counts.get(trial.config_id, 0)
+            if invalid > 0 or (positive_infinities > 0 and negative_infinities > 0):
+                cost = np.nan
+            elif positive_infinities > 0:
+                cost = np.inf
+            elif negative_infinities > 0:
+                cost = -np.inf
             else:
-                improvement = cost > current_cost
+                cost = finite_sums.get(trial.config_id, 0.0) / seed_count
 
-            if improvement:
-                current_cost = cost
+            improvement = (
+                cost < current_cost if objective.optimize == "lower" else cost > current_cost
+            )
+            if not improvement:
+                continue
 
-                costs_mean.append(cost)
-                costs_std.append(0.0)
-                times.append(trial.end_time)
-                ids.append(id)
-                config_ids.append(trial.config_id)
+            current_cost = cost
+            costs_mean.append(cost)
+            costs_std.append(0.0)
+            times.append(trial.end_time)
+            ids.append(id)
+            config_ids.append(trial.config_id)
 
         return times, costs_mean, costs_std, ids, config_ids
 

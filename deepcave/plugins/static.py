@@ -30,6 +30,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import traceback
 from enum import Enum
+from functools import wraps
 
 import dash_bootstrap_components as dbc
 from dash import dcc, html
@@ -52,6 +53,23 @@ class PluginState(Enum):
     NEEDS_PROCESSING = 1
     PROCESSING = 2
     FAILED = 3
+
+
+def _manage_callback_blocking(plugin: "StaticPlugin") -> Callable:
+    """Block interval callbacks only while the decorated callback is running."""
+
+    def decorator(callback: Callable) -> Callable:
+        @wraps(callback)
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            plugin._blocked = True
+            try:
+                return callback(*args, **kwargs)
+            finally:
+                plugin._blocked = False
+
+        return wrapped
+
+    return decorator
 
 
 def _process(
@@ -149,24 +167,37 @@ class StaticPlugin(Plugin, ABC):
         # Get other plugin specific inputs that might change
         for id, attribute, _, _ in self.inputs:
             inputs.append(Input(self.get_internal_input_id(id), attribute))
+        if self.main_objective_input is not None:
+            inputs.append(Input("global-main-objective-state", "data"))
 
         # Register updates from inputs
         @app.callback(outputs, inputs)  # type: ignore
+        @_manage_callback_blocking(self)
         def plugin_process(
             n_clicks: int, _: Any, global_run_id: str, *inputs_list: str
         ) -> Optional[Any]:
             """Register updates from inputs."""
-            self._blocked = True
+            global_objective_state = None
+            if self.main_objective_input is not None:
+                global_objective_state = inputs_list[-1]
+                inputs_list = inputs_list[:-1]
             # Map the list `inputs_list` to a dict s.t.
             # it's easier to access them.
             inputs = self._list_to_dict(list(inputs_list), input=True)
             inputs["run"] = {"value": global_run_id}
+            runs = self.get_selected_runs(inputs)
+            for index, run in enumerate(runs):
+                self.apply_global_main_objective(
+                    inputs,
+                    run,
+                    global_objective_state,
+                    include_cache_signature=index == 0,
+                )
             inputs_key = self._dict_as_key(inputs, remove_filters=True)
             cleaned_inputs = self._clean_inputs(inputs)
             last_inputs = c.get("last_inputs", self.id)
 
             link = create_url(self.get_base_url(), inputs)
-            runs = self.get_selected_runs(inputs)
             self.check_runs_compatibility(runs)
 
             button_pressed = n_clicks is not None
@@ -284,7 +315,6 @@ class StaticPlugin(Plugin, ABC):
                     if queue_running or queue_pending:
                         self._state = PluginState.PROCESSING
 
-            self._blocked = False
             raise PreventUpdate
 
     @interactive

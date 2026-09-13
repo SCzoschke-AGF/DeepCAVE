@@ -60,6 +60,7 @@ class ConfigurationCube(DynamicPlugin):
     name = "Configuration Cube"
     icon = "fas fa-cube"
     activate_run_selection = True
+    main_objective_input = "objective_id"
     help = "plugins/configuration_cube.html"
 
     @staticmethod
@@ -83,16 +84,6 @@ class ConfigurationCube(DynamicPlugin):
                 [
                     dbc.Col(
                         [
-                            dbc.Label("Objective"),
-                            dbc.Select(
-                                id=register("objective_id", ["value", "options"], type=int),
-                                placeholder="Select objective ...",
-                            ),
-                        ],
-                        md=6,
-                    ),
-                    dbc.Col(
-                        [
                             dbc.Label("Budget"),
                             help_button(
                                 "Budget refers to the multi-fidelity budget. "
@@ -108,7 +99,7 @@ class ConfigurationCube(DynamicPlugin):
                                 placeholder="Select budget ...",
                             ),
                         ],
-                        md=6,
+                        md=12,
                     ),
                 ],
             ),

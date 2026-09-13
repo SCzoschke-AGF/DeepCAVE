@@ -57,6 +57,7 @@ class BudgetCorrelation(DynamicPlugin):
     icon = "fas fa-coins"
     help = "plugins/budget_correlation.html"
     activate_run_selection = True
+    main_objective_input = "objective_id"
 
     @staticmethod
     def check_run_compatibility(run: AbstractRun) -> bool:
@@ -77,31 +78,8 @@ class BudgetCorrelation(DynamicPlugin):
 
     @staticmethod
     def get_input_layout(register: Callable) -> List[html.Div]:
-        """
-        Get the layout for the input block.
-
-        Parameters
-        ----------
-        register : Callable
-            Method to register (user) variables.
-            The register_input function is located in the Plugin superclass.
-
-        Returns
-        -------
-        List[html.Div]
-            Layouts for the input block.
-        """
-        return [
-            html.Div(
-                [
-                    dbc.Label("Objective"),
-                    dbc.Select(
-                        id=register("objective_id", ["value", "options"], type=int),
-                        placeholder="Select objective ...",
-                    ),
-                ],
-            ),
-        ]
+        """Return no local controls; the objective lives in the global sidebar."""
+        return []
 
     def load_dependency_inputs(self, run, _, inputs) -> Dict[str, Dict[str, Any]]:  # type: ignore
         """

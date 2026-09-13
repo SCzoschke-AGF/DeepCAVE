@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
+from dash import dcc
 
 from deepcave.plugins.objective import cost_over_time
 from deepcave.runs.status import Status
@@ -15,6 +16,48 @@ class DummyRun:
 
     def get_objective(self, _objective_id):
         return self._objective
+
+
+def _walk_components(component):
+    """Yield a Dash component and all descendants."""
+    yield component
+    children = getattr(component, "children", None)
+    if children is None:
+        return
+    if not isinstance(children, (list, tuple)):
+        children = [children]
+    for child in children:
+        if hasattr(child, "to_plotly_json"):
+            yield from _walk_components(child)
+
+
+def test_all_controls_share_the_compact_input_toolbar():
+    registrations = []
+
+    def register(name, *_args, **kwargs):
+        registrations.append((name, kwargs))
+        return name
+
+    additional_runs = cost_over_time.CostOverTime.get_additional_run_input_layout(register)
+    (toolbar,) = cost_over_time.CostOverTime.get_input_layout(register)
+
+    assert "analysis-toolbar" in additional_runs.className
+    assert "analysis-toolbar" in toolbar.className
+    assert cost_over_time.CostOverTime.get_filter_layout(register) == []
+    assert [name for name, _kwargs in registrations] == [
+        "additional_runs",
+        "budget_id",
+        "xaxis",
+    ]
+    assert registrations[-1][1]["filter"] is True
+
+    dropdowns = [
+        component
+        for component in _walk_components(additional_runs)
+        if isinstance(component, dcc.Dropdown)
+    ]
+    assert len(dropdowns) == 1
+    assert dropdowns[0].multi is True
 
 
 def test_process_collects_successful_objective_values():

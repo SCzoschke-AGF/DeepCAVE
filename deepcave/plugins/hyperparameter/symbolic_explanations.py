@@ -69,6 +69,7 @@ class SymbolicExplanations(StaticPlugin):
     icon = "fas fa-subscript"
     help = "plugins/symbolic_explanations.html"
     activate_run_selection = True
+    main_objective_input = "objective_id"
 
     @staticmethod
     def get_input_layout(register: Callable) -> List[Union[dbc.Row, html.Details]]:
@@ -91,16 +92,6 @@ class SymbolicExplanations(StaticPlugin):
                 [
                     dbc.Col(
                         [
-                            dbc.Label("Objective"),
-                            dbc.Select(
-                                id=register("objective_id", ["value", "options"], type=int),
-                                placeholder="Select objective ...",
-                            ),
-                        ],
-                        md=6,
-                    ),
-                    dbc.Col(
-                        [
                             dbc.Label("Budget"),
                             help_button(
                                 "Budget refers to the multi-fidelity budget. "
@@ -116,7 +107,7 @@ class SymbolicExplanations(StaticPlugin):
                                 placeholder="Select budget ...",
                             ),
                         ],
-                        md=6,
+                        md=12,
                     ),
                 ],
                 className="mb-3",

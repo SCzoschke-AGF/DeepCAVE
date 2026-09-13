@@ -31,5 +31,5 @@ Die Vorschaubilder und PDFs liegen danach unter `cache/plotting-smoke/`.
 
 ```bash
 docker compose up -d redis
-uv run deepcave --open
+uv run deepcave
 ```
