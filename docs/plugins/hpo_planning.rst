@@ -24,6 +24,13 @@ maximum range of that elite group. The selected range can be changed with the ra
 entering original parameter values; both controls use one shared planning state. Integer and step
 metadata are respected.
 
+The ``Show Top N`` field in the elite-groups toolbar controls how many of the globally best trials
+can be overlaid on each parameter row (five by default). The marker button beside a parameter's
+detail-plot button toggles this overlay independently for that parameter. Vertical orange strokes
+show the exact positions of the requested top trials on numerical sliders; categorical parameters
+use an equivalent category-position track. Conditional parameters omit trials in which they were
+inactive.
+
 Linear parameters are normalized in their linear sampling space and logarithmic parameters in
 logarithmic space. Consequently, a selection below zero or above one represents an extension
 beyond the current search space. Such extensions are shown with striped accents and informational

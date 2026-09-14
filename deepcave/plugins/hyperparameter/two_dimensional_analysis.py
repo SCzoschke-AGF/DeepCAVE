@@ -26,7 +26,7 @@ from ConfigSpace.hyperparameters import (
     Hyperparameter,
     IntegerHyperparameter,
 )
-from dash import ALL, Input, Output, State, ctx, dcc, html
+from dash import ClientsideFunction, Input, Output, State, dcc, html
 from dash.development.base_component import Component
 from dash.exceptions import PreventUpdate
 
@@ -40,13 +40,11 @@ from deepcave.plugins.hyperparameter.analysis_utils import (
     _is_optuna_run_or_group,
 )
 from deepcave.plugins.hyperparameter.search_space_state import (
-    PLANNED_SEARCH_SPACE_INTENT_TYPE,
+    PLANNED_SEARCH_SPACE_CONTEXT_TYPE,
     PLANNED_SEARCH_SPACE_STORE_ID,
     as_python_value,
-    coerce_selection,
     configspace_metadata,
-    denormalize_value,
-    initial_selection,
+    planning_metadata_fingerprint,
     position_percent,
     selection_from_state,
     selection_metrics,
@@ -77,10 +75,7 @@ ENRICHMENT_BOTTOM_MARGIN = 60
 MAX_ANNOTATED_X_BINS = 15
 MAX_ANNOTATED_Y_BINS = 6
 PLANNING_CONTROLS_ID = "two-dimensional-planning-controls"
-PLANNING_INTENT_ID = {
-    "type": PLANNED_SEARCH_SPACE_INTENT_TYPE,
-    "source": "two-dimensional-analysis",
-}
+PLANNING_SOURCE = "two-dimensional-analysis"
 PLANNING_RANGE_TYPE = "two-dimensional-planning-range"
 PLANNING_CATEGORIES_TYPE = "two-dimensional-planning-categories"
 PLANNING_RESET_ID = "two-dimensional-planning-reset"
@@ -774,12 +769,17 @@ def _planning_control(
 ) -> Component:
     """Build the reduced planner control for one selected 2-D feature."""
     label = f"Feature #{axis_index + 1} · {parameter['name']}"
+    planning_context = parameter.get("planning_context", "")
     if parameter["parameter_type"] not in ("integer", "float"):
         return html.Div(
             [
                 dbc.Label(label, className="small mb-1"),
                 dcc.Dropdown(
-                    id={"type": PLANNING_CATEGORIES_TYPE, "index": axis_index},
+                    id={
+                        "type": PLANNING_CATEGORIES_TYPE,
+                        "index": axis_index,
+                        "context": planning_context,
+                    },
                     options=[
                         {"label": str(value), "value": value} for value in parameter["choices"]
                     ],
@@ -812,7 +812,11 @@ def _planning_control(
                         className="planner-current-reference",
                     ),
                     dcc.RangeSlider(
-                        id={"type": PLANNING_RANGE_TYPE, "index": axis_index},
+                        id={
+                            "type": PLANNING_RANGE_TYPE,
+                            "index": axis_index,
+                            "context": planning_context,
+                        },
                         min=domain[0],
                         max=domain[1],
                         step=0.001,
@@ -856,7 +860,10 @@ class TwoDimensionalAnalysis(DynamicPlugin):
     help = "plugins/two_dimensional_analysis.html"
     activate_run_selection = True
     main_objective_input = "objective_id"
-    output_view_inputs = (("planned_search_space_state", PLANNED_SEARCH_SPACE_STORE_ID, "data"),)
+    # Planning masks are updated by a small browser callback. The shared store is only sampled
+    # when a new analytical base is produced, so a range edit cannot call ``process`` or rebuild
+    # the three figures on the server.
+    output_view_states = (("planned_search_space_state", PLANNED_SEARCH_SPACE_STORE_ID, "data"),)
 
     def _dict_as_key(self, data: Dict[str, Any], remove_filters: bool = False) -> str:
         """Version cached outputs because axis descriptors now contain mask geometry."""
@@ -926,13 +933,21 @@ class TwoDimensionalAnalysis(DynamicPlugin):
         from deepcave import app, run_handler
 
         @app.callback(  # type: ignore
-            Output(PLANNING_CONTROLS_ID, "children"),
+            [
+                Output(PLANNING_CONTROLS_ID, "children"),
+                Output(
+                    {"type": PLANNED_SEARCH_SPACE_CONTEXT_TYPE, "source": PLANNING_SOURCE},
+                    "data",
+                ),
+            ],
             [
                 Input(self.get_internal_input_id("hyperparameter_name_1"), "value"),
                 Input(self.get_internal_input_id("hyperparameter_name_2"), "value"),
-                Input(PLANNED_SEARCH_SPACE_STORE_ID, "data"),
             ],
-            State("global-run-selector", "value"),
+            [
+                State(PLANNED_SEARCH_SPACE_STORE_ID, "data"),
+                State("global-run-selector", "value"),
+            ],
         )
         def render_planning_controls(
             hyperparameter_name_1: str,
@@ -941,101 +956,51 @@ class TwoDimensionalAnalysis(DynamicPlugin):
             run_id: str,
         ) -> Any:
             if not run_id or not hyperparameter_name_1 or not hyperparameter_name_2:
-                return []
+                return [], None
             try:
                 run = run_handler.get_run(run_id)
                 names = [hyperparameter_name_1, hyperparameter_name_2]
                 metadata = configspace_metadata(run.configspace, names)
             except (KeyError, RuntimeError):
-                return []
+                return [], None
+            metadata_version = planning_metadata_fingerprint(metadata)
+            for parameter in metadata:
+                parameter["planning_context"] = metadata_version
             selection = selection_from_state(planning_state, run_id, metadata)
-            return [
+            controls = [
                 _planning_control(parameter, selection[parameter["name"]], index)
                 for index, parameter in enumerate(metadata)
             ]
+            controls.append(
+                html.Div(
+                    dbc.Button(
+                        [html.I(className="fas fa-undo me-2"), "Reset feature ranges"],
+                        id={"type": PLANNING_RESET_ID, "context": metadata_version},
+                        color="primary",
+                        outline=True,
+                        size="sm",
+                        n_clicks=0,
+                    ),
+                    className="two-dimensional-planning-actions",
+                )
+            )
+            return controls, {
+                "source": PLANNING_SOURCE,
+                "run_id": run_id,
+                "metadata_version": metadata_version,
+                "metadata": metadata,
+            }
 
-        @app.callback(  # type: ignore
-            Output(PLANNING_INTENT_ID, "data"),
-            [
-                Input({"type": PLANNING_RANGE_TYPE, "index": ALL}, "value"),
-                Input({"type": PLANNING_CATEGORIES_TYPE, "index": ALL}, "value"),
-                Input(PLANNING_RESET_ID, "n_clicks"),
-            ],
-            [
-                State(self.get_internal_input_id("hyperparameter_name_1"), "value"),
-                State(self.get_internal_input_id("hyperparameter_name_2"), "value"),
-                State(PLANNED_SEARCH_SPACE_STORE_ID, "data"),
-                State("global-run-selector", "value"),
-            ],
+        app.clientside_callback(  # type: ignore
+            ClientsideFunction(
+                namespace="twoDimensionalPlanning",
+                function_name="applyMountedMasks",
+            ),
+            Output("two-dimensional-planning-mask-revision", "data"),
+            Input(PLANNED_SEARCH_SPACE_STORE_ID, "data"),
+            State("two-dimensional-planning-mask-revision", "data"),
             prevent_initial_call=True,
         )
-        def update_planning_selection(
-            _ranges: List[Any],
-            _categories: List[Any],
-            _reset_clicks: int,
-            hyperparameter_name_1: str,
-            hyperparameter_name_2: str,
-            planning_state: Any,
-            run_id: str,
-        ) -> Any:
-            if not run_id:
-                raise PreventUpdate
-            names = [hyperparameter_name_1, hyperparameter_name_2]
-            if not all(names):
-                raise PreventUpdate
-            try:
-                run = run_handler.get_run(run_id)
-                metadata = configspace_metadata(run.configspace, names)
-            except (KeyError, RuntimeError):
-                raise PreventUpdate
-            if ctx.triggered_id == PLANNING_RESET_ID:
-                reset = initial_selection(metadata)
-                current = selection_from_state(planning_state, run_id, metadata)
-                if reset == current:
-                    raise PreventUpdate
-                return {
-                    "run_id": run_id,
-                    "mode": "patch",
-                    "selection": reset,
-                }
-            if not isinstance(ctx.triggered_id, dict):
-                raise PreventUpdate
-            axis_index = ctx.triggered_id.get("index")
-            if axis_index not in (0, 1):
-                raise PreventUpdate
-            parameter = metadata[axis_index]
-            selection = selection_from_state(planning_state, run_id, metadata)
-            current = selection[parameter["name"]]
-            value = ctx.triggered[0].get("value") if ctx.triggered else None
-            try:
-                if ctx.triggered_id.get("type") == PLANNING_RANGE_TYPE:
-                    if value is None or len(value) != 2:
-                        raise PreventUpdate
-                    metrics = selection_metrics(parameter, current)
-                    if np.allclose(
-                        value,
-                        [metrics["min_normalized"], metrics["max_normalized"]],
-                    ):
-                        raise PreventUpdate
-                    updated = coerce_selection(
-                        denormalize_value(value[0], parameter),
-                        denormalize_value(value[1], parameter),
-                        parameter,
-                    )
-                else:
-                    choices = value or []
-                    updated = {
-                        "choices": [choice for choice in parameter["choices"] if choice in choices]
-                    }
-                    if updated == current:
-                        raise PreventUpdate
-            except (TypeError, ValueError, OverflowError):
-                raise PreventUpdate
-            return {
-                "run_id": run_id,
-                "mode": "patch",
-                "selection": {parameter["name"]: updated},
-            }
 
     def load_inputs(self) -> Dict[str, Dict[str, Any]]:
         """Return defaults before an Optuna study is selected."""
@@ -1288,24 +1253,16 @@ class TwoDimensionalAnalysis(DynamicPlugin):
                                 "HPO Planner - Search Space",
                                 html.Div(
                                     [
-                                        dcc.Store(id=PLANNING_INTENT_ID, data=None),
+                                        dcc.Store(
+                                            id={
+                                                "type": PLANNED_SEARCH_SPACE_CONTEXT_TYPE,
+                                                "source": PLANNING_SOURCE,
+                                            },
+                                            data=None,
+                                        ),
                                         html.Div(
                                             id=PLANNING_CONTROLS_ID,
                                             className="two-dimensional-planning-controls",
-                                        ),
-                                        html.Div(
-                                            dbc.Button(
-                                                [
-                                                    html.I(className="fas fa-undo me-2"),
-                                                    "Reset feature ranges",
-                                                ],
-                                                id=PLANNING_RESET_ID,
-                                                color="primary",
-                                                outline=True,
-                                                size="sm",
-                                                n_clicks=0,
-                                            ),
-                                            className="two-dimensional-planning-actions",
                                         ),
                                     ],
                                     className=(
@@ -1377,6 +1334,34 @@ class TwoDimensionalAnalysis(DynamicPlugin):
             run.configspace,
             [hyperparameter_name_1, hyperparameter_name_2],
         )
+        metadata_version = planning_metadata_fingerprint(metadata)
+        mask_context = {
+            "run_id": getattr(run, "id", ""),
+            "metadata_version": metadata_version,
+            "metadata": metadata,
+            "axis_1": outputs["axis_1"],
+            "axis_2": outputs["axis_2"],
+        }
+        objective_mask_kind = (
+            "continuous"
+            if _supports_contour(hyperparameter_1)
+            and _supports_contour(hyperparameter_2)
+            and len(outputs["axis_1"]) > 1
+            and len(outputs["axis_2"]) > 1
+            else "binned"
+        )
+        analysis_revision = (
+            f"{getattr(run, 'id', '')}:{hyperparameter_name_1}:{hyperparameter_name_2}"
+        )
+        for figure, mask_kind, panel in (
+            (trials_figure, "scatter", "trials"),
+            (elite_enrichment_figure, "binned", "enrichment"),
+            (objective_figure, objective_mask_kind, "objective"),
+        ):
+            figure.update_layout(
+                meta={"deepcave_planning_mask": {**mask_context, "kind": mask_kind}},
+                uirevision=f"{analysis_revision}:{panel}",
+            )
         selection = selection_from_state(
             inputs.get("planned_search_space_state"),
             getattr(run, "id", ""),
@@ -1396,12 +1381,7 @@ class TwoDimensionalAnalysis(DynamicPlugin):
             metadata,
             selection,
         )
-        if (
-            _supports_contour(hyperparameter_1)
-            and _supports_contour(hyperparameter_2)
-            and len(outputs["axis_1"]) > 1
-            and len(outputs["axis_2"]) > 1
-        ):
+        if objective_mask_kind == "continuous":
             _apply_continuous_mask(objective_figure, metadata, selection)
         else:
             _apply_binned_mask(

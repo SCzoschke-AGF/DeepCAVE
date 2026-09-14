@@ -17,6 +17,9 @@
 
 from typing import Any, Callable, Dict, List, Tuple
 
+from collections import OrderedDict
+from threading import RLock
+
 import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.graph_objs as go
@@ -72,6 +75,68 @@ PERFORMANCE_BOTTOM_MARGIN = 76
 ENRICHMENT_BOTTOM_MARGIN = 128
 PANEL_LEFT_MARGIN = 64
 TOP_MARGIN = 44
+TRIAL_FIGURE_CACHE_SIZE = 8
+
+_TRIAL_FIGURE_CACHE: "OrderedDict[Tuple[Any, ...], Dict[str, Any]]" = OrderedDict()
+_TRIAL_FIGURE_CACHE_LOCK = RLock()
+
+
+def clear_one_dimensional_figure_cache() -> None:
+    """Clear reusable in-process raw-trial figures."""
+    with _TRIAL_FIGURE_CACHE_LOCK:
+        _TRIAL_FIGURE_CACHE.clear()
+
+
+def _trial_figure_cache_key(
+    run: AbstractRun,
+    objective_id: Any,
+    hyperparameter_name: str,
+) -> Any:
+    """Return a data-aware key, or ``None`` for incomplete test doubles."""
+    try:
+        return (
+            run.id,
+            id(run),
+            run.latest_change,
+            len(run.history),
+            objective_id,
+            hyperparameter_name,
+        )
+    except (AttributeError, RuntimeError):
+        return None
+
+
+def _cached_trials_figure(
+    run: AbstractRun,
+    objective_id: Any,
+    hyperparameter_name: str,
+    build: Callable[[], go.Figure],
+) -> go.Figure:
+    """Reuse immutable serialized scatter bases across elite-only updates."""
+    key = _trial_figure_cache_key(run, objective_id, hyperparameter_name)
+    if key is None:
+        return build()
+    with _TRIAL_FIGURE_CACHE_LOCK:
+        cached = _TRIAL_FIGURE_CACHE.get(key)
+        if cached is None:
+            figure = build()
+            figure.update_layout(
+                uirevision=f"one-dimensional:{run.id}:{objective_id}:{hyperparameter_name}"
+            )
+            cached = figure.to_dict()
+            _TRIAL_FIGURE_CACHE[key] = cached
+            stale = [
+                candidate
+                for candidate in _TRIAL_FIGURE_CACHE
+                if candidate[0] == run.id and candidate[1:4] != key[1:4]
+            ]
+            for candidate in stale:
+                _TRIAL_FIGURE_CACHE.pop(candidate, None)
+            while len(_TRIAL_FIGURE_CACHE) > TRIAL_FIGURE_CACHE_SIZE:
+                _TRIAL_FIGURE_CACHE.popitem(last=False)
+        else:
+            _TRIAL_FIGURE_CACHE.move_to_end(key)
+        return go.Figure(cached)
 
 
 def _summarize_trials(
@@ -672,7 +737,17 @@ class OneDimensionalAnalysis(DynamicPlugin):
         tail_percent = int(round(100 * outputs["tail_quantile"]))
         elite_percent = 100 * float(inputs["elite_proportion"])
 
-        trials_figure = _trials_figure(trials, hyperparameter, hyperparameter_name, objective.name)
+        trials_figure = _cached_trials_figure(
+            run,
+            inputs["objective_id"],
+            hyperparameter_name,
+            lambda: _trials_figure(
+                trials,
+                hyperparameter,
+                hyperparameter_name,
+                objective.name,
+            ),
+        )
         performance_figure = _performance_figure(
             summary,
             hyperparameter_name,

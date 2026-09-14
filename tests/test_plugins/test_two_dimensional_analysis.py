@@ -9,7 +9,7 @@ from ConfigSpace.hyperparameters import (
     CategoricalHyperparameter,
     UniformFloatHyperparameter,
 )
-from dash import dcc, html
+from dash import dcc
 
 from deepcave import config
 from deepcave.plugins.hyperparameter import analysis_utils
@@ -32,6 +32,13 @@ def test_cache_key_is_versioned_for_axis_mask_geometry():
     legacy_key = super(analysis.TwoDimensionalAnalysis, plugin)._dict_as_key(inputs)
 
     assert plugin._dict_as_key(inputs) == f"{legacy_key}-v{analysis.CACHE_SCHEMA_VERSION}"
+
+
+def test_planning_state_is_not_an_analysis_redraw_input():
+    assert analysis.TwoDimensionalAnalysis.output_view_inputs == ()
+    assert analysis.TwoDimensionalAnalysis.output_view_states == (
+        ("planned_search_space_state", analysis.PLANNED_SEARCH_SPACE_STORE_ID, "data"),
+    )
 
 
 def _walk_components(component):
@@ -114,21 +121,24 @@ def test_output_layout_uses_independent_columns_and_separate_control_panels():
         for component in _walk_components(range_controls)
         if getattr(component, "id", None) == analysis.PLANNING_CONTROLS_ID
     ]
-    intent_stores = [
+    context_stores = [
         component
         for component in _walk_components(range_controls)
-        if isinstance(component, dcc.Store) and component.id == analysis.PLANNING_INTENT_ID
+        if isinstance(component, dcc.Store)
+        and component.id
+        == {
+            "type": analysis.PLANNED_SEARCH_SPACE_CONTEXT_TYPE,
+            "source": analysis.PLANNING_SOURCE,
+        }
     ]
     assert len(planning_mounts) == 1
-    assert len(intent_stores) == 1
+    assert len(context_stores) == 1
     reset_buttons = [
         component
         for component in _walk_components(range_controls)
         if isinstance(component, dbc.Button) and component.id == analysis.PLANNING_RESET_ID
     ]
-    assert len(reset_buttons) == 1
-    assert reset_buttons[0].n_clicks == 0
-    assert "Reset feature ranges" in str(reset_buttons[0].children)
+    assert reset_buttons == []
     assert not any(
         getattr(component, "id", None) == analysis.PLANNING_CONTROLS_ID
         for component in _walk_components(plot_controls)
@@ -765,10 +775,18 @@ def test_reduced_planning_controls_adapt_to_parameter_type():
 
     (slider,) = [item for item in numeric_components if isinstance(item, dcc.RangeSlider)]
     (dropdown,) = [item for item in category_components if isinstance(item, dcc.Dropdown)]
-    assert slider.id == {"type": analysis.PLANNING_RANGE_TYPE, "index": 0}
+    assert slider.id == {
+        "type": analysis.PLANNING_RANGE_TYPE,
+        "index": 0,
+        "context": "",
+    }
     assert slider.min < 0
     assert slider.max > 1
-    assert dropdown.id == {"type": analysis.PLANNING_CATEGORIES_TYPE, "index": 1}
+    assert dropdown.id == {
+        "type": analysis.PLANNING_CATEGORIES_TYPE,
+        "index": 1,
+        "context": "",
+    }
     assert dropdown.value == ["b"]
     assert any(
         getattr(item, "className", None) == "planner-extension-segment"

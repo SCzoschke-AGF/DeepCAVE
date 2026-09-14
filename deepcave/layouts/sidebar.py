@@ -86,58 +86,26 @@ class SidebarLayout(Layout):
             Input("sidebar-collapse-toggle", "n_clicks"),
         )
 
-        # Update navigation items
-        outputs = [
-            Output("navigation-items", "children"),
-            Output("general-navigation-link", "className"),
-        ]
-        input = Input("on-page-load", "pathname")
-
-        @app.callback(outputs, input)  # type: ignore
-        def update_navigation_items(pathname: str) -> Tuple[List[Component], str]:
+        # The navigation tree is immutable. Only its small active-class vector changes by route.
+        app.clientside_callback(
             """
-            Update the navigation items.
-
-            Parameters
-            ----------
-            pathname : str
-                The pathname.
-
-            Returns
-            -------
-            List[Component]
-                The navigation items.
-            """
-            layouts = []
-            for category, points in self.nav_points.items():
-                layouts += [
-                    html.H6(
-                        className="sidebar-heading d-flex justify-content-between "
-                        "align-items-center px-3 mt-4 mb-1 text-muted",
-                        children=[html.Span(category)],
-                    )
-                ]
-
-                point_layouts = []
-                for id, name, icon in points:
-                    href = f"/plugins/{id}"
-                    point_layouts += [
-                        html.Li(
-                            className="nav-item",
-                            children=[
-                                dcc.Link(
-                                    [html.I(className=icon), name],
-                                    className=f"nav-link {'active' if href in pathname else ''}",
-                                    href=href,
-                                )
-                            ],
-                        )
-                    ]
-
-                layouts += [html.Ul(className="nav flex-column", children=point_layouts)]
-
-            general_class = f"nav-link {'active' if pathname == '/' else ''}"
-            return layouts, general_class
+            function(pathname, linkIds) {
+                const path = String(pathname || "").split("?")[0];
+                return [
+                    (linkIds || []).map(function(id) {
+                        return path === `/plugins/${id.plugin}` ? "nav-link active" : "nav-link";
+                    }),
+                    path === "/" ? "nav-link active" : "nav-link",
+                ];
+            }
+            """,
+            [
+                Output({"type": "navigation-link", "plugin": ALL}, "className"),
+                Output("general-navigation-link", "className"),
+            ],
+            Input("on-page-load", "pathname"),
+            State({"type": "navigation-link", "plugin": ALL}, "id"),
+        )
 
         @app.callback(  # type: ignore
             [
@@ -441,12 +409,43 @@ class SidebarLayout(Layout):
                             ],
                             className="global-run-selector px-3 pt-2 pb-1",
                         ),
-                        html.Div(id="navigation-items"),
+                        html.Div(id="navigation-items", children=self._navigation_layout()),
                     ],
                 ),
                 html.Div(id="queue-info"),
             ],
         )
+
+    def _navigation_layout(self) -> List[Component]:
+        """Build the immutable categorized navigation tree once."""
+        layouts = []
+        for category, points in self.nav_points.items():
+            layouts.append(
+                html.H6(
+                    className=(
+                        "sidebar-heading d-flex justify-content-between align-items-center "
+                        "px-3 mt-4 mb-1 text-muted"
+                    ),
+                    children=[html.Span(category)],
+                )
+            )
+            point_layouts = []
+            for plugin_id, name, icon in points:
+                point_layouts.append(
+                    html.Li(
+                        className="nav-item",
+                        children=[
+                            dcc.Link(
+                                [html.I(className=icon), name],
+                                id={"type": "navigation-link", "plugin": plugin_id},
+                                className="nav-link",
+                                href=f"/plugins/{plugin_id}",
+                            )
+                        ],
+                    )
+                )
+            layouts.append(html.Ul(className="nav flex-column", children=point_layouts))
+        return layouts
 
     @staticmethod
     def _get_global_run_state() -> Tuple[List[Dict[str, Any]], Optional[str]]:

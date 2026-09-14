@@ -39,6 +39,11 @@ def test_optuna_study_dropdown_uses_full_study_names(monkeypatch, tmp_path):
     general_module = importlib.import_module("deepcave.layouts.general")
     monkeypatch.setattr(
         general_module,
+        "app",
+        SimpleNamespace(callback=register_callback),
+    )
+    monkeypatch.setattr(
+        general_module,
         "resolve_optuna_database",
         lambda _value, _working_dir: tmp_path / "optuna.db",
     )
@@ -51,10 +56,13 @@ def test_optuna_study_dropdown_uses_full_study_names(monkeypatch, tmp_path):
 
     layout = object.__new__(general_module.GeneralLayout)
     layout._callback_discover_optuna_studies()
-    options, selected_study, _message, _class_name = callbacks[0]("optuna.db", str(tmp_path), None)
+    options, selected_study, _message, _class_name, discovery = callbacks[0](
+        "optuna.db", str(tmp_path), None
+    )
 
     assert options == [{"label": long_study_name, "value": long_study_name}]
     assert selected_study == long_study_name
+    assert discovery["studies"] == [long_study_name]
 
 
 def test_group_layout_restores_relaxed_configspace_setting(monkeypatch):
@@ -86,7 +94,7 @@ def test_group_layout_restores_relaxed_configspace_setting(monkeypatch):
 
     layout = object.__new__(general_module.GeneralLayout)
     layout._callback_display_groups()
-    children, _clicks = callbacks[0](None, None, None, None)
+    children, _clicks, hydration = callbacks[0](None, None, None, None)
     components = [component for child in children for component in _walk_components(child)]
     checkbox = next(
         component
@@ -96,3 +104,4 @@ def test_group_layout_restores_relaxed_configspace_setting(monkeypatch):
     )
 
     assert checkbox.value is False
+    assert hydration["congruence"] == {"comparison": False}

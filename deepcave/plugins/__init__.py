@@ -32,7 +32,7 @@ import webbrowser
 from collections import defaultdict
 
 import dash_bootstrap_components as dbc
-from dash import dcc, html
+from dash import ctx, dcc, html, no_update
 from dash.dependencies import Input, Output, State
 from dash.development.base_component import Component
 from dash.exceptions import PreventUpdate
@@ -298,10 +298,15 @@ class Plugin(Layout, ABC):
 
         # Handles the initial and the cached input values
         outputs = []
-        callback_inputs = [
-            Input("on-page-load", "href"),
-            Input("global-run-selector", "value"),
-        ]
+        persistent_analysis = self.id in {
+            "hpo_planning",
+            "one_dimensional_analysis",
+            "two_dimensional_analysis",
+        }
+        pathname_dependency = (
+            State("on-page-load", "href") if persistent_analysis else Input("on-page-load", "href")
+        )
+        callback_inputs = [pathname_dependency, Input("global-run-selector", "value")]
 
         # Define also inputs if they are declared as interactive
         for id, attribute, _, _ in self.inputs:
@@ -323,7 +328,12 @@ class Plugin(Layout, ABC):
                 if self.main_objective_input is not None:
                     global_objective_state = inputs_list[-1]
                     inputs_list = inputs_list[:-1]
+                current_values = list(inputs_list)
                 init = len(self.previous_inputs) == 0
+                # Keep-alive plugin pages remain mounted while another analysis is visible.
+                # A route change alone must not repopulate their controls and figures.
+                if not persistent_analysis and not init and ctx.triggered_id == "on-page-load":
+                    raise PreventUpdate
                 cached_inputs = c.get("last_inputs", self.id) or {}
                 cached_run_id = cached_inputs.get("run", {}).get("value")
                 run_changed = cached_run_id is not None and cached_run_id != global_run_id
@@ -394,7 +404,17 @@ class Plugin(Layout, ABC):
                 inputs_list_from_dict = self._dict_to_list(inputs, input=True)
                 self.previous_inputs = copy.deepcopy(inputs)
 
-                return inputs_list_from_dict
+                def unchanged(current: Any, desired: Any) -> bool:
+                    try:
+                        equal = current == desired
+                    except (TypeError, ValueError):
+                        return False
+                    return isinstance(equal, bool) and equal
+
+                return [
+                    no_update if unchanged(current, desired) else desired
+                    for current, desired in zip(current_values, inputs_list_from_dict)
+                ]
 
         # Register modal for raw data here
         @app.callback(  # type: ignore

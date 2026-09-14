@@ -377,9 +377,21 @@ def test_rug_markers_are_centered_and_spread_horizontally_inside_their_bin():
 
 def test_range_panels_stay_aligned_and_fit_next_to_the_trials_panel(monkeypatch):
     monkeypatch.setattr(analysis, "save_image", lambda *_args: None)
+    analysis.clear_one_dimensional_figure_cache()
+    original_trials_figure = analysis._trials_figure
+    calls = []
+
+    def tracked_trials_figure(*args, **kwargs):
+        calls.append(1)
+        return original_trials_figure(*args, **kwargs)
+
+    monkeypatch.setattr(analysis, "_trials_figure", tracked_trials_figure)
     objective = Objective("Accuracy", optimize="upper")
     hyperparameter = CategoricalHyperparameter("kind", choices=["a", "b"])
     run = SimpleNamespace(
+        id="study",
+        latest_change=1.0,
+        history=[],
         configspace={"kind": hyperparameter},
         get_objective=lambda _objective_id: objective,
     )
@@ -413,6 +425,16 @@ def test_range_panels_stay_aligned_and_fit_next_to_the_trials_panel(monkeypatch)
             outputs,
         )
     )
+    analysis.OneDimensionalAnalysis.load_outputs(
+        run,
+        {
+            "objective_id": 0,
+            "hyperparameter_name": "kind",
+            "elite_proportion": 0.2,
+        },
+        outputs,
+    )
+    assert len(calls) == 1
 
     # Identical bins, order and left margin are what couples the two range panels.
     for figure in (performance_figure, enrichment_figure):

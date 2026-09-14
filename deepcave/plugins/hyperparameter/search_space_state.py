@@ -5,7 +5,10 @@
 
 """Shared browser-session state and value helpers for search-space planning."""
 
-from typing import Any, Dict, List, Mapping, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+
+import hashlib
+import json
 
 import numpy as np
 from ConfigSpace.hyperparameters import (
@@ -21,6 +24,7 @@ from dash.development.base_component import Component
 
 PLANNED_SEARCH_SPACE_STORE_ID = "planned-search-space-state"
 PLANNED_SEARCH_SPACE_INTENT_TYPE = "planned-search-space-intent"
+PLANNED_SEARCH_SPACE_CONTEXT_TYPE = "planned-search-space-context"
 PLANNED_SEARCH_SPACE_STATE_VERSION = 1
 DEFAULT_SLIDER_EXTENSION = 0.25
 NUMERIC_PARAMETER_TYPES = (FloatHyperparameter, IntegerHyperparameter)
@@ -64,6 +68,8 @@ def denormalize_value(position: float, parameter: Mapping[str, Any]) -> float:
 
 def snap_value(value: float, parameter: Mapping[str, Any]) -> Any:
     """Snap a value to its integer/step lattice without clipping extensions."""
+    if not np.isfinite(value):
+        raise ValueError("Planning values must be finite.")
     step = parameter.get("step")
     if step is not None and float(step) > 0:
         lower = float(parameter["current_min"])
@@ -152,6 +158,35 @@ def initial_selection(metadata: Sequence[Mapping[str, Any]]) -> Dict[str, Dict[s
     return selection
 
 
+def planning_metadata_fingerprint(metadata: Sequence[Mapping[str, Any]]) -> str:
+    """Return a stable fingerprint of definitions which constrain stored selections."""
+    definition_keys = (
+        "name",
+        "parameter_type",
+        "current_min",
+        "current_max",
+        "log",
+        "step",
+        "choices",
+    )
+    definitions = [
+        {key: parameter[key] for key in definition_keys if key in parameter}
+        for parameter in metadata
+    ]
+    serialized = json.dumps(
+        definitions,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _same_typed_value(left: Any, right: Any) -> bool:
+    """Compare category values without conflating booleans and integers."""
+    return type(left) is type(right) and left == right
+
+
 def reconcile_selection(
     metadata: Sequence[Mapping[str, Any]],
     stored: Any,
@@ -175,7 +210,11 @@ def reconcile_selection(
                 if not isinstance(selected, list):
                     continue
                 reconciled[name] = {
-                    "choices": [choice for choice in parameter["choices"] if choice in selected]
+                    "choices": [
+                        choice
+                        for choice in parameter["choices"]
+                        if any(_same_typed_value(choice, item) for item in selected)
+                    ]
                 }
         except (KeyError, TypeError, ValueError, OverflowError):
             continue
@@ -184,7 +223,12 @@ def reconcile_selection(
 
 def empty_planning_state() -> Dict[str, Any]:
     """Return a new versioned browser-memory planning state."""
-    return {"version": PLANNED_SEARCH_SPACE_STATE_VERSION, "revision": 0, "runs": {}}
+    return {
+        "version": PLANNED_SEARCH_SPACE_STATE_VERSION,
+        "revision": 0,
+        "runs": {},
+        "event_sequences": {},
+    }
 
 
 def planning_state_store() -> Component:
@@ -204,8 +248,7 @@ def selection_from_state(
     """Resolve and reconcile one run's selection from the global state."""
     valid_state = (
         state
-        if isinstance(state, dict)
-        and state.get("version") == PLANNED_SEARCH_SPACE_STATE_VERSION
+        if isinstance(state, dict) and state.get("version") == PLANNED_SEARCH_SPACE_STATE_VERSION
         else empty_planning_state()
     )
     runs = valid_state.get("runs", {})
@@ -213,33 +256,101 @@ def selection_from_state(
     return reconcile_selection(metadata, stored)
 
 
+def _intent_sequence(intent: Mapping[str, Any]) -> Optional[int]:
+    """Read an optional non-negative event sequence."""
+    value = intent.get("sequence")
+    if isinstance(value, bool):
+        return None
+    try:
+        sequence = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return sequence if sequence >= 0 else None
+
+
+def _valid_intent_selection(value: Any) -> bool:
+    """Reject malformed and non-finite values before they can damage browser state."""
+    if not isinstance(value, dict):
+        return False
+    if "min" in value or "max" in value:
+        if set(value) != {"min", "max"}:
+            return False
+        try:
+            return bool(np.isfinite(float(value["min"]))) and bool(np.isfinite(float(value["max"])))
+        except (TypeError, ValueError, OverflowError):
+            return False
+    choices = value.get("choices")
+    if set(value) != {"choices"} or not isinstance(choices, list):
+        return False
+    return all(
+        not isinstance(choice, (float, np.floating)) or bool(np.isfinite(choice))
+        for choice in choices
+    )
+
+
 def apply_planning_intent(state: Any, intent: Any) -> Dict[str, Any]:
-    """Apply one idempotent run-local patch or replacement to browser state."""
+    """Apply one idempotent, ordered run-local patch or reset to browser state."""
     current = (
         state
-        if isinstance(state, dict)
-        and state.get("version") == PLANNED_SEARCH_SPACE_STATE_VERSION
+        if isinstance(state, dict) and state.get("version") == PLANNED_SEARCH_SPACE_STATE_VERSION
         else empty_planning_state()
     )
-    runs = current.get("runs", {})
-    runs = dict(runs) if isinstance(runs, dict) else {}
     if not isinstance(intent, dict) or not isinstance(intent.get("run_id"), str):
         return current
     run_id = intent["run_id"]
     selection = intent.get("selection")
     if not isinstance(selection, dict):
         return current
+
+    runs_value = current.get("runs", {})
+    runs = dict(runs_value) if isinstance(runs_value, dict) else {}
+    previous_value = runs.get(run_id, {})
+    previous = dict(previous_value) if isinstance(previous_value, dict) else {}
+
+    sequence = _intent_sequence(intent)
+    source = str(intent.get("source", "unknown"))
+    sequences_value = current.get("event_sequences", {})
+    sequences = dict(sequences_value) if isinstance(sequences_value, dict) else {}
+    run_sequences_value = sequences.get(run_id, {})
+    run_sequences = dict(run_sequences_value) if isinstance(run_sequences_value, dict) else {}
+
+    accepted: Dict[str, Any] = {}
+    for name, value in selection.items():
+        if not isinstance(name, str) or not _valid_intent_selection(value):
+            continue
+        event_key = f"{source}:{name}"
+        previous_sequence = run_sequences.get(event_key)
+        if (
+            sequence is not None
+            and isinstance(previous_sequence, int)
+            and sequence <= previous_sequence
+        ):
+            continue
+        accepted[name] = value
+        if sequence is not None:
+            run_sequences[event_key] = sequence
+
+    if intent.get("mode") == "replace" and len(accepted) != len(selection):
+        return current
     if intent.get("mode") == "replace":
-        runs[run_id] = selection
+        updated_run = accepted
     else:
-        previous = runs.get(run_id, {})
-        merged = dict(previous) if isinstance(previous, dict) else {}
-        merged.update(selection)
-        runs[run_id] = merged
+        updated_run = dict(previous)
+        updated_run.update(accepted)
+
+    # Invalid or stale patches and semantically identical events are true no-ops. In particular,
+    # they must not cause downstream figures to render again merely by increasing a revision.
+    if updated_run == previous:
+        return current
+
+    runs[run_id] = updated_run
+    if sequence is not None:
+        sequences[run_id] = run_sequences
     return {
         "version": PLANNED_SEARCH_SPACE_STATE_VERSION,
         "revision": int(current.get("revision", 0)) + 1,
         "runs": runs,
+        "event_sequences": sequences,
     }
 
 

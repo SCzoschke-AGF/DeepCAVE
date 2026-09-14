@@ -101,3 +101,81 @@ def test_unknown_state_version_is_not_reused():
     selection = state.selection_from_state(stale, "run-a", metadata)
 
     assert selection["depth"] == {"min": 1, "max": 9}
+
+
+def test_identical_and_invalid_intents_are_true_noops():
+    planning_state = state.apply_planning_intent(
+        state.empty_planning_state(),
+        {
+            "run_id": "run-a",
+            "source": "hpo",
+            "mode": "patch",
+            "selection": {"depth": {"min": 2, "max": 5}},
+        },
+    )
+
+    repeated = state.apply_planning_intent(
+        planning_state,
+        {
+            "run_id": "run-a",
+            "source": "hpo",
+            "mode": "patch",
+            "selection": {"depth": {"min": 2, "max": 5}},
+        },
+    )
+    invalid = state.apply_planning_intent(
+        planning_state,
+        {
+            "run_id": "run-a",
+            "mode": "patch",
+            "selection": {"depth": {"min": float("nan"), "max": 5}},
+        },
+    )
+
+    assert repeated is planning_state
+    assert invalid is planning_state
+    assert repeated["revision"] == 1
+
+
+def test_sequences_reject_stale_same_parameter_but_preserve_other_patches():
+    planning_state = state.empty_planning_state()
+    planning_state = state.apply_planning_intent(
+        planning_state,
+        {
+            "run_id": "run-a",
+            "source": "hpo",
+            "sequence": 5,
+            "selection": {"depth": {"min": 3, "max": 6}},
+        },
+    )
+    planning_state = state.apply_planning_intent(
+        planning_state,
+        {
+            "run_id": "run-a",
+            "source": "hpo",
+            "sequence": 4,
+            "selection": {
+                "depth": {"min": 1, "max": 2},
+                "kind": {"choices": ["b"]},
+            },
+        },
+    )
+
+    assert planning_state["runs"]["run-a"] == {
+        "depth": {"min": 3, "max": 6},
+        "kind": {"choices": ["b"]},
+    }
+    assert planning_state["revision"] == 2
+
+
+def test_reconciliation_rejects_nonfinite_ranges_and_preserves_empty_categories():
+    selection = state.reconcile_selection(
+        _metadata(),
+        {
+            "rate": {"min": float("-inf"), "max": 1.0},
+            "kind": {"choices": []},
+        },
+    )
+
+    assert selection["rate"] == {"min": 0.01, "max": 1.0}
+    assert selection["kind"] == {"choices": []}

@@ -483,6 +483,12 @@ table.table.exclude-head tbody {
     flex: 1 1 auto;
 }
 
+.planner-parameter-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+}
+
 .planner-insight-button.btn {
     height: auto;
     flex: 0 0 auto;
@@ -501,6 +507,10 @@ table.table.exclude-head tbody {
     color: #1f6573;
     text-decoration: none;
     box-shadow: none;
+}
+
+.planner-top-trial-button.btn.active {
+    color: #d95f02;
 }
 
 .planner-insight-panel.offcanvas-end {
@@ -632,6 +642,28 @@ table.table.exclude-head tbody {
     pointer-events: none;
 }
 
+.planner-top-trial-layer {
+    position: absolute;
+    top: 0.3rem;
+    right: calc(0.15rem + var(--planner-slider-gutter));
+    bottom: 0.05rem;
+    left: calc(0.15rem + var(--planner-slider-gutter));
+    z-index: 9;
+    pointer-events: none;
+}
+
+.planner-top-trial-marker {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    transform: translateX(-50%);
+    border-radius: 1px;
+    background: #d95f02;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55);
+    opacity: 0.78;
+}
+
 .planner-unselected-segment {
     position: absolute;
     top: 0;
@@ -685,8 +717,22 @@ table.table.exclude-head tbody {
 }
 
 .planner-category-control {
+    position: relative;
     min-width: 0;
     padding: 0.5rem 0;
+}
+
+.planner-category-top-trial-layer {
+    position: relative;
+    height: 1rem;
+    margin: 0.4rem 25px 0;
+    border-top: 1px solid #dbe4ef;
+    pointer-events: none;
+}
+
+.planner-category-top-trial-layer .planner-top-trial-marker {
+    top: -0.3rem;
+    bottom: 0.2rem;
 }
 
 .planner-category-select {

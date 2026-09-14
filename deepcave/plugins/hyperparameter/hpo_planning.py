@@ -32,7 +32,17 @@ from ConfigSpace.hyperparameters import (
     IntegerHyperparameter,
     OrdinalHyperparameter,
 )
-from dash import ALL, Input, Output, State, ctx, dcc, html, no_update
+from dash import (
+    ALL,
+    ClientsideFunction,
+    Input,
+    Output,
+    State,
+    ctx,
+    dcc,
+    html,
+    no_update,
+)
 from dash.development.base_component import Component
 from dash.exceptions import PreventUpdate
 
@@ -43,7 +53,7 @@ from deepcave.plugins.hyperparameter.analysis_utils import (
     _is_optuna_run_or_group,
 )
 from deepcave.plugins.hyperparameter.search_space_state import (
-    PLANNED_SEARCH_SPACE_INTENT_TYPE,
+    PLANNED_SEARCH_SPACE_CONTEXT_TYPE,
     PLANNED_SEARCH_SPACE_STORE_ID,
 )
 from deepcave.plugins.hyperparameter.search_space_state import (
@@ -67,6 +77,9 @@ from deepcave.plugins.hyperparameter.search_space_state import (
 from deepcave.plugins.hyperparameter.search_space_state import parameter_metadata
 from deepcave.plugins.hyperparameter.search_space_state import (
     parameter_type as _parameter_type,
+)
+from deepcave.plugins.hyperparameter.search_space_state import (
+    planning_metadata_fingerprint,
 )
 from deepcave.plugins.hyperparameter.search_space_state import (
     position_percent as _position_percent,
@@ -98,6 +111,7 @@ ELITE_PROPORTION_MIN = 0.001
 ELITE_PROPORTION_MAX = 0.99
 ELITE_MARKER_COLORS = ("#440154", "#21918C", "#D95F02")
 DEFAULT_TOP_TRIAL_COUNT = 10
+DEFAULT_PARAMETER_TOP_TRIAL_COUNT = 5
 TOP_TRIAL_LIMIT = 100
 INCLUDED_TRIAL_COLOR = "#52B788"
 EXCLUDED_TRIAL_COLOR = "#DC3545"
@@ -121,6 +135,7 @@ ROWS_ID = "hpo-planning-rows"
 DICT_PREVIEW_ID = "hpo-planning-dict-preview"
 COPY_ID = "hpo-planning-copy"
 RESET_ID = "hpo-planning-reset"
+PLANNING_SOURCE = "hpo-planning"
 COVERAGE_GRAPH_ID = "hpo-planning-coverage-graph"
 COVERAGE_BADGE_ID = "hpo-planning-coverage-badge"
 COVERAGE_TITLE_ID = "hpo-planning-coverage-title"
@@ -138,10 +153,9 @@ INSIGHT_GRAPH_ID = "hpo-planning-insight-graph"
 INSIGHT_ELITE_CONTROL_ID = "hpo-planning-insight-elite-group"
 INSIGHT_CLOSE_ID = "hpo-planning-insight-close"
 INSIGHT_BUTTON_TYPE = "hpo-planner-insight"
-PLANNING_INTENT_ID = {
-    "type": PLANNED_SEARCH_SPACE_INTENT_TYPE,
-    "source": "hpo-planning",
-}
+SHOW_TOP_N_ID = "hpo-planning-show-top-n"
+TOP_TRIAL_BUTTON_TYPE = "hpo-planner-top-trials"
+TOP_TRIAL_LAYER_TYPE = "hpo-planner-top-trial-layer"
 
 
 def _validate_elite_proportions(values: Sequence[Any]) -> List[float]:
@@ -696,9 +710,109 @@ def _insight_button(parameter: Dict[str, Any]) -> Component:
     )
 
 
-def _numeric_row(parameter: Dict[str, Any], selection: Dict[str, Any]) -> Component:
+def _top_trial_button(parameter: Dict[str, Any], active: bool) -> Component:
+    """Return the toggle for trial-position markers on one parameter row."""
+    action = "Hide" if active else "Show"
+    return dbc.Button(
+        html.I(className="fas fa-map-marker-alt"),
+        id={"type": TOP_TRIAL_BUTTON_TYPE, "index": parameter["index"]},
+        n_clicks=0,
+        active=active,
+        color="link",
+        size="sm",
+        title=f"{action} top-trial positions for {parameter['name']}",
+        className="planner-insight-button planner-top-trial-button",
+    )
+
+
+def _parameter_action_buttons(parameter: Dict[str, Any], show_top_trials: bool) -> Component:
+    """Group the detail and top-trial controls for one parameter."""
+    return html.Div(
+        [
+            _insight_button(parameter),
+            _top_trial_button(parameter, show_top_trials),
+        ],
+        className="planner-parameter-actions",
+    )
+
+
+def _parameter_top_trial_count(value: Any) -> int:
+    """Return a valid requested marker count between one and the retained limit."""
+    try:
+        return min(TOP_TRIAL_LIMIT, max(1, int(float(value))))
+    except (OverflowError, TypeError, ValueError):
+        return DEFAULT_PARAMETER_TOP_TRIAL_COUNT
+
+
+def _updated_top_trial_visibility(
+    metadata: Sequence[Dict[str, Any]],
+    visible_indices: Sequence[Any],
+    parameter_index: Any,
+) -> List[int]:
+    """Toggle one valid parameter index while preserving the other active rows."""
+    valid_indices = {int(parameter["index"]) for parameter in metadata}
+    visible = {
+        int(index)
+        for index in (visible_indices or [])
+        if isinstance(index, (int, float)) and int(index) in valid_indices
+    }
+    if not isinstance(parameter_index, (int, float)) or int(parameter_index) not in valid_indices:
+        return sorted(visible)
+    parameter_index = int(parameter_index)
+    if parameter_index in visible:
+        visible.remove(parameter_index)
+    else:
+        visible.add(parameter_index)
+    return sorted(visible)
+
+
+def _top_trial_marker_components(
+    parameter: Dict[str, Any],
+    trials: Sequence[Dict[str, Any]],
+    domain: Tuple[float, float] = (0.0, 1.0),
+) -> List[Component]:
+    """Place ranked trial values as vertical markers in a parameter track."""
+    name = parameter["name"]
+    components = []
+    for trial in trials:
+        value = trial.get("configuration", {}).get(name)
+        if value is None:
+            continue
+        try:
+            if parameter["parameter_type"] in ("integer", "float"):
+                normalized = _normalize_value(float(value), parameter)
+                position = _position_percent(normalized, domain)
+            else:
+                choices = parameter["choices"]
+                choice_index = choices.index(value)
+                position = 50.0 if len(choices) == 1 else 100 * choice_index / (len(choices) - 1)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if not -1e-9 <= position <= 100 + 1e-9:
+            continue
+        components.append(
+            html.Span(
+                className="planner-top-trial-marker",
+                style={"left": f"{position:.6f}%"},
+                title=(
+                    f"Rank {trial.get('rank', '?')} · Trial "
+                    f"{trial.get('trial_number', '?')} · {_format_value(value)}"
+                ),
+                **{"data-rank": str(trial.get("rank", ""))},
+            )
+        )
+    return components
+
+
+def _numeric_row(
+    parameter: Dict[str, Any],
+    selection: Dict[str, Any],
+    top_trials: Sequence[Dict[str, Any]] = (),
+    show_top_trials: bool = False,
+) -> Component:
     """Render one compact numerical planning row."""
     index = parameter["index"]
+    planning_context = parameter.get("planning_context", "")
     metrics = _selection_metrics(parameter, selection)
     slider_minimum, slider_maximum = _slider_domain(metrics)
     step = parameter.get("step")
@@ -708,7 +822,7 @@ def _numeric_row(parameter: Dict[str, Any], selection: Dict[str, Any]) -> Compon
             html.Div(
                 [
                     html.Span(parameter["name"], className="planner-parameter-name"),
-                    _insight_button(parameter),
+                    _parameter_action_buttons(parameter, show_top_trials),
                 ],
                 className="planner-parameter-heading",
             ),
@@ -723,7 +837,11 @@ def _numeric_row(parameter: Dict[str, Any], selection: Dict[str, Any]) -> Compon
                         className="planner-current-reference",
                     ),
                     dcc.RangeSlider(
-                        id={"type": "hpo-planner-range", "index": index},
+                        id={
+                            "type": "hpo-planner-range",
+                            "index": index,
+                            "context": planning_context,
+                        },
                         min=slider_minimum,
                         max=slider_maximum,
                         step=0.001,
@@ -758,6 +876,19 @@ def _numeric_row(parameter: Dict[str, Any], selection: Dict[str, Any]) -> Compon
                         className="planner-unselected-layer",
                         children=_unselected_components(metrics, (slider_minimum, slider_maximum)),
                     ),
+                    html.Div(
+                        id={"type": TOP_TRIAL_LAYER_TYPE, "index": index},
+                        className="planner-top-trial-layer",
+                        children=(
+                            _top_trial_marker_components(
+                                parameter,
+                                top_trials,
+                                (slider_minimum, slider_maximum),
+                            )
+                            if show_top_trials
+                            else []
+                        ),
+                    ),
                 ],
                 className="planner-range-control",
                 **{
@@ -769,7 +900,11 @@ def _numeric_row(parameter: Dict[str, Any], selection: Dict[str, Any]) -> Compon
                 },
             ),
             dbc.Input(
-                id={"type": "hpo-planner-min", "index": index},
+                id={
+                    "type": "hpo-planner-min",
+                    "index": index,
+                    "context": planning_context,
+                },
                 type="number",
                 value=selection["min"],
                 step=input_step,
@@ -778,7 +913,11 @@ def _numeric_row(parameter: Dict[str, Any], selection: Dict[str, Any]) -> Compon
                 className="planner-bound-input",
             ),
             dbc.Input(
-                id={"type": "hpo-planner-max", "index": index},
+                id={
+                    "type": "hpo-planner-max",
+                    "index": index,
+                    "context": planning_context,
+                },
                 type="number",
                 value=selection["max"],
                 step=input_step,
@@ -791,9 +930,15 @@ def _numeric_row(parameter: Dict[str, Any], selection: Dict[str, Any]) -> Compon
     )
 
 
-def _categorical_row(parameter: Dict[str, Any], selection: Dict[str, Any]) -> Component:
+def _categorical_row(
+    parameter: Dict[str, Any],
+    selection: Dict[str, Any],
+    top_trials: Sequence[Dict[str, Any]] = (),
+    show_top_trials: bool = False,
+) -> Component:
     """Render a categorical, ordinal, or constant parameter as a compact multiselect."""
     index = parameter["index"]
+    planning_context = parameter.get("planning_context", "")
     elite_badges = []
     for elite in parameter["elite_values"]:
         label = "no active trials" if elite["value"] is None else _format_value(elite["value"])
@@ -809,14 +954,18 @@ def _categorical_row(parameter: Dict[str, Any], selection: Dict[str, Any]) -> Co
             html.Div(
                 [
                     html.Span(parameter["name"], className="planner-parameter-name"),
-                    _insight_button(parameter),
+                    _parameter_action_buttons(parameter, show_top_trials),
                 ],
                 className="planner-parameter-heading",
             ),
             html.Div(
                 [
                     dcc.Dropdown(
-                        id={"type": "hpo-planner-categories", "index": index},
+                        id={
+                            "type": "hpo-planner-categories",
+                            "index": index,
+                            "context": planning_context,
+                        },
                         options=get_select_options(parameter["choices"]),
                         value=selection["choices"],
                         multi=True,
@@ -824,6 +973,15 @@ def _categorical_row(parameter: Dict[str, Any], selection: Dict[str, Any]) -> Co
                         className="planner-category-select",
                     ),
                     html.Div(elite_badges, className="planner-category-elites"),
+                    html.Div(
+                        id={"type": TOP_TRIAL_LAYER_TYPE, "index": index},
+                        className="planner-category-top-trial-layer",
+                        children=(
+                            _top_trial_marker_components(parameter, top_trials)
+                            if show_top_trials
+                            else []
+                        ),
+                    ),
                 ],
                 className="planner-category-control",
             ),
@@ -837,15 +995,21 @@ def _categorical_row(parameter: Dict[str, Any], selection: Dict[str, Any]) -> Co
 def _planner_rows(
     metadata: Sequence[Dict[str, Any]],
     selection: Dict[str, Dict[str, Any]],
+    trials: Sequence[Dict[str, Any]] = (),
+    top_n: Any = DEFAULT_PARAMETER_TOP_TRIAL_COUNT,
+    visible_top_trial_indices: Sequence[int] = (),
 ) -> List[Component]:
     """Render all planner rows while keeping numerical and categorical rows distinct."""
     rows = []
+    top_trials = list(trials[: _parameter_top_trial_count(top_n)])
+    visible = set(visible_top_trial_indices)
     for parameter in metadata:
         selected = selection[parameter["name"]]
+        show_top_trials = parameter["index"] in visible
         if parameter["parameter_type"] in ("integer", "float"):
-            rows.append(_numeric_row(parameter, selected))
+            rows.append(_numeric_row(parameter, selected, top_trials, show_top_trials))
         else:
-            rows.append(_categorical_row(parameter, selected))
+            rows.append(_categorical_row(parameter, selected, top_trials, show_top_trials))
     return rows
 
 
@@ -1398,6 +1562,7 @@ def _planner_layout(
     selection: Dict[str, Dict[str, Any]],
     coverage_data: Dict[str, Any],
     insights: List[Dict[str, Any]],
+    run_id: str = "",
 ) -> Component:
     """Return the planner, sidebar, and live top-trial coverage card."""
     visible_trials = _visible_coverage_trials(coverage_data, DEFAULT_TOP_TRIAL_COUNT)
@@ -1410,8 +1575,16 @@ def _planner_layout(
     return html.Div(
         [
             dcc.Store(id=METADATA_STORE_ID, data=metadata),
+            dcc.Store(
+                id={"type": PLANNED_SEARCH_SPACE_CONTEXT_TYPE, "source": PLANNING_SOURCE},
+                data={
+                    "source": PLANNING_SOURCE,
+                    "run_id": run_id,
+                    "metadata_version": planning_metadata_fingerprint(metadata),
+                    "metadata": metadata,
+                },
+            ),
             dcc.Store(id=SELECTION_STORE_ID, data=selection),
-            dcc.Store(id=PLANNING_INTENT_ID, data=None),
             dcc.Store(id=TRIALS_STORE_ID, data=coverage_data),
             dcc.Store(id=INSIGHTS_STORE_ID, data=insights),
             dcc.Store(id=INSIGHT_SELECTION_STORE_ID, data=None),
@@ -1489,7 +1662,10 @@ def _planner_layout(
                                     html.I(className="fas fa-undo me-2"),
                                     "Reset selections",
                                 ],
-                                id=RESET_ID,
+                                id={
+                                    "type": RESET_ID,
+                                    "context": planning_metadata_fingerprint(metadata),
+                                },
                                 className="btn btn-outline-primary btn-sm",
                                 n_clicks=0,
                             ),
@@ -2017,6 +2193,23 @@ class HPOPlanning(DynamicPlugin):
                         )
                         for index, percent in enumerate((10, 5, 1), start=1)
                     ],
+                    analysis_toolbar_item(
+                        "Show Top N",
+                        dbc.Input(
+                            id=SHOW_TOP_N_ID,
+                            type="number",
+                            min=1,
+                            max=TOP_TRIAL_LIMIT,
+                            step=1,
+                            value=DEFAULT_PARAMETER_TOP_TRIAL_COUNT,
+                            debounce=True,
+                        ),
+                        width="7rem",
+                        help_text=(
+                            "Number of globally best trials shown as position markers when "
+                            "enabled for a parameter."
+                        ),
+                    ),
                 ],
                 className="analysis-toolbar d-flex flex-wrap align-items-center gap-2",
             )
@@ -2036,7 +2229,6 @@ class HPOPlanning(DynamicPlugin):
         @app.callback(  # type: ignore
             [
                 Output(SELECTION_STORE_ID, "data"),
-                Output(ROWS_ID, "children"),
                 Output(SIDEBAR_BODY_ID, "children"),
                 Output(DICT_PREVIEW_ID, "children"),
                 Output(COPY_ID, "content"),
@@ -2044,14 +2236,9 @@ class HPOPlanning(DynamicPlugin):
                 Output(COVERAGE_BADGE_ID, "children"),
                 Output(COVERAGE_TITLE_ID, "children"),
                 Output(COVERAGE_SUBTITLE_ID, "children"),
-                Output(PLANNING_INTENT_ID, "data"),
             ],
             [
-                Input({"type": "hpo-planner-range", "index": ALL}, "value"),
-                Input({"type": "hpo-planner-min", "index": ALL}, "value"),
-                Input({"type": "hpo-planner-max", "index": ALL}, "value"),
-                Input({"type": "hpo-planner-categories", "index": ALL}, "value"),
-                Input(RESET_ID, "n_clicks"),
+                Input(PLANNED_SEARCH_SPACE_STORE_ID, "data"),
                 Input(SPREAD_ATTRIBUTE_ID, "value"),
                 Input(SPREAD_TOGGLE_ID, "value"),
                 Input(SPREAD_MODE_ID, "value"),
@@ -2067,11 +2254,7 @@ class HPOPlanning(DynamicPlugin):
             prevent_initial_call=True,
         )
         def synchronize_planner(
-            _ranges: List[Any],
-            _minima: List[Any],
-            _maxima: List[Any],
-            _categories: List[Any],
-            _reset_clicks: int,
+            planning_state: Any,
             spread_attribute: Any,
             show_spread: bool,
             spread_mode: str,
@@ -2083,7 +2266,36 @@ class HPOPlanning(DynamicPlugin):
             run_id: str,
         ) -> Any:
             if not metadata or not selection or not coverage_data or not run_id:
-                return [no_update] * 10
+                return [no_update] * 8
+
+            if ctx.triggered_id == PLANNED_SEARCH_SPACE_STORE_ID:
+                updated = selection_from_state(planning_state, run_id, metadata)
+                if updated == selection:
+                    return [no_update] * 8
+                preview = _python_space_preview(metadata, updated)
+                visible_trials = _visible_coverage_trials(coverage_data, top_trial_count)
+                coverage = _coverage_state(visible_trials, metadata, updated)
+                return [
+                    updated,
+                    _sidebar_summary(metadata, updated),
+                    preview,
+                    preview,
+                    _coverage_figure(
+                        visible_trials,
+                        metadata,
+                        updated,
+                        coverage_data["objective_name"],
+                        coverage_data["optimize"],
+                        spread_attribute,
+                        show_spread,
+                        spread_mode,
+                        show_scatter,
+                    ),
+                    _coverage_badge(coverage),
+                    _coverage_title(top_trial_count),
+                    _coverage_subtitle(top_trial_count),
+                ]
+
             visible_trials = _visible_coverage_trials(coverage_data, top_trial_count)
             coverage_control_triggered = isinstance(ctx.triggered_id, str) and ctx.triggered_id in {
                 SPREAD_ATTRIBUTE_ID,
@@ -2095,7 +2307,6 @@ class HPOPlanning(DynamicPlugin):
             if coverage_control_triggered:
                 coverage = _coverage_state(visible_trials, metadata, selection)
                 return [
-                    no_update,
                     no_update,
                     no_update,
                     no_update,
@@ -2114,43 +2325,33 @@ class HPOPlanning(DynamicPlugin):
                     _coverage_badge(coverage),
                     _coverage_title(top_trial_count),
                     _coverage_subtitle(top_trial_count),
-                    no_update,
                 ]
-            triggered_value = ctx.triggered[0].get("value") if ctx.triggered else None
-            updated = _updated_selection(metadata, selection, ctx.triggered_id, triggered_value)
-            if updated == selection:
-                if not _control_matches_selection(
-                    metadata,
-                    selection,
-                    ctx.triggered_id,
-                    triggered_value,
-                ):
-                    return [no_update, _planner_rows(metadata, selection)] + [no_update] * 8
-                return [no_update] * 10
-            preview = _python_space_preview(metadata, updated)
-            coverage = _coverage_state(visible_trials, metadata, updated)
-            return [
-                updated,
-                _planner_rows(metadata, updated),
-                _sidebar_summary(metadata, updated),
-                preview,
-                preview,
-                _coverage_figure(
-                    visible_trials,
-                    metadata,
-                    updated,
-                    coverage_data["objective_name"],
-                    coverage_data["optimize"],
-                    spread_attribute,
-                    show_spread,
-                    spread_mode,
-                    show_scatter,
-                ),
-                _coverage_badge(coverage),
-                _coverage_title(top_trial_count),
-                _coverage_subtitle(top_trial_count),
-                {"run_id": run_id, "mode": "replace", "selection": updated},
-            ]
+            return [no_update] * 8
+
+        app.clientside_callback(  # type: ignore
+            ClientsideFunction(
+                namespace="hpoPlanning",
+                function_name="updateTopTrialMarkers",
+            ),
+            [
+                Output({"type": TOP_TRIAL_BUTTON_TYPE, "index": ALL}, "active"),
+                Output({"type": TOP_TRIAL_BUTTON_TYPE, "index": ALL}, "title"),
+                Output({"type": TOP_TRIAL_LAYER_TYPE, "index": ALL}, "children"),
+            ],
+            [
+                Input({"type": TOP_TRIAL_BUTTON_TYPE, "index": ALL}, "n_clicks"),
+                Input(SHOW_TOP_N_ID, "value"),
+                Input(SELECTION_STORE_ID, "data"),
+            ],
+            [
+                State({"type": TOP_TRIAL_BUTTON_TYPE, "index": ALL}, "active"),
+                State({"type": TOP_TRIAL_BUTTON_TYPE, "index": ALL}, "id"),
+                State({"type": TOP_TRIAL_LAYER_TYPE, "index": ALL}, "id"),
+                State(METADATA_STORE_ID, "data"),
+                State(TRIALS_STORE_ID, "data"),
+            ],
+            prevent_initial_call=True,
+        )
 
         @app.callback(  # type: ignore
             [
@@ -2421,6 +2622,9 @@ class HPOPlanning(DynamicPlugin):
             outputs["summary"],
         )
         run_id = getattr(run, "id", "")
+        metadata_version = planning_metadata_fingerprint(metadata)
+        for parameter in metadata:
+            parameter["planning_context"] = metadata_version
         selection = selection_from_state(
             inputs.get("planned_search_space_state"),
             run_id,
@@ -2433,4 +2637,12 @@ class HPOPlanning(DynamicPlugin):
             "objective_name": outputs["objective_name"],
             "optimize": outputs["optimize"],
         }
-        return [_planner_layout(metadata, selection, coverage_data, outputs["insights"])]
+        return [
+            _planner_layout(
+                metadata,
+                selection,
+                coverage_data,
+                outputs["insights"],
+                run_id,
+            )
+        ]

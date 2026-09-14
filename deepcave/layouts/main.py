@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional
 
 from urllib.parse import urlparse
 
-from dash import ALL, ctx, dcc, html
+from dash import ALL, ClientsideFunction, Patch, dcc, html, no_update
 from dash.dependencies import Input, Output, State
 from dash.development.base_component import Component
 
@@ -41,12 +41,30 @@ from deepcave.layouts.notification import NotificationLayout
 from deepcave.layouts.sidebar import SidebarLayout
 from deepcave.plugins import Plugin
 from deepcave.plugins.hyperparameter.search_space_state import (
-    PLANNED_SEARCH_SPACE_INTENT_TYPE,
+    PLANNED_SEARCH_SPACE_CONTEXT_TYPE,
     PLANNED_SEARCH_SPACE_STORE_ID,
-    apply_planning_intent,
     planning_state_store,
 )
 from deepcave.utils.dash import alert
+
+PERSISTENT_ANALYSIS_IDS = (
+    "hpo_planning",
+    "one_dimensional_analysis",
+    "two_dimensional_analysis",
+)
+PERSISTENT_ANALYSIS_CACHE_ID = "persistent-analysis-cache"
+PERSISTENT_ANALYSIS_STATE_ID = "persistent-analysis-state"
+PERSISTENT_ANALYSIS_PAGE_TYPE = "persistent-analysis-page"
+PERSISTENT_ANALYSIS_LOADING_ID = "persistent-analysis-loading"
+GENERAL_CONTAINER_ID = "general-page-container"
+
+
+def _plugin_id_from_path(pathname: str) -> Optional[str]:
+    """Return the plugin id encoded in a plugin route, if present."""
+    parts = urlparse(pathname or "").path.strip("/").split("/")
+    if len(parts) >= 2 and parts[0] == "plugins":
+        return parts[1]
+    return None
 
 
 class MainLayout(Layout):
@@ -85,25 +103,295 @@ class MainLayout(Layout):
 
     def register_callbacks(self) -> None:
         """Register and handle the callbacks."""
-        @app.callback(  # type: ignore
-            Output(PLANNED_SEARCH_SPACE_STORE_ID, "data"),
-            Input({"type": PLANNED_SEARCH_SPACE_INTENT_TYPE, "source": ALL}, "data"),
-            State(PLANNED_SEARCH_SPACE_STORE_ID, "data"),
+
+        # A single synchronous browser reducer owns the canonical planning store and the value
+        # properties which can feed back into it. Keeping both sides in one callback is Dash's
+        # supported circular-synchronization pattern and prevents stale server responses from
+        # overwriting a newer edit.
+        app.clientside_callback(
+            ClientsideFunction(
+                namespace="searchSpaceState",
+                function_name="reducePlanningEvents",
+            ),
+            [
+                Output(PLANNED_SEARCH_SPACE_STORE_ID, "data"),
+                Output({"type": "hpo-planner-range", "index": ALL, "context": ALL}, "value"),
+                Output({"type": "hpo-planner-range", "index": ALL, "context": ALL}, "min"),
+                Output({"type": "hpo-planner-range", "index": ALL, "context": ALL}, "max"),
+                Output({"type": "hpo-planner-min", "index": ALL, "context": ALL}, "value"),
+                Output({"type": "hpo-planner-max", "index": ALL, "context": ALL}, "value"),
+                Output(
+                    {"type": "hpo-planner-categories", "index": ALL, "context": ALL},
+                    "value",
+                ),
+                Output(
+                    {
+                        "type": "two-dimensional-planning-range",
+                        "index": ALL,
+                        "context": ALL,
+                    },
+                    "value",
+                ),
+                Output(
+                    {
+                        "type": "two-dimensional-planning-range",
+                        "index": ALL,
+                        "context": ALL,
+                    },
+                    "min",
+                ),
+                Output(
+                    {
+                        "type": "two-dimensional-planning-range",
+                        "index": ALL,
+                        "context": ALL,
+                    },
+                    "max",
+                ),
+                Output(
+                    {
+                        "type": "two-dimensional-planning-categories",
+                        "index": ALL,
+                        "context": ALL,
+                    },
+                    "value",
+                ),
+            ],
+            [
+                Input({"type": "hpo-planner-range", "index": ALL, "context": ALL}, "value"),
+                Input({"type": "hpo-planner-min", "index": ALL, "context": ALL}, "value"),
+                Input({"type": "hpo-planner-max", "index": ALL, "context": ALL}, "value"),
+                Input(
+                    {"type": "hpo-planner-categories", "index": ALL, "context": ALL},
+                    "value",
+                ),
+                Input({"type": "hpo-planning-reset", "context": ALL}, "n_clicks"),
+                Input(
+                    {
+                        "type": "two-dimensional-planning-range",
+                        "index": ALL,
+                        "context": ALL,
+                    },
+                    "value",
+                ),
+                Input(
+                    {
+                        "type": "two-dimensional-planning-categories",
+                        "index": ALL,
+                        "context": ALL,
+                    },
+                    "value",
+                ),
+                Input(
+                    {"type": "two-dimensional-planning-reset", "context": ALL},
+                    "n_clicks",
+                ),
+                Input({"type": PLANNED_SEARCH_SPACE_CONTEXT_TYPE, "source": ALL}, "data"),
+            ],
+            [
+                State({"type": "hpo-planner-range", "index": ALL, "context": ALL}, "id"),
+                State({"type": "hpo-planner-min", "index": ALL, "context": ALL}, "id"),
+                State({"type": "hpo-planner-max", "index": ALL, "context": ALL}, "id"),
+                State({"type": "hpo-planner-categories", "index": ALL, "context": ALL}, "id"),
+                State(
+                    {
+                        "type": "two-dimensional-planning-range",
+                        "index": ALL,
+                        "context": ALL,
+                    },
+                    "id",
+                ),
+                State(
+                    {
+                        "type": "two-dimensional-planning-categories",
+                        "index": ALL,
+                        "context": ALL,
+                    },
+                    "id",
+                ),
+                State(PLANNED_SEARCH_SPACE_STORE_ID, "data"),
+            ],
             prevent_initial_call=True,
         )
-        def update_planned_search_space(intents: List[Any], state: Any) -> Any:
-            """Merge the active plugin's run-local planning intent into browser memory."""
-            triggered = ctx.triggered[0].get("value") if ctx.triggered else intents
-            candidates = triggered if isinstance(triggered, list) else [triggered]
-            intent = next(
-                (candidate for candidate in reversed(candidates) if isinstance(candidate, dict)),
-                None,
-            )
-            if intent is None:
-                from dash.exceptions import PreventUpdate
 
-                raise PreventUpdate
-            return apply_planning_intent(state, intent)
+        @app.callback(  # type: ignore
+            [
+                Output(PERSISTENT_ANALYSIS_CACHE_ID, "children"),
+                Output(PERSISTENT_ANALYSIS_STATE_ID, "data"),
+            ],
+            [
+                Input("on-page-load", "pathname"),
+                Input("global-run-selection-trigger", "data"),
+                Input("general-optuna-import-trigger", "data"),
+                Input("general-selected-runs", "data"),
+                Input("general-group-trigger", "data"),
+                Input("general-cache-cleared-trigger", "data"),
+            ],
+            [
+                State("global-run-selector", "value"),
+                State(PERSISTENT_ANALYSIS_STATE_ID, "data"),
+            ],
+        )
+        def mount_persistent_analysis(
+            pathname: str,
+            _: Optional[int],
+            optuna_revision: Optional[int],
+            selected_runs: Any,
+            group_revision: Optional[int],
+            cache_revision: Optional[int],
+            active_run_id: Optional[str],
+            state: Any,
+        ) -> Any:
+            """Mount only the requested analysis and retain warm pages for one data context."""
+            active_plugin_id = _plugin_id_from_path(pathname)
+            current = dict(state) if isinstance(state, dict) else {}
+            invalidation = {
+                "optuna": optuna_revision or 0,
+                "selected_runs": selected_runs or [],
+                "groups": group_revision or 0,
+                "cache": cache_revision or 0,
+            }
+
+            if active_plugin_id not in PERSISTENT_ANALYSIS_IDS:
+                if current.get("invalidation") == invalidation:
+                    return no_update, no_update
+                current["invalidation"] = invalidation
+                current["dirty"] = True
+                return no_update, current
+
+            if active_plugin_id not in self.plugins:
+                return no_update, no_update
+
+            if active_run_id is None:
+                page = html.Div(
+                    alert("Please select a run in the sidebar first."),
+                    id={"type": PERSISTENT_ANALYSIS_PAGE_TYPE, "plugin": active_plugin_id},
+                    className="persistent-analysis-page",
+                )
+                return [page], {
+                    "run_id": None,
+                    "data_revision": None,
+                    "mounted": [active_plugin_id],
+                    "statuses": {active_plugin_id: "error"},
+                    "invalidation": invalidation,
+                    "dirty": False,
+                }
+
+            try:
+                run_handler.set_active_run_id(active_run_id)
+                active_run = run_handler.get_run(active_run_id)
+            except RuntimeError:
+                page = html.Div(
+                    alert("The selected run is no longer available."),
+                    id={"type": PERSISTENT_ANALYSIS_PAGE_TYPE, "plugin": active_plugin_id},
+                    className="persistent-analysis-page",
+                )
+                return [page], {
+                    "run_id": active_run_id,
+                    "data_revision": None,
+                    "mounted": [active_plugin_id],
+                    "statuses": {active_plugin_id: "error"},
+                    "invalidation": invalidation,
+                    "dirty": False,
+                }
+
+            # This is intentionally cheap and evaluated only on explicit run/data events, not on
+            # every navigation callback of every plugin. Groups include their members through
+            # ``latest_change`` and their merged history length.
+            data_revision = [
+                getattr(active_run, "latest_change", None),
+                len(getattr(active_run, "history", [])),
+                [[objective.name, objective.optimize] for objective in active_run.get_objectives()],
+            ]
+            context_changed = (
+                current.get("run_id") != active_run_id
+                or current.get("data_revision") != data_revision
+                or current.get("invalidation") != invalidation
+                or bool(current.get("dirty"))
+            )
+            mounted = [] if context_changed else list(current.get("mounted", []))
+            if active_plugin_id in mounted:
+                return no_update, no_update
+
+            plugin = self.plugins[active_plugin_id]
+            status = "mounted"
+            if plugin.check_run_compatibility(active_run):
+                page_content = plugin()
+            else:
+                status = "error"
+                page_content = [
+                    html.H1(plugin.name),
+                    alert(
+                        "The selected run is not compatible with this analysis. "
+                        "Select another run in the sidebar."
+                    ),
+                ]
+            page = html.Div(
+                page_content,
+                id={"type": PERSISTENT_ANALYSIS_PAGE_TYPE, "plugin": active_plugin_id},
+                className="persistent-analysis-page",
+                style={"display": "block"},
+            )
+            mounted.append(active_plugin_id)
+            statuses = {} if context_changed else dict(current.get("statuses", {}))
+            statuses[active_plugin_id] = status
+            next_state = {
+                "run_id": active_run_id,
+                "data_revision": data_revision,
+                "mounted": mounted,
+                "statuses": statuses,
+                "invalidation": invalidation,
+                "dirty": False,
+            }
+            if context_changed:
+                return [page], next_state
+            children = Patch()
+            children.append(page)
+            return children, next_state
+
+        app.clientside_callback(
+            """
+            function(pathname, pageIds) {
+                const parts = String(pathname || "").split("?")[0]
+                    .split("/").filter(Boolean);
+                const pluginId = parts.length >= 2 && parts[0] === "plugins"
+                    ? parts[1]
+                    : null;
+                const persistentIds = new Set([
+                    "hpo_planning",
+                    "one_dimensional_analysis",
+                    "two_dimensional_analysis",
+                ]);
+                const styles = (pageIds || []).map(function(pageId) {
+                    return {display: pageId.plugin === pluginId ? "block" : "none"};
+                });
+                const isPersistentRoute = persistentIds.has(pluginId);
+                const hasActivePage = isPersistentRoute && (pageIds || []).some(function(pageId) {
+                    return pageId.plugin === pluginId;
+                });
+                if (hasActivePage) {
+                    window.setTimeout(function() {
+                        window.dispatchEvent(new Event("resize"));
+                    }, 0);
+                }
+                const isGeneral = parts.length === 0;
+                return [
+                    styles,
+                    {display: isPersistentRoute && !hasActivePage ? "block" : "none"},
+                    {display: isGeneral ? "block" : "none"},
+                    {display: !isPersistentRoute && !isGeneral ? "block" : "none"},
+                ];
+            }
+            """,
+            [
+                Output({"type": PERSISTENT_ANALYSIS_PAGE_TYPE, "plugin": ALL}, "style"),
+                Output(PERSISTENT_ANALYSIS_LOADING_ID, "style"),
+                Output(GENERAL_CONTAINER_ID, "style"),
+                Output("content", "style"),
+            ],
+            Input("on-page-load", "pathname"),
+            Input({"type": PERSISTENT_ANALYSIS_PAGE_TYPE, "plugin": ALL}, "id"),
+        )
 
         output = Output("content", "children")
         inputs = [
@@ -112,9 +400,7 @@ class MainLayout(Layout):
         ]
 
         @app.callback(output, inputs, State("global-run-selector", "value"))  # type: ignore
-        def display_page(
-            pathname: str, _: Optional[int], active_run_id: Optional[str]
-        ) -> Any:
+        def display_page(pathname: str, _: Optional[int], active_run_id: Optional[str]) -> Any:
             """
             Display the page with the given path url, check for plugins.
 
@@ -128,11 +414,18 @@ class MainLayout(Layout):
             Any
                 Either a General Layout, Not Found Layout or an Alert.
             """
+            persistent_plugin_id = _plugin_id_from_path(pathname)
+            if (
+                persistent_plugin_id in PERSISTENT_ANALYSIS_IDS
+                and persistent_plugin_id in self.plugins
+            ):
+                return no_update
+
             pathname = urlparse(pathname).path
             paths = pathname.split("/")[1:]
 
             if paths[0] == "":
-                return self.general_layout()
+                return no_update
             else:
                 if not queue.ready():
                     return alert("At least one worker has to be enabled.")
@@ -164,6 +457,19 @@ class MainLayout(Layout):
             children=[
                 dcc.Interval(id="global-update", interval=config.REFRESH_RATE),
                 planning_state_store(),
+                dcc.Store(id="two-dimensional-planning-mask-revision", data=0),
+                dcc.Store(
+                    id=PERSISTENT_ANALYSIS_STATE_ID,
+                    data={
+                        "run_id": None,
+                        "data_revision": None,
+                        "mounted": [],
+                        "statuses": {},
+                        "invalidation": {},
+                        "dirty": False,
+                    },
+                    storage_type="memory",
+                ),
                 self.header_layout(),
                 html.Div(
                     id="main-container",
@@ -182,7 +488,21 @@ class MainLayout(Layout):
                                             children=[
                                                 dcc.Location(id="on-page-load", refresh=False),
                                                 self.notification_layout(),
-                                                html.Div(id="content"),
+                                                html.Div(
+                                                    "Loading analysis …",
+                                                    id=PERSISTENT_ANALYSIS_LOADING_ID,
+                                                    className="text-muted py-4",
+                                                    style={"display": "none"},
+                                                ),
+                                                html.Div(
+                                                    id=PERSISTENT_ANALYSIS_CACHE_ID,
+                                                    children=[],
+                                                ),
+                                                html.Div(
+                                                    self.general_layout(),
+                                                    id=GENERAL_CONTAINER_ID,
+                                                ),
+                                                html.Div(id="content", style={"display": "none"}),
                                             ],
                                         )
                                     ],

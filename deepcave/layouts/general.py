@@ -24,7 +24,7 @@ It handles different callbacks of the layout.
     - GeneralLayout: Provide different utilities to handle callbacks for the layout.
 """
 
-from typing import Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type
 
 from pathlib import Path
 
@@ -49,6 +49,10 @@ from deepcave.utils.optuna import (
     resolve_optuna_database,
 )
 from deepcave.utils.util import short_string
+
+OPTUNA_DISCOVERY_STORE_ID = "general-optuna-discovery"
+GROUP_HYDRATION_STORE_ID = "general-group-hydration"
+CACHE_CLEARED_TRIGGER_ID = "general-cache-cleared-trigger"
 
 
 class GeneralLayout(Layout):
@@ -76,7 +80,6 @@ class GeneralLayout(Layout):
     def _callback_working_directory_changed(self) -> None:
         """Check for change in working directory."""
         inputs = [
-            Input("on-page-load", "href"),
             Input("general-working-directory-input", "value"),
             # Those inputs are for changing working directory quickly
             # (if someone is pressing on a directory)
@@ -97,7 +100,6 @@ class GeneralLayout(Layout):
         # Register updates from inputs
         @app.callback(outputs, inputs)  # type: ignore
         def callback(
-            _,
             working_dir: str,
             dynamic_n_clicks: List[Optional[int]],
             _optuna_import_trigger: int,
@@ -142,6 +144,7 @@ class GeneralLayout(Layout):
             Output("general-optuna-study-dropdown", "value"),
             Output("general-optuna-database-status", "children"),
             Output("general-optuna-database-status", "className"),
+            Output(OPTUNA_DISCOVERY_STORE_ID, "data"),
         ]
         inputs = [
             Input("general-optuna-database-input", "value"),
@@ -153,16 +156,23 @@ class GeneralLayout(Layout):
         def callback(database_value: str, working_dir: str, selected_study: Optional[str]):
             """Populate the study dropdown from a local Optuna database."""
             if database_value is None or working_dir is None:
-                return [], None, "", ""
+                return [], None, "", "", None
 
             try:
                 database = resolve_optuna_database(database_value, Path(working_dir))
                 study_names = list_optuna_studies(database)
             except Exception as exception:
-                return [], None, str(exception), "text-danger"
+                discovery = {
+                    "database": None,
+                    "studies": [],
+                    "error": str(exception),
+                }
+                return [], None, str(exception), "text-danger", discovery
 
             if len(study_names) == 0:
-                return [], None, f"No Optuna studies found in {database}.", "text-warning"
+                message = f"No Optuna studies found in {database}."
+                discovery = {"database": str(database), "studies": [], "error": None}
+                return [], None, message, "text-warning", discovery
 
             options = [
                 {
@@ -176,7 +186,12 @@ class GeneralLayout(Layout):
 
             noun = "study" if len(study_names) == 1 else "studies"
             message = f"{len(study_names)} Optuna {noun} in {database}"
-            return options, selected_study, message, "text-muted"
+            discovery = {
+                "database": str(database),
+                "studies": study_names,
+                "error": None,
+            }
+            return options, selected_study, message, "text-muted", discovery
 
     def _callback_update_optuna_button(self) -> None:
         """Update the Optuna import button based on the selected snapshot."""
@@ -190,6 +205,7 @@ class GeneralLayout(Layout):
             Input("general-optuna-study-dropdown", "value"),
             Input("general-working-directory-input", "value"),
             Input("general-optuna-import-trigger", "data"),
+            Input(OPTUNA_DISCOVERY_STORE_ID, "data"),
         ]
 
         @app.callback(outputs, inputs)  # type: ignore
@@ -198,6 +214,7 @@ class GeneralLayout(Layout):
             study_name: Optional[str],
             working_dir: str,
             _optuna_import_trigger: int,
+            discovery: Any,
         ):
             """Choose the load or refresh state for the import button."""
             if database_value is None or study_name is None or working_dir is None:
@@ -205,7 +222,11 @@ class GeneralLayout(Layout):
 
             try:
                 database = resolve_optuna_database(database_value, Path(working_dir))
-                if study_name not in list_optuna_studies(database):
+                discovered_database = (
+                    discovery.get("database") if isinstance(discovery, dict) else None
+                )
+                study_names = discovery.get("studies", []) if isinstance(discovery, dict) else []
+                if str(database) != discovered_database or study_name not in study_names:
                     return "Load Optuna Study", True, study_name
                 run_path = get_optuna_snapshot_path(database, study_name, Path(working_dir))
             except Exception:
@@ -410,6 +431,10 @@ class GeneralLayout(Layout):
 
                     working_dir = run_handler.get_working_directory()
                     database = resolve_optuna_database(database_value, working_dir)
+                    # Discovery is a UI snapshot. Validate against the source immediately before
+                    # the mutating import so a changed SQLite/WAL cannot make it stale.
+                    if study_name not in list_optuna_studies(database):
+                        raise ValueError(f'Optuna study "{study_name}" no longer exists.')
                     target_path = get_optuna_snapshot_path(database, study_name, working_dir)
                     target_path_str = str(target_path)
                     run_id = string_to_hash(f"{OptunaRun.prefix}:{target_path}")
@@ -470,6 +495,7 @@ class GeneralLayout(Layout):
         outputs = [
             Output("general-group-container", "children"),
             Output("general-add-group", "n_clicks"),
+            Output(GROUP_HYDRATION_STORE_ID, "data"),
         ]
         inputs = [
             Input("general-add-group", "n_clicks"),
@@ -579,7 +605,14 @@ class GeneralLayout(Layout):
             if n_clicks is not None and len(selected_runs) > 0:
                 children.append(get_layout(index, selected_runs))
 
-            return children, None
+            return (
+                children,
+                None,
+                {
+                    "groups": groups,
+                    "congruence": configspace_congruence,
+                },
+            )
 
     def _callback_manage_groups(self) -> None:
         """Manage the groups."""
@@ -592,17 +625,12 @@ class GeneralLayout(Layout):
                 "value",
             ),
             State("general-group-trigger", "data"),
+            State(GROUP_HYDRATION_STORE_ID, "data"),
         ]
 
-        @app.callback(outputs, inputs)  # type: ignore
-        def callback(group_names: List[str], all_run_paths, congruence_values, i):
+        @app.callback(outputs, inputs, prevent_initial_call=True)  # type: ignore
+        def callback(group_names: List[str], all_run_paths, congruence_values, i, hydration):
             """Manage the groups."""
-            # Abort on page load
-            self._refresh_groups: bool
-            if self._refresh_groups:
-                self._refresh_groups = False
-                raise PreventUpdate()
-
             # For the default group names, if no name was entered
             group_counter = 0
 
@@ -649,6 +677,18 @@ class GeneralLayout(Layout):
             # Sort the groups alphabetically, so when added
             # they appear ordered
             sorted_groups = dict(sorted(groups.items()))
+            stored_groups = hydration.get("groups", {}) if isinstance(hydration, dict) else {}
+            stored_congruence = (
+                hydration.get("congruence", {}) if isinstance(hydration, dict) else {}
+            )
+            effective_stored_congruence = {
+                name: bool(stored_congruence.get(name, True)) for name in stored_groups
+            }
+            if (
+                sorted_groups == stored_groups
+                and configspace_congruence == effective_stored_congruence
+            ):
+                raise PreventUpdate()
 
             try:
                 # Now save it
@@ -660,19 +700,31 @@ class GeneralLayout(Layout):
                 return i + 1
 
             self.logger.debug(f"Groups: {sorted_groups}")
-
-            raise PreventUpdate()
+            return (i or 0) + 1
 
     def _callback_clear_cache(self) -> None:
         """Responsible for clearing the cache."""
-        output = Output("general-clear-cache-button", "n_clicks")
+        output = [
+            Output("general-clear-cache-button", "n_clicks"),
+            Output(CACHE_CLEARED_TRIGGER_ID, "data"),
+        ]
         input = Input("general-clear-cache-button", "n_clicks")
+        state = State(CACHE_CLEARED_TRIGGER_ID, "data")
 
-        @app.callback(output, input)  # type: ignore
-        def callback(n_clicks):
+        @app.callback(output, input, state)  # type: ignore
+        def callback(n_clicks, revision):
             """Clear the cache, stop all running jobs, create new run caches."""
             if n_clicks is not None:
                 rc.clear()
+                from deepcave.plugins.hyperparameter.analysis_utils import (
+                    clear_trial_table_cache,
+                )
+                from deepcave.plugins.hyperparameter.one_dimensional_analysis import (
+                    clear_one_dimensional_figure_cache,
+                )
+
+                clear_trial_table_cache()
+                clear_one_dimensional_figure_cache()
 
                 # Also remove last inputs
                 c.set("last_inputs", value={})
@@ -684,7 +736,9 @@ class GeneralLayout(Layout):
                 run_handler.update_runs()
                 notification.update("Plugin caches successfully cleared.", "success")
 
-            return None
+                revision = (revision or 0) + 1
+
+            return None, revision or 0
 
     @staticmethod
     def get_converter_text(converters: List[Type[Run]]) -> html.Div:
@@ -711,17 +765,23 @@ class GeneralLayout(Layout):
         )
 
     def __call__(self) -> List[Component]:  # noqa: D102
-        self._refresh_groups = True
-
         return [
             html.H1("General"),
             # Working dir
             dbc.Label("Working Directory"),
             help_button("Relative and absolute paths are supported."),
-            dbc.Input(id="general-working-directory-input", placeholder="", type="text"),
+            dbc.Input(
+                id="general-working-directory-input",
+                placeholder="",
+                type="text",
+                debounce=True,
+            ),
             dbc.FormText(id="general-converter-label"),
             dcc.Store(id="general-available-runs", data={}),
             dcc.Store(id="general-optuna-import-trigger", data=0),
+            dcc.Store(id=OPTUNA_DISCOVERY_STORE_ID, data=None),
+            dcc.Store(id=GROUP_HYDRATION_STORE_ID, data=None),
+            dcc.Store(id=CACHE_CLEARED_TRIGGER_ID, data=0),
             dbc.Card(
                 [
                     dbc.CardHeader("Load Optuna Study"),

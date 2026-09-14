@@ -65,6 +65,16 @@ def test_toolbar_contains_only_local_planning_controls():
     ]
     assert "analysis-toolbar" in toolbar.className
     assert not any(isinstance(component, html.Button) for component in _walk_components(toolbar))
+    show_top_n = next(
+        component
+        for component in _walk_components(toolbar)
+        if isinstance(component, dbc.Input) and component.id == planning.SHOW_TOP_N_ID
+    )
+    assert show_top_n.value == planning.DEFAULT_PARAMETER_TOP_TRIAL_COUNT == 5
+    assert show_top_n.min == 1
+    assert show_top_n.max == planning.TOP_TRIAL_LIMIT
+    assert show_top_n.step == 1
+    assert show_top_n.debounce is True
     hidden_direction_inputs = [
         component
         for component in _walk_components(toolbar)
@@ -117,6 +127,103 @@ def test_planner_normalization_uses_current_linear_or_logarithmic_space():
     assert planning._normalize_value(0.0001, logarithmic) == pytest.approx(-0.25)
     assert planning._normalize_value(100, logarithmic) == pytest.approx(1.25)
     assert planning._denormalize_value(1.25, logarithmic) == pytest.approx(100)
+
+
+def test_top_trial_markers_are_toggled_per_parameter_and_limited_globally():
+    numeric = {
+        "index": 0,
+        "name": "x",
+        "parameter_type": "float",
+        "current_min": 0.0,
+        "current_max": 10.0,
+        "log": False,
+        "step": None,
+        "elite_positions": [],
+    }
+    categorical = {
+        "index": 1,
+        "name": "kind",
+        "parameter_type": "categorical",
+        "choices": ["a", "b", "c"],
+        "elite_values": [],
+    }
+    selection = {
+        "x": {"min": 0.0, "max": 10.0},
+        "kind": {"choices": ["a", "b", "c"]},
+    }
+    trials = [
+        {
+            "rank": 1,
+            "trial_number": 11,
+            "configuration": {"x": 0.0, "kind": "a"},
+        },
+        {
+            "rank": 2,
+            "trial_number": 12,
+            "configuration": {"x": 10.0, "kind": "c"},
+        },
+        {
+            "rank": 3,
+            "trial_number": 13,
+            "configuration": {"x": 5.0, "kind": "b"},
+        },
+    ]
+
+    numeric_row, categorical_row = planning._planner_rows(
+        [numeric, categorical],
+        selection,
+        trials,
+        top_n=2,
+        visible_top_trial_indices=[0],
+    )
+    numeric_components = list(_walk_components(numeric_row))
+    categorical_components = list(_walk_components(categorical_row))
+    numeric_markers = [
+        component
+        for component in numeric_components
+        if getattr(component, "className", None) == "planner-top-trial-marker"
+    ]
+
+    assert [marker.style["left"] for marker in numeric_markers] == [
+        "16.666667%",
+        "83.333333%",
+    ]
+    assert [marker.to_plotly_json()["props"]["data-rank"] for marker in numeric_markers] == [
+        "1",
+        "2",
+    ]
+    assert not any(
+        getattr(component, "className", None) == "planner-top-trial-marker"
+        for component in categorical_components
+    )
+    top_trial_buttons = [
+        component
+        for component in [*numeric_components, *categorical_components]
+        if isinstance(getattr(component, "id", None), dict)
+        and component.id.get("type") == planning.TOP_TRIAL_BUTTON_TYPE
+    ]
+    assert [button.active for button in top_trial_buttons] == [True, False]
+
+    (categorical_row,) = planning._planner_rows(
+        [categorical],
+        {"kind": selection["kind"]},
+        trials,
+        top_n=1,
+        visible_top_trial_indices=[1],
+    )
+    categorical_markers = [
+        component
+        for component in _walk_components(categorical_row)
+        if getattr(component, "className", None) == "planner-top-trial-marker"
+    ]
+    assert [marker.style["left"] for marker in categorical_markers] == ["0.000000%"]
+    assert planning._parameter_top_trial_count(None) == 5
+    assert planning._parameter_top_trial_count(0) == 1
+    assert planning._parameter_top_trial_count(1_000) == planning.TOP_TRIAL_LIMIT
+    assert planning._updated_top_trial_visibility([numeric, categorical], [], 0) == [0]
+    assert planning._updated_top_trial_visibility([numeric, categorical], [0], 1) == [0, 1]
+    assert planning._updated_top_trial_visibility([numeric, categorical], [0, 1], 0) == [1]
+    assert planning._updated_top_trial_visibility([numeric, categorical], [1, 99], None) == [1]
 
 
 def test_integer_step_snapping_and_extensions_are_not_clipped():
@@ -731,14 +838,17 @@ def test_planner_layout_uses_separate_metadata_and_selection_stores():
 
     assert [store.id for store in stores] == [
         planning.METADATA_STORE_ID,
+        {
+            "type": planning.PLANNED_SEARCH_SPACE_CONTEXT_TYPE,
+            "source": planning.PLANNING_SOURCE,
+        },
         planning.SELECTION_STORE_ID,
-        planning.PLANNING_INTENT_ID,
         planning.TRIALS_STORE_ID,
         planning.INSIGHTS_STORE_ID,
         planning.INSIGHT_SELECTION_STORE_ID,
     ]
     assert stores[-1].data is None
-    metadata, selection = stores[0].data, stores[1].data
+    metadata, selection = stores[0].data, stores[2].data
     assert metadata[0]["current_min"] == pytest.approx(0)
     assert metadata[0]["current_max"] == pytest.approx(10)
     assert planning.ELITE_MARKER_COLORS[2] == "#D95F02"
@@ -776,7 +886,7 @@ def test_planner_layout_uses_separate_metadata_and_selection_stores():
         for component in _walk_components(persisted_layout)
         if isinstance(component, dcc.Store)
     ]
-    assert persisted_stores[1].data == {
+    assert persisted_stores[2].data == {
         "x": {"min": -2.0, "max": 4.0},
         "kind": {"choices": ["b"]},
     }
@@ -856,6 +966,15 @@ def test_planner_layout_uses_separate_metadata_and_selection_stores():
     ]
     assert [button.id["index"] for button in insight_buttons] == [0, 1]
     assert all(button.children.className == "fas fa-chart-bar" for button in insight_buttons)
+    top_trial_buttons = [
+        component
+        for component in components
+        if isinstance(getattr(component, "id", None), dict)
+        and component.id.get("type") == planning.TOP_TRIAL_BUTTON_TYPE
+    ]
+    assert [button.id["index"] for button in top_trial_buttons] == [0, 1]
+    assert all(button.children.className == "fas fa-map-marker-alt" for button in top_trial_buttons)
+    assert all(button.active is False for button in top_trial_buttons)
     insight_modal = next(
         component
         for component in components

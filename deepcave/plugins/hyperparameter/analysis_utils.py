@@ -18,7 +18,7 @@
 from typing import Any, Dict, List, Optional, Tuple
 
 from collections import OrderedDict
-from threading import RLock
+from threading import Lock, RLock
 
 import numpy as np
 import pandas as pd
@@ -41,6 +41,17 @@ TRIAL_TABLE_CACHE_SIZE = 8
 # small second-level cache containing the expensive, feature-independent trial table instead.
 _TRIAL_TABLE_CACHE: "OrderedDict[Tuple[str, str, int, str], pd.DataFrame]" = OrderedDict()
 _TRIAL_TABLE_CACHE_LOCK = RLock()
+_TRIAL_TABLE_BUILD_LOCKS: Dict[Tuple[str, str, int, str], Lock] = {}
+_TRIAL_TABLE_CACHE_GENERATION = 0
+
+
+def clear_trial_table_cache() -> None:
+    """Clear all in-process analytical tables without touching user planning state."""
+    global _TRIAL_TABLE_CACHE_GENERATION
+    with _TRIAL_TABLE_CACHE_LOCK:
+        _TRIAL_TABLE_CACHE.clear()
+        _TRIAL_TABLE_BUILD_LOCKS.clear()
+        _TRIAL_TABLE_CACHE_GENERATION += 1
 
 
 def _trial_table_cache_key(
@@ -137,20 +148,36 @@ def _get_trial_table(run: AbstractRun, objective_id: int) -> pd.DataFrame:
             _TRIAL_TABLE_CACHE.move_to_end(key)
             return table
 
-        # Discard obsolete versions of the same run instead of retaining large dataframes until
-        # the size limit happens to evict them.
-        stale_keys = [
-            cached_key
-            for cached_key in _TRIAL_TABLE_CACHE
-            if cached_key[0] == key[0] and cached_key[1] != key[1]
-        ]
-        for stale_key in stale_keys:
-            del _TRIAL_TABLE_CACHE[stale_key]
+        build_lock = _TRIAL_TABLE_BUILD_LOCKS.setdefault(key, Lock())
+        generation = _TRIAL_TABLE_CACHE_GENERATION
+
+    # Only callers for this exact run/version/objective wait for one another. Large independent
+    # studies can build in parallel instead of being serialized by the LRU bookkeeping lock.
+    with build_lock:
+        with _TRIAL_TABLE_CACHE_LOCK:
+            table = _TRIAL_TABLE_CACHE.get(key)
+            if table is not None:
+                _TRIAL_TABLE_CACHE.move_to_end(key)
+                return table
 
         table = _build_trial_table(run, objective_id, optimize)
-        _TRIAL_TABLE_CACHE[key] = table
-        while len(_TRIAL_TABLE_CACHE) > TRIAL_TABLE_CACHE_SIZE:
-            _TRIAL_TABLE_CACHE.popitem(last=False)
+
+        with _TRIAL_TABLE_CACHE_LOCK:
+            _TRIAL_TABLE_BUILD_LOCKS.pop(key, None)
+            if generation == _TRIAL_TABLE_CACHE_GENERATION:
+                # Discard obsolete versions of the same run instead of retaining large
+                # dataframes until the size limit happens to evict them.
+                stale_keys = [
+                    cached_key
+                    for cached_key in _TRIAL_TABLE_CACHE
+                    if cached_key[0] == key[0] and cached_key[1] != key[1]
+                ]
+                for stale_key in stale_keys:
+                    del _TRIAL_TABLE_CACHE[stale_key]
+
+                _TRIAL_TABLE_CACHE[key] = table
+                while len(_TRIAL_TABLE_CACHE) > TRIAL_TABLE_CACHE_SIZE:
+                    _TRIAL_TABLE_CACHE.popitem(last=False)
         return table
 
 
