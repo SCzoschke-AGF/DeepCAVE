@@ -26,6 +26,14 @@ def test_plugin_is_registered_directly_after_one_dimensional_analysis():
     assert plugin_ids[one_dimensional_index + 1] == "two_dimensional_analysis"
 
 
+def test_cache_key_is_versioned_for_axis_mask_geometry():
+    plugin = object.__new__(analysis.TwoDimensionalAnalysis)
+    inputs = {"feature": {"value": "x"}}
+    legacy_key = super(analysis.TwoDimensionalAnalysis, plugin)._dict_as_key(inputs)
+
+    assert plugin._dict_as_key(inputs) == f"{legacy_key}-v{analysis.CACHE_SCHEMA_VERSION}"
+
+
 def _walk_components(component):
     """Yield a Dash component and all of its descendants."""
     yield component
@@ -39,7 +47,7 @@ def _walk_components(component):
             yield from _walk_components(child)
 
 
-def test_every_control_shares_the_single_toolbar_row():
+def test_input_controls_use_a_single_toolbar_row():
     registered = []
     (toolbar,) = analysis.TwoDimensionalAnalysis.get_input_layout(
         lambda input_id, *_args, **_kwargs: registered.append(input_id) or input_id
@@ -54,10 +62,10 @@ def test_every_control_shares_the_single_toolbar_row():
         "elite_proportion",
     ]
     assert "analysis-toolbar" in toolbar.className
-    assert not any(isinstance(component, html.Button) for component in _walk_components(toolbar))
+    assert not any(isinstance(component, dbc.Switch) for component in _walk_components(toolbar))
 
 
-def test_output_layout_uses_the_final_grid_cell_for_binning_controls():
+def test_output_layout_uses_independent_columns_and_separate_control_panels():
     registered = []
     (grid,) = analysis.TwoDimensionalAnalysis.get_output_layout(
         lambda name, *_args, **_kwargs: registered.append(name) or name
@@ -65,21 +73,32 @@ def test_output_layout_uses_the_final_grid_cell_for_binning_controls():
 
     assert grid.className == "analysis-grid analysis-grid--two-dimensional"
     assert registered == ["trials_graph", "elite_rate_graph", "objective_graph"]
-    assert [card.className for card in grid.children] == [
+    assert len(grid.children) == 2
+    assert all(column.className == "two-dimensional-analysis-column" for column in grid.children)
+    left_column, right_column = grid.children
+    assert [card.className for card in left_column.children] == [
         "analysis-card",
+        "analysis-card",
+    ]
+    assert [card.className for card in right_column.children] == [
         "analysis-card",
         "analysis-card",
         "analysis-card",
     ]
-    assert [card.children[0].children for card in grid.children] == [
+    assert [card.children[0].children for card in left_column.children] == [
         "Observed trials",
-        "Elite enrichement (1x = Baseline)",
         "Empirical objective median contour",
-        "Plot controls",
     ]
+    assert [card.children[0].children for card in right_column.children] == [
+        "Elite enrichement (1x = Baseline)",
+        "Plot controls",
+        "HPO Planner - Search Space",
+    ]
+    plot_controls = right_column.children[1]
+    range_controls = right_column.children[2]
     bin_sliders = [
         component
-        for component in _walk_components(grid.children[3])
+        for component in _walk_components(plot_controls)
         if isinstance(component, dcc.Slider)
     ]
     assert [component.id for component in bin_sliders] == [
@@ -90,16 +109,46 @@ def test_output_layout_uses_the_final_grid_cell_for_binning_controls():
     assert all(component.min == analysis.MIN_BINS for component in bin_sliders)
     assert all(component.max == analysis.MAX_BINS for component in bin_sliders)
     assert all(component.step == 1 for component in bin_sliders)
+    planning_mounts = [
+        component
+        for component in _walk_components(range_controls)
+        if getattr(component, "id", None) == analysis.PLANNING_CONTROLS_ID
+    ]
+    intent_stores = [
+        component
+        for component in _walk_components(range_controls)
+        if isinstance(component, dcc.Store) and component.id == analysis.PLANNING_INTENT_ID
+    ]
+    assert len(planning_mounts) == 1
+    assert len(intent_stores) == 1
+    reset_buttons = [
+        component
+        for component in _walk_components(range_controls)
+        if isinstance(component, dbc.Button) and component.id == analysis.PLANNING_RESET_ID
+    ]
+    assert len(reset_buttons) == 1
+    assert reset_buttons[0].n_clicks == 0
+    assert "Reset feature ranges" in str(reset_buttons[0].children)
+    assert not any(
+        getattr(component, "id", None) == analysis.PLANNING_CONTROLS_ID
+        for component in _walk_components(plot_controls)
+    )
+    assert not any(
+        isinstance(component, dcc.Slider) for component in _walk_components(range_controls)
+    )
     color_switches = [
         component
-        for component in _walk_components(grid.children[3])
+        for component in _walk_components(plot_controls)
         if isinstance(component, dbc.Switch)
     ]
     assert len(color_switches) == 1
     assert color_switches[0].id == "two_dimensional_analysis-color_by_rank-input"
     assert color_switches[0].label == "Color observed trials by trial rank"
     assert color_switches[0].value is False
-    assert "Set the numeric resolution" not in str(grid.children[3])
+    assert not any(
+        isinstance(component, dbc.Switch) for component in _walk_components(range_controls)
+    )
+    assert "Set the numeric resolution" not in str(plot_controls)
 
 
 def test_dependencies_exclude_time_and_enforce_distinct_hyperparameters():
@@ -304,9 +353,7 @@ def test_process_keeps_repeated_configurations_and_original_trial_numbers():
 
 def test_feature_changes_reuse_the_objective_wide_trial_table():
     objective = Objective("Accuracy", optimize="upper")
-    configspace = ConfigurationSpace(
-        space={"x": (0.0, 1.0), "y": (0.0, 1.0), "z": (0.0, 1.0)}
-    )
+    configspace = ConfigurationSpace(space={"x": (0.0, 1.0), "y": (0.0, 1.0), "z": (0.0, 1.0)})
     configurations = {
         0: {"x": 0.1, "y": 0.2, "z": 0.3},
         1: {"x": 0.4, "y": 0.5, "z": 0.6},
@@ -358,11 +405,7 @@ def test_independent_bin_counts_feed_enrichment_and_contour(monkeypatch):
     monkeypatch.setattr(analysis, "save_image", lambda *_args: None)
     objective = Objective("Accuracy", optimize="upper")
     configspace = ConfigurationSpace(space={"x": (0.0, 1.0), "y": (0.0, 1.0)})
-    configurations = [
-        {"x": x / 5, "y": y / 5}
-        for y in range(6)
-        for x in range(6)
-    ]
+    configurations = [{"x": x / 5, "y": y / 5} for y in range(6) for x in range(6)]
     history = [
         Trial(
             index,
@@ -401,8 +444,16 @@ def test_independent_bin_counts_feed_enrichment_and_contour(monkeypatch):
 
     assert len(outputs["axis_1"]) == 3
     assert len(outputs["axis_2"]) == 5
+    assert all(axis["kind"] == "interval" for axis in outputs["axis_1"])
+    assert all(axis["lower"] < axis["upper"] for axis in outputs["axis_1"])
     assert np.asarray(enrichment_figure.data[0].z).shape == (5, 3)
-    assert np.asarray(contour_figure.data[0].z).shape == (5, 3)
+    assert np.asarray(contour_figure.data[0].z).shape == (7, 5)
+    assert contour_figure.data[0].x[0] == pytest.approx(outputs["axis_1"][0]["lower"])
+    assert contour_figure.data[0].x[-1] == pytest.approx(outputs["axis_1"][-1]["upper"])
+    assert contour_figure.data[0].y[0] == pytest.approx(outputs["axis_2"][0]["lower"])
+    assert contour_figure.data[0].y[-1] == pytest.approx(outputs["axis_2"][-1]["upper"])
+    assert len(contour_figure.layout.xaxis.tickvals) == 3
+    assert len(contour_figure.layout.yaxis.tickvals) == 5
 
 
 def test_numeric_outputs_use_contour_and_preserve_missing_cells(monkeypatch):
@@ -640,6 +691,7 @@ def test_categorical_axis_uses_objective_heatmap(monkeypatch):
     monkeypatch.setattr(analysis, "save_image", lambda *_args: None)
     objective = Objective("Loss", optimize="lower")
     run = SimpleNamespace(
+        id="study",
         configspace={
             "kind": CategoricalHyperparameter("kind", choices=["a", "b"]),
             "x": UniformFloatHyperparameter("x", lower=0.0, upper=1.0),
@@ -651,6 +703,11 @@ def test_categorical_axis_uses_objective_heatmap(monkeypatch):
         "hyperparameter_name_1": "kind",
         "hyperparameter_name_2": "x",
         "elite_proportion": 0.5,
+        "planned_search_space_state": {
+            "version": 1,
+            "revision": 1,
+            "runs": {"study": {"kind": {"choices": ["b"]}}},
+        },
     }
     outputs = {
         "trials": [
@@ -686,6 +743,82 @@ def test_categorical_axis_uses_objective_heatmap(monkeypatch):
 
     assert objective_figure.data[0].type == "heatmap"
     assert objective_figure.data[0].reversescale is True
+    assert len(objective_figure.layout.shapes) == 1
+    assert objective_figure.layout.shapes[0].x0 == -0.5
+    assert objective_figure.layout.shapes[0].x1 == 0.5
+
+
+def test_reduced_planning_controls_adapt_to_parameter_type():
+    configspace = ConfigurationSpace()
+    configspace.add(
+        [
+            UniformFloatHyperparameter("x", lower=0.01, upper=1.0, log=True),
+            CategoricalHyperparameter("kind", choices=["a", "b"]),
+        ]
+    )
+    numeric, categorical = analysis.configspace_metadata(configspace, ["x", "kind"])
+
+    numeric_control = analysis._planning_control(numeric, {"min": 0.1, "max": 2.0}, 0)
+    category_control = analysis._planning_control(categorical, {"choices": ["b"]}, 1)
+    numeric_components = list(_walk_components(numeric_control))
+    category_components = list(_walk_components(category_control))
+
+    (slider,) = [item for item in numeric_components if isinstance(item, dcc.RangeSlider)]
+    (dropdown,) = [item for item in category_components if isinstance(item, dcc.Dropdown)]
+    assert slider.id == {"type": analysis.PLANNING_RANGE_TYPE, "index": 0}
+    assert slider.min < 0
+    assert slider.max > 1
+    assert dropdown.id == {"type": analysis.PLANNING_CATEGORIES_TYPE, "index": 1}
+    assert dropdown.value == ["b"]
+    assert any(
+        getattr(item, "className", None) == "planner-extension-segment"
+        for item in numeric_components
+    )
+
+
+def test_logarithmic_interval_mask_uses_exact_fractional_bin_positions():
+    parameter = {
+        "name": "x",
+        "parameter_type": "float",
+        "current_min": 1.0,
+        "current_max": 100.0,
+        "log": True,
+        "step": None,
+    }
+    axes = [
+        {"kind": "interval", "lower": 1.0, "upper": 10.0},
+        {"kind": "interval", "lower": 10.0, "upper": 100.0},
+    ]
+
+    included, domain = analysis._binned_axis_segments(
+        axes,
+        parameter,
+        {"min": np.sqrt(10.0), "max": np.sqrt(1000.0)},
+    )
+
+    assert domain == (-0.5, 1.5)
+    assert len(included) == 1
+    assert included[0] == pytest.approx((0.0, 1.0))
+
+
+def test_rectangular_mask_does_not_double_overlay_corners():
+    figure = analysis.go.Figure()
+
+    analysis._apply_rectangular_mask(
+        figure,
+        [(0.25, 0.75)],
+        (0.0, 1.0),
+        [(0.25, 0.75)],
+        (0.0, 1.0),
+    )
+
+    shapes = list(figure.layout.shapes)
+    assert len(shapes) == 4
+    assert all(shape.fillcolor == analysis.MASK_COLOR for shape in shapes)
+    vertical = [shape for shape in shapes if shape.y0 == 0.0 and shape.y1 == 1.0]
+    horizontal = [shape for shape in shapes if shape.x0 == 0.25 and shape.x1 == 0.75]
+    assert len(vertical) == 2
+    assert len(horizontal) == 2
 
 
 def test_only_suitable_optuna_studies_are_compatible():

@@ -886,11 +886,47 @@ table.table.exclude-head tbody {
 
 .analysis-grid--two-dimensional {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+}
+
+.two-dimensional-analysis-column {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.two-dimensional-control-panel {
+    padding: 2.5rem 1rem 1rem;
 }
 
 .two-dimensional-binning-controls {
-    min-height: 270px;
-    padding: 3rem 1rem 1rem;
+    box-sizing: border-box;
+    height: 270px;
+}
+
+.two-dimensional-planning-controls {
+    display: grid;
+    gap: 0.8rem;
+}
+
+.two-dimensional-planning-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1rem;
+}
+
+.two-dimensional-planning-control {
+    min-width: 0;
+}
+
+.two-dimensional-planning-range-control {
+    height: 3rem;
+    padding-top: 0.45rem;
+}
+
+.two-dimensional-planning-range-control .planner-unselected-layer {
+    bottom: 0.45rem;
 }
 
 .two-dimensional-binning-control + .two-dimensional-binning-control {
@@ -898,7 +934,7 @@ table.table.exclude-head tbody {
 }
 
 .two-dimensional-color-control {
-    margin-top: 1.75rem;
+    margin-top: 1.5rem;
 }
 
 @media (max-width: 1200px) {

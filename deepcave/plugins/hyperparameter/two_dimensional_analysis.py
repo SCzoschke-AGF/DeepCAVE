@@ -26,11 +26,11 @@ from ConfigSpace.hyperparameters import (
     Hyperparameter,
     IntegerHyperparameter,
 )
-from dash import dcc, html
+from dash import ALL, Input, Output, State, ctx, dcc, html
 from dash.development.base_component import Component
 from dash.exceptions import PreventUpdate
 
-from deepcave import config
+from deepcave import config, interactive
 from deepcave.plugins.dynamic import DynamicPlugin
 from deepcave.plugins.hyperparameter.analysis_utils import (
     _add_trial_statistics,
@@ -38,6 +38,20 @@ from deepcave.plugins.hyperparameter.analysis_utils import (
     _get_objectives_without_time,
     _group_parameter_values,
     _is_optuna_run_or_group,
+)
+from deepcave.plugins.hyperparameter.search_space_state import (
+    PLANNED_SEARCH_SPACE_INTENT_TYPE,
+    PLANNED_SEARCH_SPACE_STORE_ID,
+    as_python_value,
+    coerce_selection,
+    configspace_metadata,
+    denormalize_value,
+    initial_selection,
+    position_percent,
+    selection_from_state,
+    selection_metrics,
+    slider_domain,
+    transform_value,
 )
 from deepcave.runs import AbstractRun
 from deepcave.utils.analysis_layout import (
@@ -62,6 +76,16 @@ ENRICHMENT_TOP_MARGIN = 30
 ENRICHMENT_BOTTOM_MARGIN = 60
 MAX_ANNOTATED_X_BINS = 15
 MAX_ANNOTATED_Y_BINS = 6
+PLANNING_CONTROLS_ID = "two-dimensional-planning-controls"
+PLANNING_INTENT_ID = {
+    "type": PLANNED_SEARCH_SPACE_INTENT_TYPE,
+    "source": "two-dimensional-analysis",
+}
+PLANNING_RANGE_TYPE = "two-dimensional-planning-range"
+PLANNING_CATEGORIES_TYPE = "two-dimensional-planning-categories"
+PLANNING_RESET_ID = "two-dimensional-planning-reset"
+MASK_COLOR = "rgba(100, 116, 139, 0.42)"
+CACHE_SCHEMA_VERSION = 2
 
 
 def _observed_categories(groups: pd.Series) -> List[Any]:
@@ -94,6 +118,22 @@ def _group_coordinate(group: Any, hyperparameter: Hyperparameter) -> Any:
     return str(group)
 
 
+def _axis_descriptor(group: Any, hyperparameter: Hyperparameter) -> Dict[str, Any]:
+    """Return serializable display geometry for one empirical axis group."""
+    descriptor = {"label": str(group), "coordinate": _group_coordinate(group, hyperparameter)}
+    if isinstance(group, pd.Interval):
+        descriptor.update(
+            kind="interval",
+            lower=max(float(group.left), float(hyperparameter.lower)),
+            upper=min(float(group.right), float(hyperparameter.upper)),
+        )
+    elif isinstance(hyperparameter, (FloatHyperparameter, IntegerHyperparameter)):
+        descriptor.update(kind="discrete", value=as_python_value(group))
+    else:
+        descriptor.update(kind="category", value=as_python_value(group))
+    return descriptor
+
+
 def _supports_contour(hyperparameter: Hyperparameter) -> bool:
     """Return whether an axis has meaningful numeric interpolation geometry."""
     return isinstance(hyperparameter, (FloatHyperparameter, IntegerHyperparameter))
@@ -109,6 +149,27 @@ def _contour_coordinates(
         lower = float(hyperparameter.lower)
         coordinates = [max(coordinate, lower) for coordinate in coordinates]
     return coordinates
+
+
+def _pad_contour_axis(
+    coordinates: List[float],
+    axes: List[Dict[str, Any]],
+    matrix: List[List[Any]],
+    customdata: List[List[Any]],
+    horizontal: bool,
+) -> Tuple[List[float], List[List[Any]], List[List[Any]]]:
+    """Extend interval-bin contour values from their centers to their outer edges."""
+    if not axes or not all(axis.get("kind") == "interval" for axis in axes):
+        return coordinates, matrix, customdata
+
+    padded_coordinates = [float(axes[0]["lower"]), *coordinates, float(axes[-1]["upper"])]
+    if horizontal:
+        padded_matrix = [[row[0], *row, row[-1]] for row in matrix]
+        padded_customdata = [[row[0], *row, row[-1]] for row in customdata]
+    else:
+        padded_matrix = [list(matrix[0]), *matrix, list(matrix[-1])]
+        padded_customdata = [list(customdata[0]), *customdata, list(customdata[-1])]
+    return padded_coordinates, padded_matrix, padded_customdata
 
 
 def _summarize_pair(
@@ -257,9 +318,7 @@ def _elite_enrichment_figure(
     elite_proportion: float,
 ) -> go.Figure:
     """Build the joint-bin elite-enrichment heatmap using the existing bins."""
-    show_cell_text = (
-        len(x_labels) <= MAX_ANNOTATED_X_BINS and len(y_labels) <= MAX_ANNOTATED_Y_BINS
-    )
+    show_cell_text = len(x_labels) <= MAX_ANNOTATED_X_BINS and len(y_labels) <= MAX_ANNOTATED_Y_BINS
     observed_enrichments = [
         float(cell["elite_rate_pct"]) / 100 / elite_proportion
         for _, cell in cells.iterrows()
@@ -450,23 +509,45 @@ def _objective_median_figure(
     if use_contour:
         x_coordinates = _contour_coordinates(axes_1, hyperparameter_1)
         y_coordinates = _contour_coordinates(axes_2, hyperparameter_2)
+        x_tick_coordinates = list(x_coordinates)
+        y_tick_coordinates = list(y_coordinates)
+        x_coordinates, contour_medians, contour_customdata = _pad_contour_axis(
+            x_coordinates,
+            axes_1,
+            objective_medians,
+            objective_customdata,
+            horizontal=True,
+        )
+        y_coordinates, contour_medians, contour_customdata = _pad_contour_axis(
+            y_coordinates,
+            axes_2,
+            contour_medians,
+            contour_customdata,
+            horizontal=False,
+        )
         figure.add_trace(
             go.Contour(
                 x=x_coordinates,
                 y=y_coordinates,
                 connectgaps=False,
-                **trace_arguments,
+                z=contour_medians,
+                customdata=contour_customdata,
+                **{
+                    key: value
+                    for key, value in trace_arguments.items()
+                    if key not in ("z", "customdata")
+                },
             )
         )
         figure.update_xaxes(
             tickmode="array",
-            tickvals=x_coordinates,
+            tickvals=x_tick_coordinates,
             ticktext=[bin_label(label, multiline=False) for label in x_labels],
             type="log" if getattr(hyperparameter_1, "log", False) else "linear",
         )
         figure.update_yaxes(
             tickmode="array",
-            tickvals=y_coordinates,
+            tickvals=y_tick_coordinates,
             ticktext=[bin_label(label) for label in y_labels],
             type="log" if getattr(hyperparameter_2, "log", False) else "linear",
         )
@@ -500,6 +581,272 @@ def _objective_median_figure(
     return figure
 
 
+def _merge_segments(segments: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+    """Merge touching one-dimensional mask segments."""
+    merged: List[Tuple[float, float]] = []
+    for start, end in sorted(segments):
+        if end <= start:
+            continue
+        if merged and start <= merged[-1][1] + 1e-9:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _complement_segments(
+    included: List[Tuple[float, float]], domain: Tuple[float, float]
+) -> List[Tuple[float, float]]:
+    """Return the complement of merged included segments inside a domain."""
+    excluded: List[Tuple[float, float]] = []
+    cursor = domain[0]
+    for start, end in _merge_segments(included):
+        start = max(domain[0], start)
+        end = min(domain[1], end)
+        if start > cursor:
+            excluded.append((cursor, start))
+        cursor = max(cursor, end)
+    if cursor < domain[1]:
+        excluded.append((cursor, domain[1]))
+    return excluded
+
+
+def _continuous_axis_segments(
+    parameter: Dict[str, Any], selection: Dict[str, Any]
+) -> Tuple[List[Tuple[float, float]], Tuple[float, float]]:
+    """Return the selected portion of a continuous original ConfigSpace axis."""
+    domain = (float(parameter["current_min"]), float(parameter["current_max"]))
+    start = max(domain[0], float(selection["min"]))
+    end = min(domain[1], float(selection["max"]))
+    return ([(start, end)] if end > start else []), domain
+
+
+def _binned_axis_segments(
+    axes: List[Dict[str, Any]],
+    parameter: Dict[str, Any],
+    selection: Dict[str, Any],
+) -> Tuple[List[Tuple[float, float]], Tuple[float, float]]:
+    """Map exact selected values to categorical heatmap-cell coordinates."""
+    domain = (-0.5, len(axes) - 0.5)
+    included: List[Tuple[float, float]] = []
+    for index, axis in enumerate(axes):
+        if parameter["parameter_type"] in ("integer", "float"):
+            if axis.get("kind", "discrete") == "interval":
+                lower = float(axis["lower"])
+                upper = float(axis["upper"])
+                selected_lower = max(lower, float(selection["min"]))
+                selected_upper = min(upper, float(selection["max"]))
+                if selected_upper <= selected_lower:
+                    continue
+                transformed_lower = transform_value(lower, bool(parameter["log"]))
+                transformed_upper = transform_value(upper, bool(parameter["log"]))
+                width = transformed_upper - transformed_lower
+                if np.isclose(width, 0):
+                    continue
+                start_fraction = (
+                    transform_value(selected_lower, bool(parameter["log"])) - transformed_lower
+                ) / width
+                end_fraction = (
+                    transform_value(selected_upper, bool(parameter["log"])) - transformed_lower
+                ) / width
+                included.append((index - 0.5 + start_fraction, index - 0.5 + end_fraction))
+            else:
+                value = float(axis.get("value", axis["coordinate"]))
+                if float(selection["min"]) <= value <= float(selection["max"]):
+                    included.append((index - 0.5, index + 0.5))
+        elif axis.get("value", axis.get("coordinate")) in selection.get("choices", []):
+            included.append((index - 0.5, index + 0.5))
+    return _merge_segments(included), domain
+
+
+def _apply_rectangular_mask(
+    figure: go.Figure,
+    x_included: List[Tuple[float, float]],
+    x_domain: Tuple[float, float],
+    y_included: List[Tuple[float, float]],
+    y_domain: Tuple[float, float],
+) -> None:
+    """Shade the union of excluded X/Y regions once, without darker intersections."""
+    shapes: List[Dict[str, Any]] = []
+    base = {
+        "type": "rect",
+        "xref": "x",
+        "yref": "y",
+        "fillcolor": MASK_COLOR,
+        "line": {"width": 0},
+        "layer": "above",
+    }
+    for x0, x1 in _complement_segments(x_included, x_domain):
+        shapes.append({**base, "x0": x0, "x1": x1, "y0": y_domain[0], "y1": y_domain[1]})
+    for y0, y1 in _complement_segments(y_included, y_domain):
+        for x0, x1 in x_included:
+            shapes.append({**base, "x0": x0, "x1": x1, "y0": y0, "y1": y1})
+    figure.update_layout(shapes=shapes)
+
+
+def _apply_continuous_mask(
+    figure: go.Figure,
+    metadata: List[Dict[str, Any]],
+    selection: Dict[str, Dict[str, Any]],
+) -> None:
+    """Apply an exact data-coordinate mask to a scatter or numeric contour."""
+    x_included, x_domain = _continuous_axis_segments(metadata[0], selection[metadata[0]["name"]])
+    y_included, y_domain = _continuous_axis_segments(metadata[1], selection[metadata[1]["name"]])
+    _apply_rectangular_mask(figure, x_included, x_domain, y_included, y_domain)
+
+
+def _apply_scatter_mask(
+    figure: go.Figure,
+    axes_1: List[Dict[str, Any]],
+    axes_2: List[Dict[str, Any]],
+    metadata: List[Dict[str, Any]],
+    selection: Dict[str, Dict[str, Any]],
+) -> None:
+    """Mask numeric scatter axes exactly and categorical axes by category."""
+    axis_geometry = []
+    for axes, parameter in zip((axes_1, axes_2), metadata):
+        selected = selection[parameter["name"]]
+        if parameter["parameter_type"] in ("integer", "float"):
+            axis_geometry.append(_continuous_axis_segments(parameter, selected))
+        else:
+            axis_geometry.append(_binned_axis_segments(axes, parameter, selected))
+    _apply_rectangular_mask(
+        figure,
+        axis_geometry[0][0],
+        axis_geometry[0][1],
+        axis_geometry[1][0],
+        axis_geometry[1][1],
+    )
+
+
+def _apply_binned_mask(
+    figure: go.Figure,
+    axes_1: List[Dict[str, Any]],
+    axes_2: List[Dict[str, Any]],
+    metadata: List[Dict[str, Any]],
+    selection: Dict[str, Dict[str, Any]],
+) -> None:
+    """Apply exact fractional-bin or discrete category masking to a heatmap."""
+    x_included, x_domain = _binned_axis_segments(
+        axes_1, metadata[0], selection[metadata[0]["name"]]
+    )
+    y_included, y_domain = _binned_axis_segments(
+        axes_2, metadata[1], selection[metadata[1]["name"]]
+    )
+    _apply_rectangular_mask(figure, x_included, x_domain, y_included, y_domain)
+
+
+def _range_overlay_components(
+    metrics: Dict[str, Any], domain: Tuple[float, float]
+) -> Tuple[List[Component], List[Component]]:
+    """Return orange extension and gray unselected slider overlays."""
+    extensions: List[Component] = []
+    for start, end in (
+        (metrics["min_normalized"], min(metrics["max_normalized"], 0.0)),
+        (max(metrics["min_normalized"], 1.0), metrics["max_normalized"]),
+    ):
+        if end > start:
+            left = position_percent(start, domain)
+            right = position_percent(end, domain)
+            extensions.append(
+                html.Span(
+                    className="planner-extension-segment",
+                    style={"left": f"{left:.6f}%", "width": f"{right - left:.6f}%"},
+                )
+            )
+    minimum = min(100.0, max(0.0, position_percent(metrics["min_normalized"], domain)))
+    maximum = min(100.0, max(0.0, position_percent(metrics["max_normalized"], domain)))
+    unselected = [
+        html.Span(
+            className="planner-unselected-segment",
+            style={"left": "0", "width": f"{minimum:.6f}%"},
+        ),
+        html.Span(
+            className="planner-unselected-segment",
+            style={"left": f"{maximum:.6f}%", "width": f"{100 - maximum:.6f}%"},
+        ),
+    ]
+    return extensions, unselected
+
+
+def _planning_control(
+    parameter: Dict[str, Any], selection: Dict[str, Any], axis_index: int
+) -> Component:
+    """Build the reduced planner control for one selected 2-D feature."""
+    label = f"Feature #{axis_index + 1} · {parameter['name']}"
+    if parameter["parameter_type"] not in ("integer", "float"):
+        return html.Div(
+            [
+                dbc.Label(label, className="small mb-1"),
+                dcc.Dropdown(
+                    id={"type": PLANNING_CATEGORIES_TYPE, "index": axis_index},
+                    options=[
+                        {"label": str(value), "value": value} for value in parameter["choices"]
+                    ],
+                    value=selection["choices"],
+                    multi=True,
+                    clearable=True,
+                ),
+            ],
+            className="two-dimensional-planning-control",
+        )
+
+    metrics = selection_metrics(parameter, selection)
+    domain = slider_domain(metrics)
+    extensions, unselected = _range_overlay_components(metrics, domain)
+    reference_left = position_percent(0, domain)
+    reference_right = position_percent(1, domain)
+    return html.Div(
+        [
+            dbc.Label(label, className="small mb-1"),
+            html.Div(
+                [
+                    html.Div(
+                        html.Span(
+                            className="planner-current-reference-segment",
+                            style={
+                                "left": f"{reference_left:.6f}%",
+                                "width": f"{reference_right - reference_left:.6f}%",
+                            },
+                        ),
+                        className="planner-current-reference",
+                    ),
+                    dcc.RangeSlider(
+                        id={"type": PLANNING_RANGE_TYPE, "index": axis_index},
+                        min=domain[0],
+                        max=domain[1],
+                        step=0.001,
+                        value=[metrics["min_normalized"], metrics["max_normalized"]],
+                        marks={
+                            0: f"{parameter['current_min']:.6g}",
+                            1: f"{parameter['current_max']:.6g}",
+                        },
+                        allowCross=False,
+                        updatemode="mouseup",
+                        tooltip={
+                            "placement": "bottom",
+                            "always_visible": False,
+                            "transform": f"hpoPlanning.parameter{axis_index}",
+                        },
+                        className="planner-range-slider",
+                    ),
+                    html.Div(extensions, className="planner-extension-layer"),
+                    html.Div(unselected, className="planner-unselected-layer"),
+                ],
+                className="planner-range-control two-dimensional-planning-range-control",
+                **{
+                    "data-current-min": str(parameter["current_min"]),
+                    "data-current-max": str(parameter["current_max"]),
+                    "data-log": str(parameter["log"]).lower(),
+                    "data-step": "" if parameter.get("step") is None else str(parameter["step"]),
+                    "data-parameter-type": parameter["parameter_type"],
+                },
+            ),
+        ],
+        className="two-dimensional-planning-control",
+    )
+
+
 class TwoDimensionalAnalysis(DynamicPlugin):
     """Visualize empirical two-hyperparameter behavior for an Optuna study."""
 
@@ -509,6 +856,12 @@ class TwoDimensionalAnalysis(DynamicPlugin):
     help = "plugins/two_dimensional_analysis.html"
     activate_run_selection = True
     main_objective_input = "objective_id"
+    output_view_inputs = (("planned_search_space_state", PLANNED_SEARCH_SPACE_STORE_ID, "data"),)
+
+    def _dict_as_key(self, data: Dict[str, Any], remove_filters: bool = False) -> str:
+        """Version cached outputs because axis descriptors now contain mask geometry."""
+        key = super()._dict_as_key(data, remove_filters=remove_filters)
+        return f"{key}-v{CACHE_SCHEMA_VERSION}"
 
     @staticmethod
     def check_run_compatibility(run: AbstractRun) -> bool:
@@ -518,7 +871,7 @@ class TwoDimensionalAnalysis(DynamicPlugin):
     @staticmethod
     def get_input_layout(register: Callable) -> List[Component]:
         """Return the analysis controls; the active run lives in the sidebar."""
-        # Register these inputs here even though their components live in the fourth grid card.
+        # Register the bin inputs here even though their components live in the fourth grid card.
         register("n_bins_1", "value", type=int)
         register("n_bins_2", "value", type=int)
         register("color_by_rank", "value", filter=True, type=bool)
@@ -565,6 +918,124 @@ class TwoDimensionalAnalysis(DynamicPlugin):
     def get_filter_layout(register: Callable) -> List[Any]:
         """Return no additional display filters."""
         return []
+
+    @interactive
+    def register_callbacks(self) -> None:
+        """Synchronize the reduced controls with the shared planning state."""
+        super().register_callbacks()
+        from deepcave import app, run_handler
+
+        @app.callback(  # type: ignore
+            Output(PLANNING_CONTROLS_ID, "children"),
+            [
+                Input(self.get_internal_input_id("hyperparameter_name_1"), "value"),
+                Input(self.get_internal_input_id("hyperparameter_name_2"), "value"),
+                Input(PLANNED_SEARCH_SPACE_STORE_ID, "data"),
+            ],
+            State("global-run-selector", "value"),
+        )
+        def render_planning_controls(
+            hyperparameter_name_1: str,
+            hyperparameter_name_2: str,
+            planning_state: Any,
+            run_id: str,
+        ) -> Any:
+            if not run_id or not hyperparameter_name_1 or not hyperparameter_name_2:
+                return []
+            try:
+                run = run_handler.get_run(run_id)
+                names = [hyperparameter_name_1, hyperparameter_name_2]
+                metadata = configspace_metadata(run.configspace, names)
+            except (KeyError, RuntimeError):
+                return []
+            selection = selection_from_state(planning_state, run_id, metadata)
+            return [
+                _planning_control(parameter, selection[parameter["name"]], index)
+                for index, parameter in enumerate(metadata)
+            ]
+
+        @app.callback(  # type: ignore
+            Output(PLANNING_INTENT_ID, "data"),
+            [
+                Input({"type": PLANNING_RANGE_TYPE, "index": ALL}, "value"),
+                Input({"type": PLANNING_CATEGORIES_TYPE, "index": ALL}, "value"),
+                Input(PLANNING_RESET_ID, "n_clicks"),
+            ],
+            [
+                State(self.get_internal_input_id("hyperparameter_name_1"), "value"),
+                State(self.get_internal_input_id("hyperparameter_name_2"), "value"),
+                State(PLANNED_SEARCH_SPACE_STORE_ID, "data"),
+                State("global-run-selector", "value"),
+            ],
+            prevent_initial_call=True,
+        )
+        def update_planning_selection(
+            _ranges: List[Any],
+            _categories: List[Any],
+            _reset_clicks: int,
+            hyperparameter_name_1: str,
+            hyperparameter_name_2: str,
+            planning_state: Any,
+            run_id: str,
+        ) -> Any:
+            if not run_id:
+                raise PreventUpdate
+            names = [hyperparameter_name_1, hyperparameter_name_2]
+            if not all(names):
+                raise PreventUpdate
+            try:
+                run = run_handler.get_run(run_id)
+                metadata = configspace_metadata(run.configspace, names)
+            except (KeyError, RuntimeError):
+                raise PreventUpdate
+            if ctx.triggered_id == PLANNING_RESET_ID:
+                reset = initial_selection(metadata)
+                current = selection_from_state(planning_state, run_id, metadata)
+                if reset == current:
+                    raise PreventUpdate
+                return {
+                    "run_id": run_id,
+                    "mode": "patch",
+                    "selection": reset,
+                }
+            if not isinstance(ctx.triggered_id, dict):
+                raise PreventUpdate
+            axis_index = ctx.triggered_id.get("index")
+            if axis_index not in (0, 1):
+                raise PreventUpdate
+            parameter = metadata[axis_index]
+            selection = selection_from_state(planning_state, run_id, metadata)
+            current = selection[parameter["name"]]
+            value = ctx.triggered[0].get("value") if ctx.triggered else None
+            try:
+                if ctx.triggered_id.get("type") == PLANNING_RANGE_TYPE:
+                    if value is None or len(value) != 2:
+                        raise PreventUpdate
+                    metrics = selection_metrics(parameter, current)
+                    if np.allclose(
+                        value,
+                        [metrics["min_normalized"], metrics["max_normalized"]],
+                    ):
+                        raise PreventUpdate
+                    updated = coerce_selection(
+                        denormalize_value(value[0], parameter),
+                        denormalize_value(value[1], parameter),
+                        parameter,
+                    )
+                else:
+                    choices = value or []
+                    updated = {
+                        "choices": [choice for choice in parameter["choices"] if choice in choices]
+                    }
+                    if updated == current:
+                        raise PreventUpdate
+            except (TypeError, ValueError, OverflowError):
+                raise PreventUpdate
+            return {
+                "run_id": run_id,
+                "mode": "patch",
+                "selection": {parameter["name"]: updated},
+            }
 
     def load_inputs(self) -> Dict[str, Dict[str, Any]]:
         """Return defaults before an Optuna study is selected."""
@@ -695,23 +1166,11 @@ class TwoDimensionalAnalysis(DynamicPlugin):
             "trials": trials[trial_columns].to_dict(orient="records"),
             "cells": cells,
             "axis_1": [
-                {
-                    "label": str(group),
-                    "coordinate": _group_coordinate(
-                        group,
-                        run.configspace[hyperparameter_name_1],
-                    ),
-                }
+                _axis_descriptor(group, run.configspace[hyperparameter_name_1])
                 for group in categories_1
             ],
             "axis_2": [
-                {
-                    "label": str(group),
-                    "coordinate": _group_coordinate(
-                        group,
-                        run.configspace[hyperparameter_name_2],
-                    ),
-                }
+                _axis_descriptor(group, run.configspace[hyperparameter_name_2])
                 for group in categories_2
             ],
             "elite_threshold": elite_threshold,
@@ -720,86 +1179,143 @@ class TwoDimensionalAnalysis(DynamicPlugin):
 
     @staticmethod
     def get_output_layout(register: Callable) -> List[Any]:
-        """Return three plots and binning controls in a responsive two-column grid."""
+        """Return independently sized plot and control columns."""
+        trials_graph = analysis_graph(
+            register("trials_graph", "figure"),
+            PANEL_HEIGHT,
+            config.FIGURE_DOWNLOAD_SCALE,
+        )
+        elite_rate_graph = analysis_graph(
+            register("elite_rate_graph", "figure"),
+            PANEL_HEIGHT,
+            config.FIGURE_DOWNLOAD_SCALE,
+        )
+        objective_graph = analysis_graph(
+            register("objective_graph", "figure"),
+            PANEL_HEIGHT,
+            config.FIGURE_DOWNLOAD_SCALE,
+        )
         return [
             html.Div(
                 [
-                    analysis_card(
-                        "Observed trials",
-                        analysis_graph(
-                            register("trials_graph", "figure"),
-                            PANEL_HEIGHT,
-                            config.FIGURE_DOWNLOAD_SCALE,
-                        ),
+                    html.Div(
+                        [
+                            analysis_card("Observed trials", trials_graph),
+                            analysis_card(
+                                "Empirical objective median contour",
+                                objective_graph,
+                            ),
+                        ],
+                        className="two-dimensional-analysis-column",
                     ),
-                    analysis_card(
-                        "Elite enrichement (1x = Baseline)",
-                        analysis_graph(
-                            register("elite_rate_graph", "figure"),
-                            PANEL_HEIGHT,
-                            config.FIGURE_DOWNLOAD_SCALE,
-                        ),
-                    ),
-                    analysis_card(
-                        "Empirical objective median contour",
-                        analysis_graph(
-                            register("objective_graph", "figure"),
-                            PANEL_HEIGHT,
-                            config.FIGURE_DOWNLOAD_SCALE,
-                        ),
-                    ),
-                    analysis_card(
-                        "Plot controls",
-                        html.Div(
-                            [
+                    html.Div(
+                        [
+                            analysis_card(
+                                "Elite enrichement (1x = Baseline)",
+                                elite_rate_graph,
+                            ),
+                            analysis_card(
+                                "Plot controls",
                                 html.Div(
                                     [
-                                        dbc.Label("Feature #1 bins", className="small mb-1"),
-                                        dcc.Slider(
-                                            id=f"{TwoDimensionalAnalysis.id}-n_bins_1-input",
-                                            min=MIN_BINS,
-                                            max=MAX_BINS,
-                                            step=1,
-                                            value=N_BINS,
-                                            marks={
-                                                value: str(value)
-                                                for value in range(MIN_BINS, MAX_BINS + 1, 2)
-                                            },
-                                            tooltip={"placement": "bottom"},
+                                        html.Div(
+                                            [
+                                                dbc.Label(
+                                                    "Feature #1 bins", className="small mb-1"
+                                                ),
+                                                dcc.Slider(
+                                                    id=(
+                                                        f"{TwoDimensionalAnalysis.id}"
+                                                        "-n_bins_1-input"
+                                                    ),
+                                                    min=MIN_BINS,
+                                                    max=MAX_BINS,
+                                                    step=1,
+                                                    value=N_BINS,
+                                                    marks={
+                                                        value: str(value)
+                                                        for value in range(
+                                                            MIN_BINS, MAX_BINS + 1, 2
+                                                        )
+                                                    },
+                                                    tooltip={"placement": "bottom"},
+                                                ),
+                                            ],
+                                            className="two-dimensional-binning-control",
+                                        ),
+                                        html.Div(
+                                            [
+                                                dbc.Label(
+                                                    "Feature #2 bins", className="small mb-1"
+                                                ),
+                                                dcc.Slider(
+                                                    id=(
+                                                        f"{TwoDimensionalAnalysis.id}"
+                                                        "-n_bins_2-input"
+                                                    ),
+                                                    min=MIN_BINS,
+                                                    max=MAX_BINS,
+                                                    step=1,
+                                                    value=N_BINS,
+                                                    marks={
+                                                        value: str(value)
+                                                        for value in range(
+                                                            MIN_BINS, MAX_BINS + 1, 2
+                                                        )
+                                                    },
+                                                    tooltip={"placement": "bottom"},
+                                                ),
+                                            ],
+                                            className="two-dimensional-binning-control",
+                                        ),
+                                        dbc.Switch(
+                                            id=(
+                                                f"{TwoDimensionalAnalysis.id}"
+                                                "-color_by_rank-input"
+                                            ),
+                                            label="Color observed trials by trial rank",
+                                            value=False,
+                                            className="two-dimensional-color-control",
                                         ),
                                     ],
-                                    className="two-dimensional-binning-control",
-                                ),
-                                html.Div(
-                                    [
-                                        dbc.Label("Feature #2 bins", className="small mb-1"),
-                                        dcc.Slider(
-                                            id=f"{TwoDimensionalAnalysis.id}-n_bins_2-input",
-                                            min=MIN_BINS,
-                                            max=MAX_BINS,
-                                            step=1,
-                                            value=N_BINS,
-                                            marks={
-                                                value: str(value)
-                                                for value in range(MIN_BINS, MAX_BINS + 1, 2)
-                                            },
-                                            tooltip={"placement": "bottom"},
-                                        ),
-                                    ],
-                                    className="two-dimensional-binning-control",
-                                ),
-                                dbc.Switch(
-                                    id=(
-                                        f"{TwoDimensionalAnalysis.id}"
-                                        "-color_by_rank-input"
+                                    className=(
+                                        "two-dimensional-control-panel "
+                                        "two-dimensional-binning-controls"
                                     ),
-                                    label="Color observed trials by trial rank",
-                                    value=False,
-                                    className="two-dimensional-color-control",
                                 ),
-                            ],
-                            className="two-dimensional-binning-controls",
-                        ),
+                            ),
+                            analysis_card(
+                                "HPO Planner - Search Space",
+                                html.Div(
+                                    [
+                                        dcc.Store(id=PLANNING_INTENT_ID, data=None),
+                                        html.Div(
+                                            id=PLANNING_CONTROLS_ID,
+                                            className="two-dimensional-planning-controls",
+                                        ),
+                                        html.Div(
+                                            dbc.Button(
+                                                [
+                                                    html.I(className="fas fa-undo me-2"),
+                                                    "Reset feature ranges",
+                                                ],
+                                                id=PLANNING_RESET_ID,
+                                                color="primary",
+                                                outline=True,
+                                                size="sm",
+                                                n_clicks=0,
+                                            ),
+                                            className="two-dimensional-planning-actions",
+                                        ),
+                                    ],
+                                    className=(
+                                        "two-dimensional-control-panel "
+                                        "two-dimensional-range-controls"
+                                    ),
+                                ),
+                            ),
+                        ],
+                        className="two-dimensional-analysis-column",
                     ),
                 ],
                 className="analysis-grid analysis-grid--two-dimensional",
@@ -856,6 +1372,45 @@ class TwoDimensionalAnalysis(DynamicPlugin):
             objective.name,
             objective.optimize,
         )
+
+        metadata = configspace_metadata(
+            run.configspace,
+            [hyperparameter_name_1, hyperparameter_name_2],
+        )
+        selection = selection_from_state(
+            inputs.get("planned_search_space_state"),
+            getattr(run, "id", ""),
+            metadata,
+        )
+        _apply_scatter_mask(
+            trials_figure,
+            outputs["axis_1"],
+            outputs["axis_2"],
+            metadata,
+            selection,
+        )
+        _apply_binned_mask(
+            elite_enrichment_figure,
+            outputs["axis_1"],
+            outputs["axis_2"],
+            metadata,
+            selection,
+        )
+        if (
+            _supports_contour(hyperparameter_1)
+            and _supports_contour(hyperparameter_2)
+            and len(outputs["axis_1"]) > 1
+            and len(outputs["axis_2"]) > 1
+        ):
+            _apply_continuous_mask(objective_figure, metadata, selection)
+        else:
+            _apply_binned_mask(
+                objective_figure,
+                outputs["axis_1"],
+                outputs["axis_2"],
+                metadata,
+                selection,
+            )
 
         save_image(trials_figure, "two_dimensional_trials.pdf")
         save_image(elite_enrichment_figure, "two_dimensional_elite_enrichment.pdf")

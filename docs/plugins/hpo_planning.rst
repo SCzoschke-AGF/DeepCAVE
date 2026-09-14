@@ -6,6 +6,11 @@ Select the main objective below the active study in the global sidebar and three
 proportions in the compact toolbar. Every parameter then occupies one row, and the complete
 planned space is collected in the planner's summary card.
 
+The planned search space is shared with the 2-D Analyses plugin for the active run. It remains in
+browser memory while navigating between plugins and is cleared by reloading the page or opening a
+new tab. Runs and groups retain independent selections during that browser session. Resetting the
+planner restores the complete current ConfigSpace only for the active run.
+
 In addition to native Optuna objectives, the main-objective selector offers trial user attributes
 that contain a finite scalar number for every successful trial. User-attribute objectives can be
 maximized or minimized with the direction selector; native objectives retain their Optuna

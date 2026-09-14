@@ -732,6 +732,7 @@ def test_planner_layout_uses_separate_metadata_and_selection_stores():
     assert [store.id for store in stores] == [
         planning.METADATA_STORE_ID,
         planning.SELECTION_STORE_ID,
+        planning.PLANNING_INTENT_ID,
         planning.TRIALS_STORE_ID,
         planning.INSIGHTS_STORE_ID,
         planning.INSIGHT_SELECTION_STORE_ID,
@@ -753,6 +754,31 @@ def test_planner_layout_uses_separate_metadata_and_selection_stores():
     assert selection == {
         "x": {"min": 0.0, "max": 10.0},
         "kind": {"choices": ["a", "b"]},
+    }
+
+    persisted_state = {
+        "version": 1,
+        "revision": 1,
+        "runs": {
+            "study": {
+                "x": {"min": -2.0, "max": 4.0},
+                "kind": {"choices": ["b"]},
+            }
+        },
+    }
+    (persisted_layout,) = planning.HPOPlanning.load_outputs(
+        SimpleNamespace(id="study", configspace=configspace),
+        {"planned_search_space_state": persisted_state},
+        outputs,
+    )
+    persisted_stores = [
+        component
+        for component in _walk_components(persisted_layout)
+        if isinstance(component, dcc.Store)
+    ]
+    assert persisted_stores[1].data == {
+        "x": {"min": -2.0, "max": 4.0},
+        "kind": {"choices": ["b"]},
     }
     assert sliders[0].value == pytest.approx([0, 1])
     assert sliders[0].marks == {0: "0", 1: "10"}

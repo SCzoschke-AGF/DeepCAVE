@@ -42,6 +42,45 @@ from deepcave.plugins.hyperparameter.analysis_utils import (
     _get_objectives_without_time,
     _is_optuna_run_or_group,
 )
+from deepcave.plugins.hyperparameter.search_space_state import (
+    PLANNED_SEARCH_SPACE_INTENT_TYPE,
+    PLANNED_SEARCH_SPACE_STORE_ID,
+)
+from deepcave.plugins.hyperparameter.search_space_state import (
+    as_python_value as _as_python_value,
+)
+from deepcave.plugins.hyperparameter.search_space_state import (
+    categorical_choices as _categorical_choices,
+)
+from deepcave.plugins.hyperparameter.search_space_state import (
+    coerce_selection as _coerce_selection,
+)
+from deepcave.plugins.hyperparameter.search_space_state import (
+    denormalize_value as _denormalize_value,
+)
+from deepcave.plugins.hyperparameter.search_space_state import (
+    initial_selection as _initial_selection,
+)
+from deepcave.plugins.hyperparameter.search_space_state import (
+    normalize_value as _normalize_value,
+)
+from deepcave.plugins.hyperparameter.search_space_state import parameter_metadata
+from deepcave.plugins.hyperparameter.search_space_state import (
+    parameter_type as _parameter_type,
+)
+from deepcave.plugins.hyperparameter.search_space_state import (
+    position_percent as _position_percent,
+)
+from deepcave.plugins.hyperparameter.search_space_state import selection_from_state
+from deepcave.plugins.hyperparameter.search_space_state import (
+    selection_metrics as _selection_metrics,
+)
+from deepcave.plugins.hyperparameter.search_space_state import (
+    slider_domain as _slider_domain,
+)
+from deepcave.plugins.hyperparameter.search_space_state import (
+    transform_value as _transform_value,
+)
 from deepcave.runs import AbstractRun
 from deepcave.runs.status import Status
 from deepcave.utils.analysis_layout import (
@@ -57,10 +96,7 @@ from deepcave.utils.layout import get_select_options, help_button
 ELITE_PROPORTION_DEFAULTS = (0.10, 0.05, 0.01)
 ELITE_PROPORTION_MIN = 0.001
 ELITE_PROPORTION_MAX = 0.99
-NUMERIC_PARAMETER_TYPES = (FloatHyperparameter, IntegerHyperparameter)
 ELITE_MARKER_COLORS = ("#440154", "#21918C", "#D95F02")
-DEFAULT_SLIDER_EXTENSION = 0.25
-SPAN_COMPARISON_TOLERANCE = 0.01
 DEFAULT_TOP_TRIAL_COUNT = 10
 TOP_TRIAL_LIMIT = 100
 INCLUDED_TRIAL_COLOR = "#52B788"
@@ -102,6 +138,10 @@ INSIGHT_GRAPH_ID = "hpo-planning-insight-graph"
 INSIGHT_ELITE_CONTROL_ID = "hpo-planning-insight-elite-group"
 INSIGHT_CLOSE_ID = "hpo-planning-insight-close"
 INSIGHT_BUTTON_TYPE = "hpo-planner-insight"
+PLANNING_INTENT_ID = {
+    "type": PLANNED_SEARCH_SPACE_INTENT_TYPE,
+    "source": "hpo-planning",
+}
 
 
 def _validate_elite_proportions(values: Sequence[Any]) -> List[float]:
@@ -124,13 +164,6 @@ def _validate_elite_proportions(values: Sequence[Any]) -> List[float]:
 def _group_label(proportion: float) -> str:
     """Return a concise percentage label for an elite group."""
     return f"Top {100 * proportion:g}%"
-
-
-def _as_python_value(value: Any) -> Any:
-    """Convert NumPy scalar values to JSON-compatible Python values."""
-    if isinstance(value, np.generic):
-        return value.item()
-    return value
 
 
 def _is_finite_number(value: Any) -> bool:
@@ -565,91 +598,6 @@ def _format_value(value: Any) -> str:
     return str(value)
 
 
-def _transform_value(value: float, log: bool) -> float:
-    """Transform a value into the parameter's actual sampling space."""
-    value = float(value)
-    if log:
-        if value <= 0:
-            raise ValueError("Log-scaled planning values must be positive.")
-        return float(np.log(value))
-    return value
-
-
-def _normalize_value(value: float, parameter: Dict[str, Any]) -> float:
-    """Normalize an original value relative to the current ConfigSpace bounds."""
-    transformed_lower = _transform_value(parameter["current_min"], parameter["log"])
-    transformed_upper = _transform_value(parameter["current_max"], parameter["log"])
-    transformed_value = _transform_value(value, parameter["log"])
-    width = transformed_upper - transformed_lower
-    if np.isclose(width, 0):
-        return 0.5
-    return float((transformed_value - transformed_lower) / width)
-
-
-def _denormalize_value(position: float, parameter: Dict[str, Any]) -> float:
-    """Map a planner coordinate back into the original parameter space."""
-    transformed_lower = _transform_value(parameter["current_min"], parameter["log"])
-    transformed_upper = _transform_value(parameter["current_max"], parameter["log"])
-    transformed_value = transformed_lower + float(position) * (
-        transformed_upper - transformed_lower
-    )
-    if parameter["log"]:
-        return float(np.exp(transformed_value))
-    return float(transformed_value)
-
-
-def _snap_value(value: float, parameter: Dict[str, Any]) -> Any:
-    """Snap a numerical value to its ConfigSpace integer/step lattice without clipping it."""
-    step = parameter.get("step")
-    if step is not None and float(step) > 0:
-        lower = float(parameter["current_min"])
-        value = lower + round((float(value) - lower) / float(step)) * float(step)
-
-    if parameter["parameter_type"] == "integer":
-        return int(round(value))
-    return float(f"{float(value):.12g}")
-
-
-def _coerce_selection(
-    minimum: float,
-    maximum: float,
-    parameter: Dict[str, Any],
-) -> Dict[str, Any]:
-    """Transform, snap and order a numerical selection while permitting extensions."""
-    minimum = _snap_value(float(minimum), parameter)
-    maximum = _snap_value(float(maximum), parameter)
-    # This also performs the mathematical domain check required for log transforms.
-    _transform_value(minimum, parameter["log"])
-    _transform_value(maximum, parameter["log"])
-    if minimum > maximum:
-        minimum, maximum = maximum, minimum
-    return {"min": minimum, "max": maximum}
-
-
-def _parameter_type(hyperparameter: Hyperparameter) -> str:
-    """Return the planner row type from ConfigSpace metadata, never from the name."""
-    if isinstance(hyperparameter, IntegerHyperparameter):
-        return "integer"
-    if isinstance(hyperparameter, FloatHyperparameter):
-        return "float"
-    if isinstance(hyperparameter, OrdinalHyperparameter):
-        return "ordinal"
-    if isinstance(hyperparameter, Constant):
-        return "constant"
-    return "categorical"
-
-
-def _categorical_choices(hyperparameter: Hyperparameter) -> List[Any]:
-    """Return selectable values for categorical-like ConfigSpace parameters."""
-    if isinstance(hyperparameter, CategoricalHyperparameter):
-        return [_as_python_value(value) for value in hyperparameter.choices]
-    if isinstance(hyperparameter, OrdinalHyperparameter):
-        return [_as_python_value(value) for value in hyperparameter.sequence]
-    if isinstance(hyperparameter, Constant):
-        return [_as_python_value(hyperparameter.value)]
-    return []
-
-
 def _build_planning_metadata(
     configspace: Any,
     features: Sequence[str],
@@ -661,27 +609,8 @@ def _build_planning_metadata(
     metadata = []
     for index, feature in enumerate(features):
         hyperparameter = configspace[feature]
-        parameter_type = _parameter_type(hyperparameter)
-        parameter: Dict[str, Any] = {
-            "index": index,
-            "name": feature,
-            "parameter_type": parameter_type,
-        }
-        if isinstance(hyperparameter, NUMERIC_PARAMETER_TYPES):
-            step = getattr(hyperparameter, "step", None)
-            if step is None and hyperparameter.meta is not None:
-                step = hyperparameter.meta.get("step")
-            parameter.update(
-                {
-                    "current_min": _as_python_value(hyperparameter.lower),
-                    "current_max": _as_python_value(hyperparameter.upper),
-                    "log": bool(getattr(hyperparameter, "log", False)),
-                    "step": _as_python_value(step),
-                }
-            )
-            if parameter_type == "integer" and parameter["step"] is None:
-                parameter["step"] = 1
-
+        parameter = parameter_metadata(hyperparameter, feature, index)
+        if parameter["parameter_type"] in ("integer", "float"):
             elite_positions = []
             for color, proportion in zip(ELITE_MARKER_COLORS, elite_proportions):
                 row = summary_lookup[(feature, proportion)]
@@ -714,10 +643,8 @@ def _build_planning_metadata(
                 )
             parameter["elite_positions"] = elite_positions
         else:
-            choices = _categorical_choices(hyperparameter)
             parameter.update(
                 {
-                    "choices": choices,
                     "elite_values": [
                         {
                             "group": _group_label(proportion),
@@ -731,66 +658,6 @@ def _build_planning_metadata(
             )
         metadata.append(parameter)
     return metadata
-
-
-def _initial_selection(metadata: Sequence[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-    """Select the complete current search space for every parameter."""
-    selection = {}
-    for parameter in metadata:
-        if parameter["parameter_type"] in ("integer", "float"):
-            selection[parameter["name"]] = {
-                "min": parameter["current_min"],
-                "max": parameter["current_max"],
-            }
-        else:
-            selection[parameter["name"]] = {"choices": list(parameter["choices"])}
-    return selection
-
-
-def _selection_metrics(
-    parameter: Dict[str, Any],
-    selection: Dict[str, Any],
-) -> Dict[str, Any]:
-    """Describe a numerical planned range in normalized planner coordinates."""
-    minimum = _normalize_value(selection["min"], parameter)
-    maximum = _normalize_value(selection["max"], parameter)
-    span_ratio = maximum - minimum
-    left_extension = max(0.0, -minimum)
-    right_extension = max(0.0, maximum - 1.0)
-    if span_ratio > 1.0 + SPAN_COMPARISON_TOLERANCE:
-        comparison = "wider"
-    elif span_ratio < 1.0 - SPAN_COMPARISON_TOLERANCE:
-        comparison = "narrower"
-    else:
-        comparison = "same"
-
-    return {
-        "min_normalized": minimum,
-        "max_normalized": maximum,
-        "span_ratio": span_ratio,
-        "left_extension": left_extension,
-        "right_extension": right_extension,
-        "extends": left_extension > 1e-9 or right_extension > 1e-9,
-        "comparison": comparison,
-    }
-
-
-def _slider_domain(metrics: Dict[str, Any]) -> Tuple[float, float]:
-    """Keep current space visible while expanding to contain direct numerical edits."""
-    minimum = min(
-        -DEFAULT_SLIDER_EXTENSION,
-        float(metrics["min_normalized"]) - DEFAULT_SLIDER_EXTENSION,
-    )
-    maximum = max(
-        1.0 + DEFAULT_SLIDER_EXTENSION,
-        float(metrics["max_normalized"]) + DEFAULT_SLIDER_EXTENSION,
-    )
-    return minimum, maximum
-
-
-def _position_percent(value: float, domain: Tuple[float, float]) -> float:
-    """Return a planner coordinate's percentage position in a slider domain."""
-    return 100 * (float(value) - domain[0]) / (domain[1] - domain[0])
 
 
 def _python_space(
@@ -1544,6 +1411,7 @@ def _planner_layout(
         [
             dcc.Store(id=METADATA_STORE_ID, data=metadata),
             dcc.Store(id=SELECTION_STORE_ID, data=selection),
+            dcc.Store(id=PLANNING_INTENT_ID, data=None),
             dcc.Store(id=TRIALS_STORE_ID, data=coverage_data),
             dcc.Store(id=INSIGHTS_STORE_ID, data=insights),
             dcc.Store(id=INSIGHT_SELECTION_STORE_ID, data=None),
@@ -2102,6 +1970,7 @@ class HPOPlanning(DynamicPlugin):
     activate_run_selection = True
     main_objective_input = "objective_id"
     main_objective_input_type = None
+    output_view_states = (("planned_search_space_state", PLANNED_SEARCH_SPACE_STORE_ID, "data"),)
 
     def _dict_as_key(self, data: Dict[str, Any], remove_filters: bool = False) -> str:
         """Version cached process outputs when their serialized schema changes."""
@@ -2175,6 +2044,7 @@ class HPOPlanning(DynamicPlugin):
                 Output(COVERAGE_BADGE_ID, "children"),
                 Output(COVERAGE_TITLE_ID, "children"),
                 Output(COVERAGE_SUBTITLE_ID, "children"),
+                Output(PLANNING_INTENT_ID, "data"),
             ],
             [
                 Input({"type": "hpo-planner-range", "index": ALL}, "value"),
@@ -2192,6 +2062,7 @@ class HPOPlanning(DynamicPlugin):
                 State(METADATA_STORE_ID, "data"),
                 State(SELECTION_STORE_ID, "data"),
                 State(TRIALS_STORE_ID, "data"),
+                State("global-run-selector", "value"),
             ],
             prevent_initial_call=True,
         )
@@ -2209,9 +2080,10 @@ class HPOPlanning(DynamicPlugin):
             metadata: List[Dict[str, Any]],
             selection: Dict[str, Dict[str, Any]],
             coverage_data: Dict[str, Any],
+            run_id: str,
         ) -> Any:
-            if not metadata or not selection or not coverage_data:
-                return [no_update] * 9
+            if not metadata or not selection or not coverage_data or not run_id:
+                return [no_update] * 10
             visible_trials = _visible_coverage_trials(coverage_data, top_trial_count)
             coverage_control_triggered = isinstance(ctx.triggered_id, str) and ctx.triggered_id in {
                 SPREAD_ATTRIBUTE_ID,
@@ -2242,6 +2114,7 @@ class HPOPlanning(DynamicPlugin):
                     _coverage_badge(coverage),
                     _coverage_title(top_trial_count),
                     _coverage_subtitle(top_trial_count),
+                    no_update,
                 ]
             triggered_value = ctx.triggered[0].get("value") if ctx.triggered else None
             updated = _updated_selection(metadata, selection, ctx.triggered_id, triggered_value)
@@ -2252,8 +2125,8 @@ class HPOPlanning(DynamicPlugin):
                     ctx.triggered_id,
                     triggered_value,
                 ):
-                    return [no_update, _planner_rows(metadata, selection)] + [no_update] * 7
-                return [no_update] * 9
+                    return [no_update, _planner_rows(metadata, selection)] + [no_update] * 8
+                return [no_update] * 10
             preview = _python_space_preview(metadata, updated)
             coverage = _coverage_state(visible_trials, metadata, updated)
             return [
@@ -2276,6 +2149,7 @@ class HPOPlanning(DynamicPlugin):
                 _coverage_badge(coverage),
                 _coverage_title(top_trial_count),
                 _coverage_subtitle(top_trial_count),
+                {"run_id": run_id, "mode": "replace", "selection": updated},
             ]
 
         @app.callback(  # type: ignore
@@ -2546,7 +2420,12 @@ class HPOPlanning(DynamicPlugin):
             outputs["elite_proportions"],
             outputs["summary"],
         )
-        selection = _initial_selection(metadata)
+        run_id = getattr(run, "id", "")
+        selection = selection_from_state(
+            inputs.get("planned_search_space_state"),
+            run_id,
+            metadata,
+        )
         coverage_data = {
             "trials": outputs["trials"],
             "total_trials": outputs.get("total_trials", len(outputs["trials"])),

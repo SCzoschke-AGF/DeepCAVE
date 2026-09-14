@@ -25,9 +25,9 @@ Register and handle callbacks.
 """
 
 from abc import ABC
-from typing import Any, List
+from typing import Any, Dict, List, Tuple
 
-from dash.dependencies import Input, Output
+from dash.dependencies import Input, Output, State
 from dash.development.base_component import Component
 
 from deepcave import interactive
@@ -54,9 +54,17 @@ class DynamicPlugin(Plugin, ABC):
         Defines whether to use the cache.
     raw_outputs : Dict[str, Any]
         A dictionary of the raw outputs.
+    output_view_inputs : Tuple[Tuple[str, str, str], ...]
+        External inputs passed only to ``load_outputs`` and excluded from processing caches.
+    output_view_states : Tuple[Tuple[str, str, str], ...]
+        External state read on regular updates and passed only to ``load_outputs``.
     """
 
     use_cache = True
+    # Read-only inputs which redraw ``load_outputs`` without invalidating processed data.
+    # Entries are ``(cleaned_input_name, component_id, component_property)``.
+    output_view_inputs: Tuple[Tuple[str, str, str], ...] = ()
+    output_view_states: Tuple[Tuple[str, str, str], ...] = ()
 
     def __init__(self) -> None:
         super().__init__()
@@ -87,9 +95,15 @@ class DynamicPlugin(Plugin, ABC):
             inputs.append(Input(self.get_internal_input_id(id), attribute))
         if self.main_objective_input is not None:
             inputs.append(Input("global-main-objective-state", "data"))
+        for _, component_id, component_property in self.output_view_inputs:
+            inputs.append(Input(component_id, component_property))
+        states = [
+            State(component_id, component_property)
+            for _, component_id, component_property in self.output_view_states
+        ]
 
         # Register updates from inputs
-        @app.callback(outputs, inputs)  # type: ignore
+        @app.callback(outputs, inputs, states)  # type: ignore
         def plugin_output_update(_: Any, global_run_id: str, *inputs_list: str) -> Any:
             """
             Update the outputs.
@@ -106,6 +120,28 @@ class DynamicPlugin(Plugin, ABC):
             """
             # Map the list `inputs_list` to a dict s.t.
             # it's easier to access them.
+            view_inputs: Dict[str, Any] = {}
+            if self.output_view_states:
+                state_values = inputs_list[-len(self.output_view_states) :]
+                inputs_list = inputs_list[: -len(self.output_view_states)]
+                view_inputs.update(
+                    {
+                        name: value
+                        for (name, _, _), value in zip(
+                            self.output_view_states, state_values
+                        )
+                    }
+                )
+            if self.output_view_inputs:
+                view_values = inputs_list[-len(self.output_view_inputs) :]
+                inputs_list = inputs_list[: -len(self.output_view_inputs)]
+                view_inputs.update(
+                    {
+                        name: value
+                        for (name, _, _), value in zip(self.output_view_inputs, view_values)
+                    }
+                )
+
             global_objective_state = None
             if self.main_objective_input is not None:
                 global_objective_state = inputs_list[-1]
@@ -147,7 +183,7 @@ class DynamicPlugin(Plugin, ABC):
             # Cache last inputs
             c.set("last_inputs", self.id, value=inputs)
 
-            return self._process_raw_outputs(inputs, raw_outputs, runs)
+            return self._process_raw_outputs(inputs, raw_outputs, runs, view_inputs)
 
     @interactive
     def __call__(self) -> List[Component]:  # type: ignore

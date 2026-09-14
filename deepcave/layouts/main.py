@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional
 
 from urllib.parse import urlparse
 
-from dash import dcc, html
+from dash import ALL, ctx, dcc, html
 from dash.dependencies import Input, Output, State
 from dash.development.base_component import Component
 
@@ -40,6 +40,12 @@ from deepcave.layouts.not_found import NotFoundLayout
 from deepcave.layouts.notification import NotificationLayout
 from deepcave.layouts.sidebar import SidebarLayout
 from deepcave.plugins import Plugin
+from deepcave.plugins.hyperparameter.search_space_state import (
+    PLANNED_SEARCH_SPACE_INTENT_TYPE,
+    PLANNED_SEARCH_SPACE_STORE_ID,
+    apply_planning_intent,
+    planning_state_store,
+)
 from deepcave.utils.dash import alert
 
 
@@ -79,6 +85,26 @@ class MainLayout(Layout):
 
     def register_callbacks(self) -> None:
         """Register and handle the callbacks."""
+        @app.callback(  # type: ignore
+            Output(PLANNED_SEARCH_SPACE_STORE_ID, "data"),
+            Input({"type": PLANNED_SEARCH_SPACE_INTENT_TYPE, "source": ALL}, "data"),
+            State(PLANNED_SEARCH_SPACE_STORE_ID, "data"),
+            prevent_initial_call=True,
+        )
+        def update_planned_search_space(intents: List[Any], state: Any) -> Any:
+            """Merge the active plugin's run-local planning intent into browser memory."""
+            triggered = ctx.triggered[0].get("value") if ctx.triggered else intents
+            candidates = triggered if isinstance(triggered, list) else [triggered]
+            intent = next(
+                (candidate for candidate in reversed(candidates) if isinstance(candidate, dict)),
+                None,
+            )
+            if intent is None:
+                from dash.exceptions import PreventUpdate
+
+                raise PreventUpdate
+            return apply_planning_intent(state, intent)
+
         output = Output("content", "children")
         inputs = [
             Input("on-page-load", "pathname"),
@@ -137,6 +163,7 @@ class MainLayout(Layout):
         return html.Div(
             children=[
                 dcc.Interval(id="global-update", interval=config.REFRESH_RATE),
+                planning_state_store(),
                 self.header_layout(),
                 html.Div(
                     id="main-container",

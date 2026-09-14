@@ -501,6 +501,7 @@ class Plugin(Layout, ABC):
         inputs: Dict[str, Dict[str, str]],
         raw_outputs: Dict[str, Any],
         selected_runs: Optional[List[AbstractRun]] = None,
+        view_inputs: Optional[Dict[str, Any]] = None,
     ) -> Any:
         """
         Process the raw outputs and update the layout.
@@ -514,6 +515,9 @@ class Plugin(Layout, ABC):
         selected_runs : Optional[List[AbstractRun]], optional
             The run snapshot used to produce the raw outputs. If omitted, it is resolved from
             ``inputs``.
+        view_inputs : Optional[Dict[str, Any]], optional
+            Read-only values made available to ``load_outputs`` without affecting processing or
+            its cache key.
 
         Returns
         -------
@@ -534,6 +538,8 @@ class Plugin(Layout, ABC):
 
         # Clean inputs
         cleaned_inputs = self._clean_inputs(inputs)
+        if view_inputs:
+            cleaned_inputs.update(view_inputs)
 
         # passed runs could be a list, but load outputs not
         # accept lists, but expect single runs

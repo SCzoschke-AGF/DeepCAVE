@@ -29,6 +29,18 @@ The bottom-right controls set the bin count independently for both selected feat
 elite-enrichment and objective-contour plots use this shared two-dimensional grid. Categorical
 features continue to use their categories and therefore ignore the numeric bin count.
 
+The same card also provides a reduced search-space planner for the two selected features. Numeric
+features use range sliders, while categorical and ordinal features use multi-select controls. The
+selection is shared with the HPO Planner and remains available while navigating between plugins in
+the current browser page. Numeric extensions beyond the current ConfigSpace are shown as orange
+striped slider regions but do not expand any analysis plot.
+
+Gray plot overlays show the parts of the current space excluded by the planned range. Interval bins
+are masked proportionally when a boundary crosses a bin; discrete values and excluded categories
+are masked as complete rows or columns. These overlays are visual planning aids only: trials,
+binning, elite enrichment, objective medians, colors, annotations, and hover values are not
+filtered or recalculated.
+
 Numeric axes use four equally wide bins by default, using logarithmic spacing for logarithmic
 hyperparameters. Numeric parameters with no more than four observed values, categorical
 parameters, and ordinal parameters are displayed discretely. Elite thresholds and rankings honor
