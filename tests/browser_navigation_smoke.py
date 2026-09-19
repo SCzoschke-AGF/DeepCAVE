@@ -1,14 +1,24 @@
 """Read-only browser smoke/latency probe for the persistent analysis lifecycle.
 
-Start DeepCAVE normally, then run::
+For an isolated, reproducible run, start DeepCAVE in a second terminal::
 
-    .venv/bin/python -m tests.browser_navigation_smoke http://127.0.0.1:8050
+    .venv/bin/python -m tests.latency_fixture
+    PYTHONPATH=$PWD .venv/bin/python deepcave/server.py --config tests/latency_config.py
 
-The script intentionally does not import, refresh, or clear any study.
+Then run::
+
+    .venv/bin/python -m tests.browser_navigation_smoke http://127.0.0.1:8061
+
+The browser probe covers General, 1-D Analyses, 2-D Analyses and HPO Planner. It intentionally
+does not import, refresh, or clear a study while measuring. By default it fails above 100 ms warm
+navigation p95, 150 ms visible search-space commit, or 1000 ms background autosave. Override the
+limits with ``DEEPCAVE_MAX_WARM_P95_MS``, ``DEEPCAVE_MAX_COMMIT_MS`` and
+``DEEPCAVE_MAX_AUTOSAVE_MS`` when testing unusually large or remote setups.
 """
 
-from typing import Dict, List
+from typing import Any, Dict, List
 
+import json
 import os
 import statistics
 import sys
@@ -22,6 +32,7 @@ ROUTES = (
     "/plugins/two_dimensional_analysis",
     "/plugins/hpo_planning",
 )
+ALL_ROUTES = ("/", *ROUTES)
 
 
 def _p95(values: List[float]) -> float:
@@ -49,6 +60,54 @@ def _navigate(page: Page, route: str) -> float:
     # arbitrary delay into the reported navigation latency.
     page.wait_for_timeout(34)
     return 1000 * (time.perf_counter() - started)
+
+
+def _commit_hpo_bound(page: Page) -> float:
+    """Measure one committed planner edit through its visible derived preview."""
+    bound = page.locator(".planner-bound-input").first
+    bound.wait_for()
+    row = bound.locator("xpath=ancestor::*[contains(@class, 'planner-parameter-row')]")
+    range_control = row.locator(".planner-range-control")
+    current_min = float(range_control.get_attribute("data-current-min"))
+    current_max = float(range_control.get_attribute("data-current-max"))
+    logarithmic = range_control.get_attribute("data-log") == "true"
+    current_value = float(bound.input_value())
+    fraction = 0.25
+    proposal = (
+        current_min * (current_max / current_min) ** fraction
+        if logarithmic
+        else current_min + fraction * (current_max - current_min)
+    )
+    step_value = range_control.get_attribute("data-step") or ""
+    if step_value:
+        step = float(step_value)
+        proposal = current_min + round((proposal - current_min) / step) * step
+    if range_control.get_attribute("data-parameter-type") == "integer":
+        proposal = float(round(proposal))
+    if abs(proposal - current_value) <= max(1e-8, abs(current_value) * 1e-8):
+        fraction = 0.75
+        proposal = (
+            current_min * (current_max / current_min) ** fraction
+            if logarithmic
+            else current_min + fraction * (current_max - current_min)
+        )
+        if step_value:
+            proposal = current_min + round((proposal - current_min) / step) * step
+        if range_control.get_attribute("data-parameter-type") == "integer":
+            proposal = float(round(proposal))
+
+    preview = page.locator("#hpo-planning-dict-preview")
+    previous_preview = preview.inner_text()
+    started = time.perf_counter()
+    bound.fill(str(proposal))
+    bound.press("Tab")
+    page.wait_for_function(
+        "([id, previous]) => document.getElementById(id).textContent !== previous",
+        arg=["hpo-planning-dict-preview", previous_preview],
+    )
+    elapsed = 1000 * (time.perf_counter() - started)
+    assert abs(float(bound.input_value()) - proposal) <= max(1e-8, abs(proposal) * 1e-8)
+    return elapsed
 
 
 def main() -> None:
@@ -91,38 +150,41 @@ def main() -> None:
         for route in ROUTES:
             cold[route] = _navigate(page, route)
 
-        # Commit one original-value HPO bound and navigate immediately. Returning must hydrate the
-        # retained row from canonical browser memory rather than from a page default.
+        autosave_started = time.perf_counter()
+        with page.expect_response(
+            lambda response: response.url.endswith("/_dash-update-component")
+            and "planned-search-space-persistence-revision" in (response.request.post_data or ""),
+            timeout=5000,
+        ):
+            commit = _commit_hpo_bound(page)
+        autosave = 1000 * (time.perf_counter() - autosave_started)
+        bound = page.locator(".planner-bound-input").first
+        proposal = float(bound.input_value())
+
+        # A full reload must hydrate the committed value from DeepCAVE's metacache.
+        page.reload(wait_until="domcontentloaded")
         bound = page.locator(".planner-bound-input").first
         bound.wait_for()
-        row = bound.locator("xpath=ancestor::*[contains(@class, 'planner-parameter-row')]")
-        range_control = row.locator(".planner-range-control")
-        current_min = float(range_control.get_attribute("data-current-min"))
-        current_max = float(range_control.get_attribute("data-current-max"))
-        logarithmic = range_control.get_attribute("data-log") == "true"
-        proposal = (
-            (current_min * current_max) ** 0.5
-            if logarithmic
-            else current_min + 0.25 * (current_max - current_min)
+        assert abs(float(bound.input_value()) - proposal) <= max(1e-8, abs(proposal) * 1e-8)
+        page.evaluate(
+            "document.querySelector('#general-page-container').dataset.smokeIdentity = 'stable'"
         )
-        step_value = range_control.get_attribute("data-step") or ""
-        if step_value:
-            step = float(step_value)
-            proposal = current_min + round((proposal - current_min) / step) * step
-        if range_control.get_attribute("data-parameter-type") == "integer":
-            proposal = float(round(proposal))
-        bound.fill(str(proposal))
-        bound.press("Tab")
+
         _navigate(page, ROUTES[1])
         _navigate(page, ROUTES[2])
         bound = page.locator(".planner-bound-input").first
         bound.wait_for()
         assert abs(float(bound.input_value()) - proposal) <= max(1e-8, abs(proposal) * 1e-8)
 
+        # Reload clears retained pages. Warm every measured route once before collecting the
+        # repeated-navigation distribution so the cold mount is not mixed into its p95.
+        for route in ALL_ROUTES:
+            _navigate(page, route)
+
         warm = []
-        pair = ROUTES[1:]
+        route_cycle = ALL_ROUTES
         for index in range(switches):
-            warm.append(_navigate(page, pair[index % 2]))
+            warm.append(_navigate(page, route_cycle[index % len(route_cycle)]))
 
         _navigate(page, "/")
         assert page.locator("#general-page-container").get_attribute("data-smoke-identity") == (
@@ -132,12 +194,34 @@ def main() -> None:
         assert not errors, errors
         browser.close()
 
-    print("Cold route times (ms):", {key: round(value, 1) for key, value in cold.items()})
-    print(
-        "Warm route time (ms):",
-        {"median": round(statistics.median(warm), 1), "p95": round(_p95(warm), 1)},
-    )
-    print("Dash callback requests:", len(callback_requests))
+    results: Dict[str, Any] = {
+        "cold_route_ms": {key: round(value, 1) for key, value in cold.items()},
+        "warm_route_ms": {
+            "median": round(statistics.median(warm), 1),
+            "p95": round(_p95(warm), 1),
+        },
+        "search_space_commit_ms": round(commit, 1),
+        "search_space_autosave_ms": round(autosave, 1),
+        "dash_callback_requests": len(callback_requests),
+    }
+    limits = {
+        "warm_p95": float(os.environ.get("DEEPCAVE_MAX_WARM_P95_MS", "100")),
+        "commit": float(os.environ.get("DEEPCAVE_MAX_COMMIT_MS", "150")),
+        "autosave": float(os.environ.get("DEEPCAVE_MAX_AUTOSAVE_MS", "1000")),
+    }
+    results["limits_ms"] = limits
+    print(json.dumps(results, indent=2, sort_keys=True))
+    result_file = os.environ.get("DEEPCAVE_LATENCY_RESULT")
+    if result_file:
+        Path(result_file).write_text(json.dumps(results, indent=2, sort_keys=True) + "\n")
+    violations = []
+    if _p95(warm) > limits["warm_p95"]:
+        violations.append("warm navigation p95")
+    if commit > limits["commit"]:
+        violations.append("visible search-space commit")
+    if autosave > limits["autosave"]:
+        violations.append("background search-space autosave")
+    assert not violations, f"Latency limits exceeded: {', '.join(violations)}"
 
 
 if __name__ == "__main__":

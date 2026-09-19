@@ -829,7 +829,7 @@ def test_planner_layout_uses_separate_metadata_and_selection_stores():
     )
 
     (layout,) = planning.HPOPlanning.load_outputs(
-        SimpleNamespace(configspace=configspace), {}, outputs
+        SimpleNamespace(configspace=configspace), {"objective_id": 0}, outputs
     )
     components = list(_walk_components(layout))
     stores = [component for component in components if isinstance(component, dcc.Store)]
@@ -848,6 +848,13 @@ def test_planner_layout_uses_separate_metadata_and_selection_stores():
         planning.INSIGHT_SELECTION_STORE_ID,
     ]
     assert stores[-1].data is None
+    assert stores[1].data["objective_key"] == "objective:0"
+    assert stores[1].data["planning_context"] == stores[0].data[0]["planning_context"]
+    assert not any(
+        isinstance(component, dbc.Button)
+        and "Save selected search space" in str(component.children)
+        for component in components
+    )
     metadata, selection = stores[0].data, stores[2].data
     assert metadata[0]["current_min"] == pytest.approx(0)
     assert metadata[0]["current_max"] == pytest.approx(10)
@@ -867,18 +874,22 @@ def test_planner_layout_uses_separate_metadata_and_selection_stores():
     }
 
     persisted_state = {
-        "version": 1,
+        "version": 2,
         "revision": 1,
         "runs": {
             "study": {
-                "x": {"min": -2.0, "max": 4.0},
-                "kind": {"choices": ["b"]},
+                "objective:0": {
+                    "x": {"min": -2.0, "max": 4.0},
+                    "kind": {"choices": ["b"]},
+                }
             }
         },
+        "event_sequences": {},
+        "last_change": None,
     }
     (persisted_layout,) = planning.HPOPlanning.load_outputs(
         SimpleNamespace(id="study", configspace=configspace),
-        {"planned_search_space_state": persisted_state},
+        {"planned_search_space_state": persisted_state, "objective_id": 0},
         outputs,
     )
     persisted_stores = [

@@ -7,6 +7,7 @@ from ConfigSpace.hyperparameters import (
 )
 
 from deepcave.plugins.hyperparameter import search_space_state as state
+from deepcave.utils.cache import Cache
 
 
 def _metadata():
@@ -27,6 +28,7 @@ def test_planning_intents_are_versioned_and_isolated_by_run():
         planning_state,
         {
             "run_id": "run-a",
+            "objective": 0,
             "mode": "patch",
             "selection": {"depth": {"min": 2, "max": 5}},
         },
@@ -35,6 +37,7 @@ def test_planning_intents_are_versioned_and_isolated_by_run():
         planning_state,
         {
             "run_id": "run-b",
+            "objective": 0,
             "mode": "patch",
             "selection": {"kind": {"choices": ["b"]}},
         },
@@ -42,8 +45,8 @@ def test_planning_intents_are_versioned_and_isolated_by_run():
 
     assert planning_state["version"] == state.PLANNED_SEARCH_SPACE_STATE_VERSION
     assert planning_state["revision"] == 2
-    assert planning_state["runs"]["run-a"] == {"depth": {"min": 2, "max": 5}}
-    assert planning_state["runs"]["run-b"] == {"kind": {"choices": ["b"]}}
+    assert planning_state["runs"]["run-a"]["objective:0"] == {"depth": {"min": 2, "max": 5}}
+    assert planning_state["runs"]["run-b"]["objective:0"] == {"kind": {"choices": ["b"]}}
 
 
 def test_global_store_uses_reload_scoped_browser_memory():
@@ -73,21 +76,23 @@ def test_reconcile_preserves_valid_extensions_and_repairs_stale_values():
 
 def test_replace_resets_only_the_target_run():
     planning_state = {
-        "version": 1,
+        "version": state.PLANNED_SEARCH_SPACE_STATE_VERSION,
         "revision": 2,
         "runs": {
-            "run-a": {"depth": {"min": 2, "max": 5}},
-            "run-b": {"kind": {"choices": ["b"]}},
+            "run-a": {"objective:0": {"depth": {"min": 2, "max": 5}}},
+            "run-b": {"objective:0": {"kind": {"choices": ["b"]}}},
         },
+        "event_sequences": {},
+        "last_change": None,
     }
     reset = state.initial_selection(_metadata())
 
     updated = state.apply_planning_intent(
         planning_state,
-        {"run_id": "run-a", "mode": "replace", "selection": reset},
+        {"run_id": "run-a", "objective": 0, "mode": "replace", "selection": reset},
     )
 
-    assert updated["runs"]["run-a"] == reset
+    assert updated["runs"]["run-a"]["objective:0"] == reset
     assert updated["runs"]["run-b"] == planning_state["runs"]["run-b"]
 
 
@@ -98,7 +103,7 @@ def test_unknown_state_version_is_not_reused():
         "runs": {"run-a": {"depth": {"min": 3, "max": 4}}},
     }
 
-    selection = state.selection_from_state(stale, "run-a", metadata)
+    selection = state.selection_from_state(stale, "run-a", 0, metadata)
 
     assert selection["depth"] == {"min": 1, "max": 9}
 
@@ -108,6 +113,7 @@ def test_identical_and_invalid_intents_are_true_noops():
         state.empty_planning_state(),
         {
             "run_id": "run-a",
+            "objective": 0,
             "source": "hpo",
             "mode": "patch",
             "selection": {"depth": {"min": 2, "max": 5}},
@@ -118,6 +124,7 @@ def test_identical_and_invalid_intents_are_true_noops():
         planning_state,
         {
             "run_id": "run-a",
+            "objective": 0,
             "source": "hpo",
             "mode": "patch",
             "selection": {"depth": {"min": 2, "max": 5}},
@@ -127,6 +134,7 @@ def test_identical_and_invalid_intents_are_true_noops():
         planning_state,
         {
             "run_id": "run-a",
+            "objective": 0,
             "mode": "patch",
             "selection": {"depth": {"min": float("nan"), "max": 5}},
         },
@@ -143,6 +151,7 @@ def test_sequences_reject_stale_same_parameter_but_preserve_other_patches():
         planning_state,
         {
             "run_id": "run-a",
+            "objective": 0,
             "source": "hpo",
             "sequence": 5,
             "selection": {"depth": {"min": 3, "max": 6}},
@@ -152,6 +161,7 @@ def test_sequences_reject_stale_same_parameter_but_preserve_other_patches():
         planning_state,
         {
             "run_id": "run-a",
+            "objective": 0,
             "source": "hpo",
             "sequence": 4,
             "selection": {
@@ -161,7 +171,7 @@ def test_sequences_reject_stale_same_parameter_but_preserve_other_patches():
         },
     )
 
-    assert planning_state["runs"]["run-a"] == {
+    assert planning_state["runs"]["run-a"]["objective:0"] == {
         "depth": {"min": 3, "max": 6},
         "kind": {"choices": ["b"]},
     }
@@ -179,3 +189,88 @@ def test_reconciliation_rejects_nonfinite_ranges_and_preserves_empty_categories(
 
     assert selection["rate"] == {"min": 0.01, "max": 1.0}
     assert selection["kind"] == {"choices": []}
+
+
+def test_objectives_are_isolated_within_one_run():
+    planning_state = state.empty_planning_state()
+    for objective, minimum in ((0, 2), (1, 4)):
+        planning_state = state.apply_planning_intent(
+            planning_state,
+            {
+                "run_id": "run-a",
+                "objective": objective,
+                "selection": {"depth": {"min": minimum, "max": 7}},
+            },
+        )
+
+    assert state.selection_from_state(planning_state, "run-a", 0, _metadata())["depth"] == {
+        "min": 2,
+        "max": 7,
+    }
+    assert state.selection_from_state(planning_state, "run-a", 1, _metadata())["depth"] == {
+        "min": 4,
+        "max": 7,
+    }
+
+
+def test_latest_changed_scope_is_persisted_and_restored(tmp_path):
+    cache = Cache(tmp_path / "meta.json")
+    planning_state = state.apply_planning_intent(
+        state.empty_planning_state(),
+        {
+            "run_id": "run-a",
+            "objective": "user_attr:score",
+            "selection": {"depth": {"min": 3, "max": 8}},
+        },
+    )
+
+    revision = state.persist_planning_state_change(cache, planning_state)
+    restored = state.planning_state_from_cache(cache)
+
+    assert revision == 1
+    assert restored["runs"] == {"run-a": {"user_attr:score": {"depth": {"min": 3, "max": 8}}}}
+    assert restored["last_change"] is None
+
+
+def test_legacy_manually_saved_space_is_hydrated(tmp_path):
+    cache = Cache(tmp_path / "meta.json")
+    cache.set(
+        state.LEGACY_SAVED_SEARCH_SPACES_KEY,
+        "run-a",
+        "objective:0",
+        value={"depth": [2, 8], "kind": ["b"]},
+    )
+
+    restored = state.planning_state_from_cache(cache)
+    selection = state.selection_from_state(restored, "run-a", 0, _metadata())
+
+    assert selection["depth"] == {"min": 2, "max": 8}
+    assert selection["kind"] == {"choices": ["b"]}
+
+
+def test_autosave_overwrites_only_the_changed_run_objective_scope(tmp_path):
+    cache = Cache(tmp_path / "meta.json")
+    planning_state = state.empty_planning_state()
+    for run_id, objective, minimum in (
+        ("run-a", 0, 2),
+        ("run-a", 1, 4),
+        ("run-b", 0, 3),
+        ("run-a", 0, 5),
+    ):
+        planning_state = state.apply_planning_intent(
+            planning_state,
+            {
+                "run_id": run_id,
+                "objective": objective,
+                "selection": {"depth": {"min": minimum, "max": 8}},
+            },
+        )
+        state.persist_planning_state_change(cache, planning_state)
+
+    assert cache.get(state.PLANNED_SEARCH_SPACE_CACHE_KEY) == {
+        "run-a": {
+            "objective:0": {"depth": {"min": 5, "max": 8}},
+            "objective:1": {"depth": {"min": 4, "max": 8}},
+        },
+        "run-b": {"objective:0": {"depth": {"min": 3, "max": 8}}},
+    }

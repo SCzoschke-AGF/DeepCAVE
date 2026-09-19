@@ -49,9 +49,13 @@ Categorical hyperparameters follow their ConfigSpace choice order and ordinal hy
 follow their declared sequence. They are planned with a compact multi-select rather than a
 numerical range.
 
-The sidebar reports wider, narrower and unchanged ranges, provides a live Python-dictionary
-preview, and offers copy and reset actions. The planner compares only the current and planned
-search spaces. It deliberately does not infer model- or library-specific validity limits.
+The sidebar reports wider, narrower and unchanged ranges and provides a live Python-dictionary
+preview. Every committed range or category change is automatically written to DeepCAVE's
+persistent metadata for the active run and objective. A later change replaces that run-objective
+pair directly; no revisions, timestamps, or older states are retained. The persisted selection is
+restored after a reload and shared with 2-D Analyses for the same run and objective. Other runs and
+objectives use separate entries. The planner compares only the current and planned search spaces.
+It deliberately does not infer model- or library-specific validity limits.
 
 Parameter Detail Plot
 ---------------------

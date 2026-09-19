@@ -15,7 +15,7 @@
 # noqa: D400
 """Two-dimensional empirical trial and elite analysis for Optuna studies."""
 
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Sequence, Tuple
 
 import dash_bootstrap_components as dbc
 import numpy as np
@@ -26,7 +26,7 @@ from ConfigSpace.hyperparameters import (
     Hyperparameter,
     IntegerHyperparameter,
 )
-from dash import ClientsideFunction, Input, Output, State, dcc, html
+from dash import ClientsideFunction, Input, Output, State, ctx, dcc, html, no_update
 from dash.development.base_component import Component
 from dash.exceptions import PreventUpdate
 
@@ -44,6 +44,8 @@ from deepcave.plugins.hyperparameter.search_space_state import (
     PLANNED_SEARCH_SPACE_STORE_ID,
     as_python_value,
     configspace_metadata,
+    objective_persistence_key,
+    planning_context_fingerprint,
     planning_metadata_fingerprint,
     position_percent,
     selection_from_state,
@@ -75,6 +77,9 @@ ENRICHMENT_BOTTOM_MARGIN = 60
 MAX_ANNOTATED_X_BINS = 15
 MAX_ANNOTATED_Y_BINS = 6
 PLANNING_CONTROLS_ID = "two-dimensional-planning-controls"
+PLANNING_CONTROL_1_ID = "two-dimensional-planning-control-1"
+PLANNING_CONTROL_2_ID = "two-dimensional-planning-control-2"
+PLANNING_ACTIONS_ID = "two-dimensional-planning-actions"
 PLANNING_SOURCE = "two-dimensional-analysis"
 PLANNING_RANGE_TYPE = "two-dimensional-planning-range"
 PLANNING_CATEGORIES_TYPE = "two-dimensional-planning-categories"
@@ -777,7 +782,7 @@ def _planning_control(
                 dcc.Dropdown(
                     id={
                         "type": PLANNING_CATEGORIES_TYPE,
-                        "index": axis_index,
+                        "index": parameter["index"],
                         "context": planning_context,
                     },
                     options=[
@@ -814,7 +819,7 @@ def _planning_control(
                     dcc.RangeSlider(
                         id={
                             "type": PLANNING_RANGE_TYPE,
-                            "index": axis_index,
+                            "index": parameter["index"],
                             "context": planning_context,
                         },
                         min=domain[0],
@@ -849,6 +854,25 @@ def _planning_control(
         ],
         className="two-dimensional-planning-control",
     )
+
+
+def _selected_planning_metadata(
+    configspace: Any, names: Sequence[str], objective: Any
+) -> Tuple[List[Dict[str, Any]], str, str]:
+    """Return selected parameters with run-stable identities and context."""
+    complete_metadata = configspace_metadata(configspace, list(configspace.keys()))
+    metadata_version = planning_metadata_fingerprint(complete_metadata)
+    planning_context = planning_context_fingerprint(metadata_version, objective)
+    by_name = {parameter["name"]: parameter for parameter in complete_metadata}
+    selected = [dict(by_name[name]) for name in names]
+    for parameter in selected:
+        parameter["planning_context"] = planning_context
+    return selected, metadata_version, planning_context
+
+
+def _planning_control_is_mounted(children: Any) -> bool:
+    """Return whether a planning mount already contains rendered children."""
+    return children not in (None, [])
 
 
 class TwoDimensionalAnalysis(DynamicPlugin):
@@ -934,7 +958,9 @@ class TwoDimensionalAnalysis(DynamicPlugin):
 
         @app.callback(  # type: ignore
             [
-                Output(PLANNING_CONTROLS_ID, "children"),
+                Output(PLANNING_CONTROL_1_ID, "children"),
+                Output(PLANNING_CONTROL_2_ID, "children"),
+                Output(PLANNING_ACTIONS_ID, "children"),
                 Output(
                     {"type": PLANNED_SEARCH_SPACE_CONTEXT_TYPE, "source": PLANNING_SOURCE},
                     "data",
@@ -943,53 +969,88 @@ class TwoDimensionalAnalysis(DynamicPlugin):
             [
                 Input(self.get_internal_input_id("hyperparameter_name_1"), "value"),
                 Input(self.get_internal_input_id("hyperparameter_name_2"), "value"),
+                Input(self.get_internal_input_id("objective_id"), "value"),
+                Input("global-run-selector", "value"),
             ],
             [
                 State(PLANNED_SEARCH_SPACE_STORE_ID, "data"),
-                State("global-run-selector", "value"),
+                State(PLANNING_CONTROL_1_ID, "children"),
+                State(PLANNING_CONTROL_2_ID, "children"),
+                State(PLANNING_ACTIONS_ID, "children"),
             ],
         )
         def render_planning_controls(
             hyperparameter_name_1: str,
             hyperparameter_name_2: str,
-            planning_state: Any,
+            objective: Any,
             run_id: str,
+            planning_state: Any,
+            current_control_1: Any,
+            current_control_2: Any,
+            current_actions: Any,
         ) -> Any:
-            if not run_id or not hyperparameter_name_1 or not hyperparameter_name_2:
-                return [], None
+            if (
+                not run_id
+                or not hyperparameter_name_1
+                or not hyperparameter_name_2
+                or objective is None
+            ):
+                return [], [], [], None
             try:
                 run = run_handler.get_run(run_id)
                 names = [hyperparameter_name_1, hyperparameter_name_2]
-                metadata = configspace_metadata(run.configspace, names)
+                metadata, metadata_version, planning_context = _selected_planning_metadata(
+                    run.configspace, names, objective
+                )
             except (KeyError, RuntimeError):
-                return [], None
-            metadata_version = planning_metadata_fingerprint(metadata)
-            for parameter in metadata:
-                parameter["planning_context"] = metadata_version
-            selection = selection_from_state(planning_state, run_id, metadata)
+                return [], [], [], None
+            selection = selection_from_state(planning_state, run_id, objective, metadata)
             controls = [
                 _planning_control(parameter, selection[parameter["name"]], index)
                 for index, parameter in enumerate(metadata)
             ]
-            controls.append(
-                html.Div(
-                    dbc.Button(
-                        [html.I(className="fas fa-undo me-2"), "Reset feature ranges"],
-                        id={"type": PLANNING_RESET_ID, "context": metadata_version},
-                        color="primary",
-                        outline=True,
-                        size="sm",
-                        n_clicks=0,
-                    ),
-                    className="two-dimensional-planning-actions",
-                )
+            actions = html.Div(
+                dbc.Button(
+                    [html.I(className="fas fa-undo me-2"), "Reset feature ranges"],
+                    id={"type": PLANNING_RESET_ID, "context": planning_context},
+                    color="primary",
+                    outline=True,
+                    size="sm",
+                    n_clicks=0,
+                ),
+                className="two-dimensional-planning-actions",
             )
-            return controls, {
-                "source": PLANNING_SOURCE,
-                "run_id": run_id,
-                "metadata_version": metadata_version,
-                "metadata": metadata,
-            }
+
+            control_1: Any = controls[0]
+            control_2: Any = controls[1]
+            actions_output: Any = actions
+            if ctx.triggered_id == self.get_internal_input_id(
+                "hyperparameter_name_2"
+            ) and _planning_control_is_mounted(current_control_1):
+                control_1 = no_update
+            elif ctx.triggered_id == self.get_internal_input_id(
+                "hyperparameter_name_1"
+            ) and _planning_control_is_mounted(current_control_2):
+                control_2 = no_update
+            if _planning_control_is_mounted(current_actions) and ctx.triggered_id in {
+                self.get_internal_input_id("hyperparameter_name_1"),
+                self.get_internal_input_id("hyperparameter_name_2"),
+            }:
+                actions_output = no_update
+
+            return (
+                control_1,
+                control_2,
+                actions_output,
+                {
+                    "source": PLANNING_SOURCE,
+                    "run_id": run_id,
+                    "objective_key": objective_persistence_key(objective),
+                    "planning_context": planning_context,
+                    "metadata_version": metadata_version,
+                    "metadata": metadata,
+                },
+            )
 
         app.clientside_callback(  # type: ignore
             ClientsideFunction(
@@ -1263,6 +1324,11 @@ class TwoDimensionalAnalysis(DynamicPlugin):
                                         html.Div(
                                             id=PLANNING_CONTROLS_ID,
                                             className="two-dimensional-planning-controls",
+                                            children=[
+                                                html.Div(id=PLANNING_CONTROL_1_ID),
+                                                html.Div(id=PLANNING_CONTROL_2_ID),
+                                                html.Div(id=PLANNING_ACTIONS_ID),
+                                            ],
                                         ),
                                     ],
                                     className=(
@@ -1337,6 +1403,7 @@ class TwoDimensionalAnalysis(DynamicPlugin):
         metadata_version = planning_metadata_fingerprint(metadata)
         mask_context = {
             "run_id": getattr(run, "id", ""),
+            "objective_key": objective_persistence_key(inputs["objective_id"]),
             "metadata_version": metadata_version,
             "metadata": metadata,
             "axis_1": outputs["axis_1"],
@@ -1351,7 +1418,8 @@ class TwoDimensionalAnalysis(DynamicPlugin):
             else "binned"
         )
         analysis_revision = (
-            f"{getattr(run, 'id', '')}:{hyperparameter_name_1}:{hyperparameter_name_2}"
+            f"{getattr(run, 'id', '')}:{inputs['objective_id']}:"
+            f"{hyperparameter_name_1}:{hyperparameter_name_2}"
         )
         for figure, mask_kind, panel in (
             (trials_figure, "scatter", "trials"),
@@ -1365,6 +1433,7 @@ class TwoDimensionalAnalysis(DynamicPlugin):
         selection = selection_from_state(
             inputs.get("planned_search_space_state"),
             getattr(run, "id", ""),
+            inputs["objective_id"],
             metadata,
         )
         _apply_scatter_mask(

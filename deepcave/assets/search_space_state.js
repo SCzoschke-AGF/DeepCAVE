@@ -1,7 +1,7 @@
 (function () {
     "use strict";
 
-    const VERSION = 1;
+    const VERSION = 2;
     const EXTENSION = 0.25;
     const NO_UPDATE = window.dash_clientside.no_update;
 
@@ -129,7 +129,13 @@
             return selection;
         }
         (metadata || []).forEach(function (parameter) {
-            const candidate = stored[parameter.name];
+            let candidate = stored[parameter.name];
+            if (Array.isArray(candidate)) {
+                candidate = (parameter.parameter_type === "integer" ||
+                    parameter.parameter_type === "float") && candidate.length === 2
+                    ? {min: candidate[0], max: candidate[1]}
+                    : {choices: candidate};
+            }
             if (!candidate || typeof candidate !== "object") {
                 return;
             }
@@ -178,8 +184,54 @@
         const source = sourceForType(id && id.type);
         return (contexts || []).find(function (context) {
             return context && context.source === source && context.run_id &&
-                context.metadata_version === id.context && Array.isArray(context.metadata);
+                context.objective_key && context.planning_context === id.context &&
+                Array.isArray(context.metadata);
         });
+    }
+
+    function storedSelection(state, context) {
+        const runs = state && state.runs && typeof state.runs === "object" ? state.runs : {};
+        const scopes = runs[context.run_id];
+        return scopes && typeof scopes === "object" ? scopes[context.objective_key] : null;
+    }
+
+    function setStoredSelection(state, context, selection) {
+        const scopes = Object.assign({}, state.runs[context.run_id] || {});
+        scopes[context.objective_key] = selection;
+        state.runs[context.run_id] = scopes;
+        state.last_change = {
+            run_id: context.run_id,
+            objective_key: context.objective_key,
+        };
+    }
+
+    function mergePersistedState(state, persisted) {
+        if (!persisted || persisted.version !== VERSION ||
+                !persisted.runs || typeof persisted.runs !== "object") {
+            return false;
+        }
+        let changed = false;
+        Object.keys(persisted.runs).forEach(function (runId) {
+            const persistedScopes = persisted.runs[runId];
+            if (!persistedScopes || typeof persistedScopes !== "object") {
+                return;
+            }
+            const currentScopes = Object.assign({}, state.runs[runId] || {});
+            let runChanged = false;
+            Object.keys(persistedScopes).forEach(function (objectiveKey) {
+                if (!Object.prototype.hasOwnProperty.call(currentScopes, objectiveKey) &&
+                        persistedScopes[objectiveKey] &&
+                        typeof persistedScopes[objectiveKey] === "object") {
+                    currentScopes[objectiveKey] = persistedScopes[objectiveKey];
+                    changed = true;
+                    runChanged = true;
+                }
+            });
+            if (runChanged) {
+                state.runs[runId] = currentScopes;
+            }
+        });
+        return changed;
     }
 
     function parameterForId(context, id) {
@@ -245,8 +297,7 @@
             if (!parameter) {
                 return NO_UPDATE;
             }
-            const runs = state && state.runs && typeof state.runs === "object" ? state.runs : {};
-            const selection = reconcile(context.metadata, runs[context.run_id]);
+            const selection = reconcile(context.metadata, storedSelection(state, context));
             const selected = selection[parameter.name];
             if (property === "categories") {
                 return selected && Array.isArray(selected.choices)
@@ -274,6 +325,7 @@
         _twoCategories,
         _twoResetClicks,
         contexts,
+        persistedState,
         hpoRangeIds,
         hpoMinimumIds,
         hpoMaximumIds,
@@ -289,26 +341,55 @@
             revision: Number(previousState.revision) || 0,
             runs: Object.assign({}, previousState.runs),
             event_sequences: Object.assign({}, previousState.event_sequences || {}),
-        } : {version: VERSION, revision: 0, runs: {}, event_sequences: {}};
+            last_change: previousState.last_change || null,
+        } : {
+            version: VERSION,
+            revision: 0,
+            runs: {},
+            event_sequences: {},
+            last_change: null,
+        };
         let changed = false;
         const callbackContext = window.dash_clientside.callback_context;
         const triggered = callbackContext && Array.isArray(callbackContext.triggered)
             ? callbackContext.triggered
             : [];
+        const mountedContexts = new Set(triggered.reduce(function (values, event) {
+            const id = parseTriggeredId(event);
+            const context = event && event.value;
+            if (id && id.type === "planned-search-space-context" && context &&
+                    context.planning_context) {
+                values.push(context.planning_context);
+            }
+            return values;
+        }, []));
 
         triggered.forEach(function (event) {
             const id = parseTriggeredId(event);
+            if (event && event.prop_id === "planned-search-space-hydration.data") {
+                if (mergePersistedState(state, persistedState)) {
+                    changed = true;
+                }
+                return;
+            }
             if (id && id.type === "planned-search-space-context") {
                 const mountedContext = event.value;
                 if (mountedContext && mountedContext.run_id &&
+                        mountedContext.objective_key &&
                         Array.isArray(mountedContext.metadata) &&
-                        state.runs[mountedContext.run_id]) {
+                        storedSelection(state, mountedContext)) {
+                    const stored = storedSelection(state, mountedContext);
                     const reconciled = reconcile(
                         mountedContext.metadata,
-                        state.runs[mountedContext.run_id]
+                        stored
                     );
-                    if (!deepEqual(reconciled, state.runs[mountedContext.run_id])) {
-                        state.runs[mountedContext.run_id] = reconciled;
+                    const merged = Object.assign(
+                        {},
+                        stored,
+                        reconciled
+                    );
+                    if (!deepEqual(merged, stored)) {
+                        setStoredSelection(state, mountedContext, merged);
                         changed = true;
                     }
                 }
@@ -318,17 +399,31 @@
             if (!context) {
                 return;
             }
-            const currentRun = state.runs[context.run_id];
-            const current = reconcile(context.metadata, currentRun);
+            // Controls mounted together with a new context report their default values as inputs.
+            // Hydrate them from the canonical scope instead of committing those defaults.
+            if (mountedContexts.has(context.planning_context)) {
+                return;
+            }
+            const currentStored = storedSelection(state, context);
+            const current = reconcile(context.metadata, currentStored);
             if (id.type === "hpo-planning-reset" ||
                     id.type === "two-dimensional-planning-reset") {
+                // A dynamically mounted button reports n_clicks=0. Only a real click may reset
+                // the shared search space; otherwise changing one 2-D feature resets the other.
+                if (!event.value) {
+                    return;
+                }
                 const reset = initialSelection(context.metadata);
                 if (deepEqual(current, reset)) {
                     return;
                 }
-                state.runs[context.run_id] = id.type === "hpo-planning-reset"
-                    ? reset
-                    : Object.assign({}, currentRun || {}, reset);
+                setStoredSelection(
+                    state,
+                    context,
+                    id.type === "hpo-planning-reset"
+                        ? reset
+                        : Object.assign({}, currentStored || {}, reset)
+                );
                 changed = true;
                 return;
             }
@@ -341,9 +436,9 @@
             if (updated === null || deepEqual(updated, current[parameter.name])) {
                 return;
             }
-            const runSelection = Object.assign({}, state.runs[context.run_id] || {});
+            const runSelection = Object.assign({}, currentStored || {});
             runSelection[parameter.name] = updated;
-            state.runs[context.run_id] = runSelection;
+            setStoredSelection(state, context, runSelection);
             changed = true;
         });
 

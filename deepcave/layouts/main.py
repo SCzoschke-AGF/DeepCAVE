@@ -32,7 +32,7 @@ from dash import ALL, ClientsideFunction, Patch, dcc, html, no_update
 from dash.dependencies import Input, Output, State
 from dash.development.base_component import Component
 
-from deepcave import app, config, queue, run_handler
+from deepcave import app, c, config, queue, run_handler
 from deepcave.layouts import Layout
 from deepcave.layouts.general import GeneralLayout
 from deepcave.layouts.header import HeaderLayout
@@ -42,7 +42,10 @@ from deepcave.layouts.sidebar import SidebarLayout
 from deepcave.plugins import Plugin
 from deepcave.plugins.hyperparameter.search_space_state import (
     PLANNED_SEARCH_SPACE_CONTEXT_TYPE,
+    PLANNED_SEARCH_SPACE_HYDRATION_ID,
     PLANNED_SEARCH_SPACE_STORE_ID,
+    persist_planning_state_change,
+    planning_state_from_cache,
     planning_state_store,
 )
 from deepcave.utils.dash import alert
@@ -57,6 +60,7 @@ PERSISTENT_ANALYSIS_STATE_ID = "persistent-analysis-state"
 PERSISTENT_ANALYSIS_PAGE_TYPE = "persistent-analysis-page"
 PERSISTENT_ANALYSIS_LOADING_ID = "persistent-analysis-loading"
 GENERAL_CONTAINER_ID = "general-page-container"
+PLANNED_SEARCH_SPACE_PERSISTENCE_ID = "planned-search-space-persistence-revision"
 
 
 def _plugin_id_from_path(pathname: str) -> Optional[str]:
@@ -187,6 +191,7 @@ class MainLayout(Layout):
                     "n_clicks",
                 ),
                 Input({"type": PLANNED_SEARCH_SPACE_CONTEXT_TYPE, "source": ALL}, "data"),
+                Input(PLANNED_SEARCH_SPACE_HYDRATION_ID, "data"),
             ],
             [
                 State({"type": "hpo-planner-range", "index": ALL, "context": ALL}, "id"),
@@ -213,6 +218,27 @@ class MainLayout(Layout):
             ],
             prevent_initial_call=True,
         )
+
+        @app.callback(  # type: ignore
+            Output(PLANNED_SEARCH_SPACE_HYDRATION_ID, "data"),
+            Input("planned-search-space-hydration-on-load", "n_intervals"),
+            prevent_initial_call=False,
+        )
+        def hydrate_planned_search_space(_: int) -> Dict[str, Any]:
+            """Read the latest metacache once for every full browser page load."""
+            return planning_state_from_cache(c)
+
+        @app.callback(  # type: ignore
+            Output(PLANNED_SEARCH_SPACE_PERSISTENCE_ID, "data"),
+            Input(PLANNED_SEARCH_SPACE_STORE_ID, "data"),
+            prevent_initial_call=True,
+        )
+        def persist_planned_search_space(state: Any) -> Any:
+            """Persist a committed browser edit without delaying its visual update."""
+            try:
+                return persist_planning_state_change(c, state)
+            except ValueError:
+                return no_update
 
         @app.callback(  # type: ignore
             [
@@ -457,6 +483,13 @@ class MainLayout(Layout):
             children=[
                 dcc.Interval(id="global-update", interval=config.REFRESH_RATE),
                 planning_state_store(),
+                dcc.Store(id=PLANNED_SEARCH_SPACE_HYDRATION_ID, data=None),
+                dcc.Interval(
+                    id="planned-search-space-hydration-on-load",
+                    interval=1,
+                    max_intervals=1,
+                ),
+                dcc.Store(id=PLANNED_SEARCH_SPACE_PERSISTENCE_ID, data=0),
                 dcc.Store(id="two-dimensional-planning-mask-revision", data=0),
                 dcc.Store(
                     id=PERSISTENT_ANALYSIS_STATE_ID,

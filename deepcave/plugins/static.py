@@ -33,7 +33,7 @@ from enum import Enum
 from functools import wraps
 
 import dash_bootstrap_components as dbc
-from dash import dcc, html
+from dash import ctx, dcc, html
 from dash.dash import no_update
 from dash.dependencies import Input, Output, State
 from dash.development.base_component import Component
@@ -53,6 +53,25 @@ class PluginState(Enum):
     NEEDS_PROCESSING = 1
     PROCESSING = 2
     FAILED = 3
+
+
+def _should_refresh_outputs(
+    inputs_changed: bool, refresh_required: bool, triggered_id: Optional[str]
+) -> bool:
+    """Return whether cached outputs must be sent to the current browser page."""
+    return inputs_changed or refresh_required or triggered_id is None
+
+
+def _should_update_status_content(
+    previous_state: Optional[PluginState], state: PluginState, triggered_id: Optional[str]
+) -> bool:
+    """Return whether the current browser page needs a button-state update."""
+    return triggered_id is None or previous_state != state
+
+
+def _process_button_disabled(state: PluginState) -> bool:
+    """Return whether starting another calculation would be unsafe."""
+    return state in (PluginState.UNSET, PluginState.PROCESSING)
 
 
 def _manage_callback_blocking(plugin: "StaticPlugin") -> Callable:
@@ -203,117 +222,100 @@ class StaticPlugin(Plugin, ABC):
             button_pressed = n_clicks is not None
             inputs_changed = inputs != last_inputs
 
-            # Check current state
-            raw_outputs = {}
-            raw_outputs_available = True
+            if button_pressed:
+                self.logger.debug("Button pressed.")
+                for run in runs:
+                    job_id = self._get_job_id(run.id, inputs_key)
+
+                    # Do not duplicate an active or not-yet-collected job. A cached result does
+                    # not prevent a new job: clicking Process explicitly requests recomputation.
+                    if queue.is_processed(job_id):
+                        continue
+
+                    job_meta = {
+                        "display_name": self.name,
+                        "run_name": run.name,
+                        "run_id": run.id,
+                        "plugin_id": self.id,
+                        "inputs_key": inputs_key,
+                        "link": link,
+                    }
+
+                    self.logger.debug(f"Enqueued {run.name} ({run.id}).")
+                    queue.enqueue(
+                        _process,
+                        args=[self.process, run, cleaned_inputs],
+                        job_id=job_id,
+                        meta=job_meta,
+                    )
+
+                self._reset_button = True
+                self._refresh_required = True
+                self._state = PluginState.PROCESSING
+                raise PreventUpdate
+
+            # Collect completed jobs before reading the cache so a recomputed result can be shown
+            # immediately on this callback cycle.
+            for job in queue.get_finished_jobs():
+                job_id = job.id
+                try:
+                    job_run_outputs = job.result
+                    job_meta = job.meta
+                    job_inputs_key = job_meta["inputs_key"]
+                    job_run_id = job_meta["run_id"]
+                    job_plugin_id = job_meta["plugin_id"]
+
+                    self.logger.debug(f"Job {job_id} for run_id {job_meta['run_id']}.")
+                    run = run_handler.get_run(job_run_id)
+                    rc.set(run, job_plugin_id, job_inputs_key, job_run_outputs)
+                    self.logger.debug(f"Job {job_id} cached.")
+
+                    queue.delete_job(job_id)
+                    self.logger.debug(f"Job {job_id} deleted.")
+                except Exception as e:
+                    self.logger.error(f"Job {job_id} failed with exception {e}.")
+                    queue.delete_job(job_id)
+                    self.logger.debug(f"Job {job_id} deleted.")
+                except KeyboardInterrupt:
+                    self.logger.error(f"Job {job_id} got interrupted by KeyboardInterrupt.")
+                    queue.delete_job(job_id)
+                    self.logger.debug(f"Job {job_id} deleted.")
+                    raise
+
+            queue_active = False
+            queue_failed = False
             for run in runs:
-                raw_outputs[run.id] = rc.get(run, self.id, inputs_key)
+                job_id = self._get_job_id(run.id, inputs_key)
+                queue_active = queue_active or queue.is_running(job_id) or queue.is_pending(job_id)
+                if queue.has_failed(job_id):
+                    queue_failed = True
+                    queue.delete_job(job_id)
 
-                if raw_outputs[run.id] is None:
-                    raw_outputs_available = False
+            if queue_active:
+                self._state = PluginState.PROCESSING
+                raise PreventUpdate
+            if queue_failed:
+                self._state = PluginState.FAILED
+                raise PreventUpdate
 
-            # Process
-            if raw_outputs_available:
-                # Load raw outputs from cache
-                self._state = PluginState.READY
-
-                if inputs_changed or self._refresh_required:
-                    c.set("last_inputs", self.id, value=inputs)
-
-                    # Save for modal
-                    self.raw_outputs = raw_outputs
-
-                    outputs = self._process_raw_outputs(inputs, raw_outputs, runs)
-                    self._refresh_required = False
-
-                    return outputs
-            else:
-                # Load from process
+            raw_outputs = {run.id: rc.get(run, self.id, inputs_key) for run in runs}
+            raw_outputs_available = all(output is not None for output in raw_outputs.values())
+            if not raw_outputs_available:
                 self._state = PluginState.NEEDS_PROCESSING
+                raise PreventUpdate
 
-                if button_pressed and self._state != PluginState.PROCESSING:
-                    self.logger.debug("Button pressed.")
+            self._state = PluginState.READY
 
-                    # Check if processing is needed
-                    for run in runs:
-                        job_id = self._get_job_id(run.id, inputs_key)
-
-                        # Results are already achieved or it was already processed
-                        if raw_outputs[run.id] is not None or queue.is_processed(job_id):
-                            continue
-
-                        job_meta = {
-                            "display_name": self.name,
-                            "run_name": run.name,
-                            "run_id": run.id,
-                            "plugin_id": self.id,
-                            "inputs_key": inputs_key,
-                            "link": link,
-                        }
-
-                        self.logger.debug(f"Enqueued {run.name} ({run.id}).")
-
-                        # Start the task in rq
-                        queue.enqueue(
-                            _process,
-                            args=[self.process, run, cleaned_inputs],
-                            job_id=job_id,
-                            meta=job_meta,
-                        )
-
-                    # Reset button
-                    self._reset_button = True
-                    self._state = PluginState.PROCESSING
-                else:
-                    # Get finished jobs and save them
-                    for job in queue.get_finished_jobs():
-                        job_id = job.id
-                        try:
-                            job_run_outputs = job.result
-                            job_meta = job.meta
-                            job_inputs_key = job_meta["inputs_key"]
-                            job_run_id = job_meta["run_id"]
-                            job_plugin_id = job_meta["plugin_id"]
-
-                            self.logger.debug(f"Job {job_id} for run_id {job_meta['run_id']}.")
-                            run = run_handler.get_run(job_run_id)
-
-                            # Save results in cache
-                            # Same optional string problem
-                            rc.set(run, job_plugin_id, job_inputs_key, job_run_outputs)
-                            self.logger.debug(f"Job {job_id} cached.")
-
-                            queue.delete_job(job_id)
-                            self.logger.debug(f"Job {job_id} deleted.")
-                        except Exception as e:
-                            self.logger.error(f"Job {job_id} failed with exception {e}.")
-                            queue.delete_job(job_id)
-                            self.logger.debug(f"Job {job_id} deleted.")
-                        except KeyboardInterrupt:
-                            self.logger.error(f"Job {job_id} got interrupted by KeyboardInterrupt.")
-                            queue.delete_job(job_id)
-                            self.logger.debug(f"Job {job_id} deleted.")
-                            raise
-
-                    # Check if queue is still running
-                    queue_running = False
-                    queue_pending = False
-                    for run in runs:
-                        job_id = self._get_job_id(run.id, inputs_key)
-                        if queue.is_running(job_id):
-                            queue_running = True
-
-                        if queue.is_pending(job_id):
-                            queue_pending = True
-
-                        if queue.has_failed(job_id):
-                            self._state = PluginState.FAILED
-
-                            # Delete it after it was detected
-                            queue.delete_job(job_id)
-
-                    if queue_running or queue_pending:
-                        self._state = PluginState.PROCESSING
+            # Dash invokes this callback when a page is mounted. Runtime flags on the plugin
+            # instance are shared across browser pages, so ``_refresh_required`` may already be
+            # false after an earlier page rendered the same cached result. Always return that
+            # result on the initial call; otherwise a reload has an empty output.
+            if _should_refresh_outputs(inputs_changed, self._refresh_required, ctx.triggered_id):
+                c.set("last_inputs", self.id, value=inputs)
+                self.raw_outputs = raw_outputs
+                outputs = self._process_raw_outputs(inputs, raw_outputs, runs)
+                self._refresh_required = False
+                return outputs
 
             raise PreventUpdate
 
@@ -360,17 +362,25 @@ class StaticPlugin(Plugin, ABC):
         # Update status label
         # Register updates from inputs
         @app.callback(output, input)  # type: ignore
-        def plugin_update_status(_: Any) -> Tuple[List[Any], Optional[Any], bool]:
+        def plugin_update_status(_: Any) -> Tuple[Any, Optional[Any], bool]:
             """Update the status of the plugin."""
-            button_text = [html.Span(self.button_caption)]
+            button_text: Any = [html.Span(self.button_caption)]
 
             if self._state == PluginState.UNSET:
                 # Disable and reset button
                 return button_text, None, True
 
-            # Important so the button is not updated every time (would result in an ugly spinner)
-            if self._previous_state == self._state:
-                raise PreventUpdate
+            # Important so the button is not updated every time (would result in an ugly spinner).
+            # An initial callback still has to synchronize a newly mounted page with the shared
+            # plugin state, even if another page has already observed the same state.
+            update_status_content = _should_update_status_content(
+                self._previous_state, self._state, ctx.triggered_id
+            )
+            if not update_status_content:
+                # ``_previous_state`` is shared across browser pages. Only suppress replacement
+                # of the unchanged children; the disabled flag below must still be returned so
+                # one page cannot consume a state transition on behalf of another page.
+                button_text = no_update
 
             # This is a special case where the main loop goes into "needs processing"
             # although the result is already there. This is because the queue needs a second
@@ -384,19 +394,16 @@ class StaticPlugin(Plugin, ABC):
                 self._previous_state = PluginState.UNSET
                 raise PreventUpdate
 
-            if self._state == PluginState.FAILED:
+            if self._state == PluginState.FAILED and update_status_content:
                 notification.update(
                     "The job failed. Check the logs or make sure the worker is still running. "
                     "Most of the times, a simple restart might help."
                 )
 
-            if self._state == PluginState.READY:
-                disabled = True
-            elif self._state == PluginState.PROCESSING:
-                button_text += [dbc.Spinner(size="sm", spinner_class_name="ms-2")]
-                disabled = True
-            else:
-                disabled = False
+            disabled = _process_button_disabled(self._state)
+            if self._state == PluginState.PROCESSING:
+                if update_status_content:
+                    button_text += [dbc.Spinner(size="sm", spinner_class_name="ms-2")]
 
             button = no_update
             if self._reset_button:

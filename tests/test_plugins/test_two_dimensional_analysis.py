@@ -133,6 +133,11 @@ def test_output_layout_uses_independent_columns_and_separate_control_panels():
     ]
     assert len(planning_mounts) == 1
     assert len(context_stores) == 1
+    assert [child.id for child in planning_mounts[0].children] == [
+        analysis.PLANNING_CONTROL_1_ID,
+        analysis.PLANNING_CONTROL_2_ID,
+        analysis.PLANNING_ACTIONS_ID,
+    ]
     reset_buttons = [
         component
         for component in _walk_components(range_controls)
@@ -714,9 +719,11 @@ def test_categorical_axis_uses_objective_heatmap(monkeypatch):
         "hyperparameter_name_2": "x",
         "elite_proportion": 0.5,
         "planned_search_space_state": {
-            "version": 1,
+            "version": 2,
             "revision": 1,
-            "runs": {"study": {"kind": {"choices": ["b"]}}},
+            "runs": {"study": {"objective:0": {"kind": {"choices": ["b"]}}}},
+            "event_sequences": {},
+            "last_change": None,
         },
     }
     outputs = {
@@ -792,6 +799,43 @@ def test_reduced_planning_controls_adapt_to_parameter_type():
         getattr(item, "className", None) == "planner-extension-segment"
         for item in numeric_components
     )
+
+
+def test_planning_feature_identity_survives_other_feature_switch():
+    configspace = ConfigurationSpace()
+    configspace.add(
+        [
+            UniformFloatHyperparameter("x", lower=0.0, upper=1.0),
+            UniformFloatHyperparameter("y", lower=0.0, upper=2.0),
+            CategoricalHyperparameter("kind", choices=["a", "b"]),
+        ]
+    )
+
+    first_pair, first_version, first_context = analysis._selected_planning_metadata(
+        configspace, ["x", "y"], 0
+    )
+    second_pair, second_version, second_context = analysis._selected_planning_metadata(
+        configspace, ["x", "kind"], 0
+    )
+
+    assert first_version == second_version
+    assert first_context == second_context
+    assert first_pair[0]["index"] == second_pair[0]["index"]
+    assert first_pair[0]["planning_context"] == second_pair[0]["planning_context"]
+    assert first_pair[1]["index"] != second_pair[1]["index"]
+
+    _, _, other_objective_context = analysis._selected_planning_metadata(configspace, ["x", "y"], 1)
+    assert other_objective_context != first_context
+
+
+@pytest.mark.parametrize("children", [None, []])
+def test_empty_planning_mount_is_not_treated_as_an_existing_control(children):
+    assert analysis._planning_control_is_mounted(children) is False
+
+
+@pytest.mark.parametrize("children", [{"type": "Div"}, ["control"]])
+def test_rendered_planning_mount_is_preserved_on_other_feature_switch(children):
+    assert analysis._planning_control_is_mounted(children) is True
 
 
 def test_logarithmic_interval_mask_uses_exact_fractional_bin_positions():

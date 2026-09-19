@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import hashlib
 import json
+from threading import RLock
 
 import numpy as np
 from ConfigSpace.hyperparameters import (
@@ -23,11 +24,15 @@ from dash import dcc
 from dash.development.base_component import Component
 
 PLANNED_SEARCH_SPACE_STORE_ID = "planned-search-space-state"
+PLANNED_SEARCH_SPACE_HYDRATION_ID = "planned-search-space-hydration"
 PLANNED_SEARCH_SPACE_INTENT_TYPE = "planned-search-space-intent"
 PLANNED_SEARCH_SPACE_CONTEXT_TYPE = "planned-search-space-context"
-PLANNED_SEARCH_SPACE_STATE_VERSION = 1
+PLANNED_SEARCH_SPACE_CACHE_KEY = "planned_search_space_state"
+LEGACY_SAVED_SEARCH_SPACES_KEY = "hpo_planning_saved_search_spaces"
+PLANNED_SEARCH_SPACE_STATE_VERSION = 2
 DEFAULT_SLIDER_EXTENSION = 0.25
 NUMERIC_PARAMETER_TYPES = (FloatHyperparameter, IntegerHyperparameter)
+_PERSISTENCE_LOCK = RLock()
 
 
 def as_python_value(value: Any) -> Any:
@@ -182,6 +187,32 @@ def planning_metadata_fingerprint(metadata: Sequence[Mapping[str, Any]]) -> str:
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
+def objective_persistence_key(objective: Any) -> str:
+    """Return a stable JSON object key for a native or derived objective."""
+    if isinstance(objective, bool) or objective is None:
+        raise ValueError("A valid objective is required for the planned search space.")
+    if isinstance(objective, (int, np.integer)):
+        return f"objective:{int(objective)}"
+    if isinstance(objective, str) and objective:
+        if objective.startswith("objective:"):
+            return objective
+        try:
+            return f"objective:{int(objective)}"
+        except ValueError:
+            return objective
+    raise ValueError("A valid objective is required for the planned search space.")
+
+
+def planning_context_fingerprint(metadata_version: str, objective: Any) -> str:
+    """Bind mounted control identities to metadata and the selected objective."""
+    serialized = json.dumps(
+        [metadata_version, objective_persistence_key(objective)],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
 def _same_typed_value(left: Any, right: Any) -> bool:
     """Compare category values without conflating booleans and integers."""
     return type(left) is type(right) and left == right
@@ -198,6 +229,12 @@ def reconcile_selection(
     for parameter in metadata:
         name = str(parameter["name"])
         candidate = stored.get(name)
+        if isinstance(candidate, list):
+            candidate = (
+                {"min": candidate[0], "max": candidate[1]}
+                if parameter["parameter_type"] in ("integer", "float") and len(candidate) == 2
+                else {"choices": candidate}
+            )
         if not isinstance(candidate, dict):
             continue
         try:
@@ -222,20 +259,53 @@ def reconcile_selection(
 
 
 def empty_planning_state() -> Dict[str, Any]:
-    """Return a new versioned browser-memory planning state."""
+    """Return a new versioned objective-scoped browser planning state."""
     return {
         "version": PLANNED_SEARCH_SPACE_STATE_VERSION,
         "revision": 0,
         "runs": {},
         "event_sequences": {},
+        "last_change": None,
     }
 
 
-def planning_state_store() -> Component:
-    """Build the globally mounted, reload-scoped browser-memory store."""
+def planning_state_from_cache(cache: Any) -> Dict[str, Any]:
+    """Hydrate the browser state from persisted run/objective selections."""
+    state = empty_planning_state()
+    cached = cache.get(PLANNED_SEARCH_SPACE_CACHE_KEY)
+    if not isinstance(cached, dict):
+        cached = cache.get(LEGACY_SAVED_SEARCH_SPACES_KEY)
+    if isinstance(cached, dict):
+        state["runs"] = cached
+    return state
+
+
+def persist_planning_state_change(cache: Any, state: Any) -> int:
+    """Persist only the objective scope changed by the latest browser commit."""
+    if not isinstance(state, dict) or state.get("version") != PLANNED_SEARCH_SPACE_STATE_VERSION:
+        raise ValueError("The planned search-space state has an unsupported version.")
+    change = state.get("last_change")
+    if not isinstance(change, dict):
+        raise ValueError("The planned search-space state has no changed scope.")
+    run_id = change.get("run_id")
+    objective_key = change.get("objective_key")
+    if not isinstance(run_id, str) or not run_id or not isinstance(objective_key, str):
+        raise ValueError("The planned search-space state has an invalid changed scope.")
+    runs = state.get("runs")
+    run_scopes = runs.get(run_id) if isinstance(runs, dict) else None
+    selection = run_scopes.get(objective_key) if isinstance(run_scopes, dict) else None
+    if not isinstance(selection, dict):
+        raise ValueError("The changed planned search-space selection is invalid.")
+    with _PERSISTENCE_LOCK:
+        cache.set(PLANNED_SEARCH_SPACE_CACHE_KEY, run_id, objective_key, value=selection)
+    return int(state.get("revision", 0))
+
+
+def planning_state_store(data: Optional[Dict[str, Any]] = None) -> Component:
+    """Build the globally mounted browser store, optionally hydrated from disk."""
     return dcc.Store(
         id=PLANNED_SEARCH_SPACE_STORE_ID,
-        data=empty_planning_state(),
+        data=data if data is not None else empty_planning_state(),
         storage_type="memory",
     )
 
@@ -243,16 +313,22 @@ def planning_state_store() -> Component:
 def selection_from_state(
     state: Any,
     run_id: str,
+    objective: Any,
     metadata: Sequence[Mapping[str, Any]],
 ) -> Dict[str, Dict[str, Any]]:
-    """Resolve and reconcile one run's selection from the global state."""
+    """Resolve one run/objective selection from the global state."""
     valid_state = (
         state
         if isinstance(state, dict) and state.get("version") == PLANNED_SEARCH_SPACE_STATE_VERSION
         else empty_planning_state()
     )
     runs = valid_state.get("runs", {})
-    stored = runs.get(run_id, {}) if isinstance(runs, dict) else {}
+    run_scopes = runs.get(run_id, {}) if isinstance(runs, dict) else {}
+    try:
+        objective_key = objective_persistence_key(objective)
+    except ValueError:
+        objective_key = ""
+    stored = run_scopes.get(objective_key, {}) if isinstance(run_scopes, dict) else {}
     return reconcile_selection(metadata, stored)
 
 
@@ -289,7 +365,7 @@ def _valid_intent_selection(value: Any) -> bool:
 
 
 def apply_planning_intent(state: Any, intent: Any) -> Dict[str, Any]:
-    """Apply one idempotent, ordered run-local patch or reset to browser state."""
+    """Apply one idempotent, ordered run/objective-local patch or reset."""
     current = (
         state
         if isinstance(state, dict) and state.get("version") == PLANNED_SEARCH_SPACE_STATE_VERSION
@@ -298,20 +374,27 @@ def apply_planning_intent(state: Any, intent: Any) -> Dict[str, Any]:
     if not isinstance(intent, dict) or not isinstance(intent.get("run_id"), str):
         return current
     run_id = intent["run_id"]
+    try:
+        objective_key = objective_persistence_key(intent.get("objective"))
+    except ValueError:
+        return current
     selection = intent.get("selection")
     if not isinstance(selection, dict):
         return current
 
     runs_value = current.get("runs", {})
     runs = dict(runs_value) if isinstance(runs_value, dict) else {}
-    previous_value = runs.get(run_id, {})
+    run_scopes_value = runs.get(run_id, {})
+    run_scopes = dict(run_scopes_value) if isinstance(run_scopes_value, dict) else {}
+    previous_value = run_scopes.get(objective_key, {})
     previous = dict(previous_value) if isinstance(previous_value, dict) else {}
 
     sequence = _intent_sequence(intent)
     source = str(intent.get("source", "unknown"))
     sequences_value = current.get("event_sequences", {})
     sequences = dict(sequences_value) if isinstance(sequences_value, dict) else {}
-    run_sequences_value = sequences.get(run_id, {})
+    sequence_scope = f"{run_id}:{objective_key}"
+    run_sequences_value = sequences.get(sequence_scope, {})
     run_sequences = dict(run_sequences_value) if isinstance(run_sequences_value, dict) else {}
 
     accepted: Dict[str, Any] = {}
@@ -343,14 +426,16 @@ def apply_planning_intent(state: Any, intent: Any) -> Dict[str, Any]:
     if updated_run == previous:
         return current
 
-    runs[run_id] = updated_run
+    run_scopes[objective_key] = updated_run
+    runs[run_id] = run_scopes
     if sequence is not None:
-        sequences[run_id] = run_sequences
+        sequences[sequence_scope] = run_sequences
     return {
         "version": PLANNED_SEARCH_SPACE_STATE_VERSION,
         "revision": int(current.get("revision", 0)) + 1,
         "runs": runs,
         "event_sequences": sequences,
+        "last_change": {"run_id": run_id, "objective_key": objective_key},
     }
 
 

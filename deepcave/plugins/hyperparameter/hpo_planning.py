@@ -74,11 +74,15 @@ from deepcave.plugins.hyperparameter.search_space_state import (
 from deepcave.plugins.hyperparameter.search_space_state import (
     normalize_value as _normalize_value,
 )
-from deepcave.plugins.hyperparameter.search_space_state import parameter_metadata
+from deepcave.plugins.hyperparameter.search_space_state import (
+    objective_persistence_key,
+    parameter_metadata,
+)
 from deepcave.plugins.hyperparameter.search_space_state import (
     parameter_type as _parameter_type,
 )
 from deepcave.plugins.hyperparameter.search_space_state import (
+    planning_context_fingerprint,
     planning_metadata_fingerprint,
 )
 from deepcave.plugins.hyperparameter.search_space_state import (
@@ -1563,6 +1567,7 @@ def _planner_layout(
     coverage_data: Dict[str, Any],
     insights: List[Dict[str, Any]],
     run_id: str = "",
+    objective: Any = None,
 ) -> Component:
     """Return the planner, sidebar, and live top-trial coverage card."""
     visible_trials = _visible_coverage_trials(coverage_data, DEFAULT_TOP_TRIAL_COUNT)
@@ -1580,6 +1585,8 @@ def _planner_layout(
                 data={
                     "source": PLANNING_SOURCE,
                     "run_id": run_id,
+                    "objective_key": objective_persistence_key(objective),
+                    "planning_context": metadata[0].get("planning_context", ""),
                     "metadata_version": planning_metadata_fingerprint(metadata),
                     "metadata": metadata,
                 },
@@ -1664,7 +1671,7 @@ def _planner_layout(
                                 ],
                                 id={
                                     "type": RESET_ID,
-                                    "context": planning_metadata_fingerprint(metadata),
+                                    "context": metadata[0].get("planning_context", ""),
                                 },
                                 className="btn btn-outline-primary btn-sm",
                                 n_clicks=0,
@@ -2250,6 +2257,10 @@ class HPOPlanning(DynamicPlugin):
                 State(SELECTION_STORE_ID, "data"),
                 State(TRIALS_STORE_ID, "data"),
                 State("global-run-selector", "value"),
+                State(
+                    {"type": PLANNED_SEARCH_SPACE_CONTEXT_TYPE, "source": PLANNING_SOURCE},
+                    "data",
+                ),
             ],
             prevent_initial_call=True,
         )
@@ -2264,12 +2275,24 @@ class HPOPlanning(DynamicPlugin):
             selection: Dict[str, Dict[str, Any]],
             coverage_data: Dict[str, Any],
             run_id: str,
+            planning_context: Dict[str, Any],
         ) -> Any:
-            if not metadata or not selection or not coverage_data or not run_id:
+            if (
+                not metadata
+                or not selection
+                or not coverage_data
+                or not run_id
+                or not planning_context
+            ):
                 return [no_update] * 8
 
             if ctx.triggered_id == PLANNED_SEARCH_SPACE_STORE_ID:
-                updated = selection_from_state(planning_state, run_id, metadata)
+                updated = selection_from_state(
+                    planning_state,
+                    run_id,
+                    planning_context.get("objective_key"),
+                    metadata,
+                )
                 if updated == selection:
                     return [no_update] * 8
                 preview = _python_space_preview(metadata, updated)
@@ -2623,11 +2646,14 @@ class HPOPlanning(DynamicPlugin):
         )
         run_id = getattr(run, "id", "")
         metadata_version = planning_metadata_fingerprint(metadata)
+        objective = inputs["objective_id"]
+        planning_context = planning_context_fingerprint(metadata_version, objective)
         for parameter in metadata:
-            parameter["planning_context"] = metadata_version
+            parameter["planning_context"] = planning_context
         selection = selection_from_state(
             inputs.get("planned_search_space_state"),
             run_id,
+            objective,
             metadata,
         )
         coverage_data = {
@@ -2644,5 +2670,6 @@ class HPOPlanning(DynamicPlugin):
                 coverage_data,
                 outputs["insights"],
                 run_id,
+                objective,
             )
         ]

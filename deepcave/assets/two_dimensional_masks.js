@@ -187,12 +187,16 @@
     function shapesForFigure(figure, planningState) {
         const mask = figure && figure.layout && figure.layout.meta &&
             figure.layout.meta.deepcave_planning_mask;
-        if (!mask || !mask.run_id || !Array.isArray(mask.metadata) ||
+        if (!mask || !mask.run_id || !mask.objective_key || !Array.isArray(mask.metadata) ||
                 mask.metadata.length !== 2) {
             return null;
         }
         const runs = planningState && planningState.runs;
-        const selection = selectionFor(mask.metadata, runs && runs[mask.run_id]);
+        const scopes = runs && runs[mask.run_id];
+        const selection = selectionFor(
+            mask.metadata,
+            scopes && scopes[mask.objective_key]
+        );
         const geometries = mask.metadata.map(function (parameter, index) {
             if (mask.kind === "continuous" ||
                     (mask.kind === "scatter" &&
