@@ -270,25 +270,6 @@ def test_logarithmic_span_metrics_are_calculated_in_sampling_space():
     assert metrics["right_extension"] == pytest.approx(0.25)
 
 
-def test_nonpositive_log_edit_does_not_create_a_second_control_state():
-    parameter = {
-        "index": 0,
-        "name": "gamma",
-        "current_min": 0.001,
-        "current_max": 10.0,
-        "log": True,
-        "parameter_type": "float",
-        "step": None,
-    }
-    selection = {"gamma": {"min": 0.001, "max": 10.0}}
-    triggered_id = {"type": "hpo-planner-min", "index": 0}
-
-    updated = planning._updated_selection([parameter], selection, triggered_id, 0)
-
-    assert updated == selection
-    assert not planning._control_matches_selection([parameter], selection, triggered_id, 0)
-
-
 def test_categorical_quantiles_use_observed_categories_in_configspace_order():
     hyperparameter = CategoricalHyperparameter("kind", choices=["a", "b", "c", "d"])
 
@@ -452,6 +433,27 @@ def test_parameter_insight_combines_enrichment_and_objective_on_shared_ranges():
         assert planning._group_label(proportion) in group_figure.data[0].name
 
 
+def test_q90_profile_uses_unweighted_mean_and_preserves_missing_bins():
+    insight = {
+        "labels": ["a", "b", "c", "d"],
+        "tick_labels": ["A", "B", "C", "D"],
+        "q90": [0.1, None, 0.5, None],
+        "trial_counts": [3, 0, 7, 0],
+    }
+
+    figure = planning._q90_profile_figure(insight)
+
+    assert [trace.name for trace in figure.data] == ["q90", "mean q90"]
+    assert list(figure.data[0].y) == [0.1, None, 0.5, None]
+    assert figure.data[0].connectgaps is False
+    assert list(figure.data[1].y) == pytest.approx([0.3] * 4)
+    assert figure.data[1].line.dash == "dash"
+    assert all(trace.hoverinfo == "skip" for trace in figure.data)
+    assert figure.layout.hovermode is False
+    assert list(figure.layout.xaxis.ticktext) == insight["tick_labels"]
+    assert figure.layout.xaxis.type == "category"
+
+
 def test_numeric_parameter_insight_uses_fixed_bins_and_includes_upper_bound():
     configspace = ConfigurationSpace(space={"x": (0.0, 1.0)})
     trials = [
@@ -465,6 +467,7 @@ def test_numeric_parameter_insight_uses_fixed_bins_and_includes_upper_bound():
     assert insight["tick_labels"][0] == "0\u2060–\u20600.1"
     assert insight["tick_labels"][-1] == "0.9\u2060–\u20601"
     assert insight["axis_title"] == "x"
+    assert insight["x_positions"] == pytest.approx([0.05 + 0.1 * index for index in range(10)])
     assert insight["trial_counts"][0] == 1
     assert insight["trial_counts"][-1] == 1
     assert sum(insight["trial_counts"]) == 2
@@ -614,9 +617,9 @@ def test_process_ranks_in_objective_direction_and_retains_top_100_candidates():
 
 def test_top_trial_coverage_is_capped_at_100_trials():
     assert planning._coverage_trial_count(1) == 1
-    assert planning._coverage_trial_count(35) == 10
-    assert planning._coverage_trial_count(1_000) == 10
-    assert planning._coverage_trial_count(10_000) == 10
+    assert planning._coverage_trial_count(35) == 35
+    assert planning._coverage_trial_count(1_000) == 100
+    assert planning._coverage_trial_count(10_000) == 100
     assert planning._coverage_trial_count(35, 1) == 1
     assert planning._coverage_trial_count(35, 100) == 35
     assert planning._coverage_trial_count(1_000, 5) == 5
@@ -901,6 +904,16 @@ def test_planner_layout_uses_separate_metadata_and_selection_stores():
         "x": {"min": -2.0, "max": 4.0},
         "kind": {"choices": ["b"]},
     }
+    persisted_q90_layer = next(
+        component
+        for component in _walk_components(persisted_layout)
+        if isinstance(getattr(component, "id", None), dict)
+        and component.id.get("type") == planning.Q90_SELECTION_LAYER_TYPE
+    )
+    assert [segment.style for segment in persisted_q90_layer.children] == [
+        {"left": "0", "width": "0.000000%"},
+        {"left": "40.000000%", "width": "60.000000%"},
+    ]
     assert sliders[0].value == pytest.approx([0, 1])
     assert sliders[0].marks == {0: "0", 1: "10"}
     assert sliders[0].tooltip["transform"] == "hpoPlanning.parameter0"
@@ -966,7 +979,7 @@ def test_planner_layout_uses_separate_metadata_and_selection_stores():
     assert top_trial_count.min == 1
     assert top_trial_count.max == 100
     assert top_trial_count.step == 1
-    assert top_trial_count.value == 10
+    assert top_trial_count.value == 100
     assert top_trial_count.marks == {1: "1", 10: "10", 25: "25", 50: "50", 100: "100"}
     assert components.index(top_trial_count) < components.index(spread_dropdown)
     insight_buttons = [
@@ -1027,14 +1040,37 @@ def test_planner_layout_uses_separate_metadata_and_selection_stores():
     assert [cell.children for cell in table_header.children] == [
         "Parameter",
         "Position in current search space",
-        "Min (original)",
-        "Max (original)",
+        "Objective - q90 Profile",
     ]
     assert not any(
         isinstance(getattr(component, "id", None), dict)
         and component.id.get("type") == "hpo-planner-metric"
         for component in components
     )
+    assert not any(
+        isinstance(getattr(component, "id", None), dict)
+        and component.id.get("type") in {"hpo-planner-min", "hpo-planner-max"}
+        for component in components
+    )
+    q90_profiles = [
+        component
+        for component in components
+        if isinstance(component, dcc.Graph)
+        and getattr(component, "className", None) == "planner-q90-profile"
+    ]
+    assert len(q90_profiles) == 2
+    assert [trace.name for trace in q90_profiles[0].figure.data] == ["q90", "mean q90"]
+    q90_selection_layers = [
+        component
+        for component in components
+        if isinstance(getattr(component, "id", None), dict)
+        and component.id.get("type") == planning.Q90_SELECTION_LAYER_TYPE
+    ]
+    assert len(q90_selection_layers) == 1
+    assert [segment.style for segment in q90_selection_layers[0].children] == [
+        {"left": "0", "width": "0.000000%"},
+        {"left": "100.000000%", "width": "0.000000%"},
+    ]
 
     legend = next(
         component
@@ -1048,6 +1084,14 @@ def test_planner_layout_uses_separate_metadata_and_selection_stores():
     assert elite_legend_row.className == "planner-legend-row planner-legend-elites"
     assert len(elite_legend_row.children) == 3
     assert all(item.children[-1].startswith("Top ") for item in elite_legend_row.children)
+
+    range_summary = next(
+        component
+        for component in components
+        if isinstance(getattr(component, "id", None), dict)
+        and component.id.get("type") == planning.RANGE_SUMMARY_TYPE
+    )
+    assert range_summary.children == "original: 0–10 | current: 0–10"
 
     range_control = next(
         component

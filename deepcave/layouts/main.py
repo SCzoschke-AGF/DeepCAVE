@@ -122,8 +122,6 @@ class MainLayout(Layout):
                 Output({"type": "hpo-planner-range", "index": ALL, "context": ALL}, "value"),
                 Output({"type": "hpo-planner-range", "index": ALL, "context": ALL}, "min"),
                 Output({"type": "hpo-planner-range", "index": ALL, "context": ALL}, "max"),
-                Output({"type": "hpo-planner-min", "index": ALL, "context": ALL}, "value"),
-                Output({"type": "hpo-planner-max", "index": ALL, "context": ALL}, "value"),
                 Output(
                     {"type": "hpo-planner-categories", "index": ALL, "context": ALL},
                     "value",
@@ -163,8 +161,6 @@ class MainLayout(Layout):
             ],
             [
                 Input({"type": "hpo-planner-range", "index": ALL, "context": ALL}, "value"),
-                Input({"type": "hpo-planner-min", "index": ALL, "context": ALL}, "value"),
-                Input({"type": "hpo-planner-max", "index": ALL, "context": ALL}, "value"),
                 Input(
                     {"type": "hpo-planner-categories", "index": ALL, "context": ALL},
                     "value",
@@ -195,8 +191,6 @@ class MainLayout(Layout):
             ],
             [
                 State({"type": "hpo-planner-range", "index": ALL, "context": ALL}, "id"),
-                State({"type": "hpo-planner-min", "index": ALL, "context": ALL}, "id"),
-                State({"type": "hpo-planner-max", "index": ALL, "context": ALL}, "id"),
                 State({"type": "hpo-planner-categories", "index": ALL, "context": ALL}, "id"),
                 State(
                     {

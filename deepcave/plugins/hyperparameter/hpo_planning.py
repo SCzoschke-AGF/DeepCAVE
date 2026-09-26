@@ -15,7 +15,7 @@
 # noqa: D400
 """Empirical single-hyperparameter ranges for planning subsequent HPO runs."""
 
-from typing import Any, Callable, Dict, List, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import math
 import pprint
@@ -34,6 +34,7 @@ from ConfigSpace.hyperparameters import (
 )
 from dash import (
     ALL,
+    MATCH,
     ClientsideFunction,
     Input,
     Output,
@@ -114,7 +115,7 @@ ELITE_PROPORTION_DEFAULTS = (0.10, 0.05, 0.01)
 ELITE_PROPORTION_MIN = 0.001
 ELITE_PROPORTION_MAX = 0.99
 ELITE_MARKER_COLORS = ("#440154", "#21918C", "#D95F02")
-DEFAULT_TOP_TRIAL_COUNT = 10
+DEFAULT_TOP_TRIAL_COUNT = 100
 DEFAULT_PARAMETER_TOP_TRIAL_COUNT = 5
 TOP_TRIAL_LIMIT = 100
 INCLUDED_TRIAL_COLOR = "#52B788"
@@ -160,6 +161,11 @@ INSIGHT_BUTTON_TYPE = "hpo-planner-insight"
 SHOW_TOP_N_ID = "hpo-planning-show-top-n"
 TOP_TRIAL_BUTTON_TYPE = "hpo-planner-top-trials"
 TOP_TRIAL_LAYER_TYPE = "hpo-planner-top-trial-layer"
+REFERENCE_LAYER_TYPE = "hpo-planner-reference"
+EXTENSION_LAYER_TYPE = "hpo-planner-extensions"
+ELITE_LAYER_TYPE = "hpo-planner-elites"
+RANGE_SUMMARY_TYPE = "hpo-planner-range-summary"
+Q90_SELECTION_LAYER_TYPE = "hpo-planner-q90-selection-layer"
 
 
 def _validate_elite_proportions(values: Sequence[Any]) -> List[float]:
@@ -494,6 +500,15 @@ def _parameter_insights(
         if isinstance(hyperparameter, IntegerHyperparameter):
             integer_ranges, labels, tick_labels = _insight_integer_bins(hyperparameter)
             axis_title = name
+            integer_span = float(hyperparameter.upper) - float(hyperparameter.lower)
+            x_positions = [
+                (
+                    (0.5 * (lower + upper) - float(hyperparameter.lower)) / integer_span
+                    if integer_span
+                    else 0.5
+                )
+                for lower, upper in integer_ranges
+            ]
             grouped_rows = [[] for _ in integer_ranges]
             for row in active_rows:
                 bin_index = _integer_bin_index(row[0], integer_ranges)
@@ -507,6 +522,11 @@ def _parameter_insights(
                 INSIGHT_BIN_COUNT + 1,
             )
             display_edges = np.exp(transformed_edges) if log else transformed_edges
+            transformed_span = transformed_edges[-1] - transformed_edges[0]
+            x_positions = [
+                float((center - transformed_edges[0]) / transformed_span)
+                for center in 0.5 * (transformed_edges[:-1] + transformed_edges[1:])
+            ]
             labels, tick_labels, axis_title = _insight_numeric_axis(
                 name,
                 display_edges,
@@ -519,6 +539,7 @@ def _parameter_insights(
                 grouped_rows[bin_index].append(row)
                 row_bin_indices[row[2]] = bin_index
         else:
+            x_positions = None
             choices = _categorical_choices(hyperparameter)
             labels = [_format_value(choice) for choice in choices]
             tick_labels = labels
@@ -599,6 +620,7 @@ def _parameter_insights(
                 "labels": labels,
                 "tick_labels": tick_labels,
                 "axis_title": axis_title,
+                "x_positions": x_positions,
                 "median": medians,
                 "q90": q90_values,
                 "trial_counts": trial_counts,
@@ -748,6 +770,134 @@ def _parameter_top_trial_count(value: Any) -> int:
         return DEFAULT_PARAMETER_TOP_TRIAL_COUNT
 
 
+def _q90_profile_figure(insight: Dict[str, Any]) -> go.Figure:
+    """Return a compact q90 profile using the shared parameter-bin summary."""
+    labels = insight["labels"]
+    x_positions = insight.get("x_positions")
+    x_values = x_positions if x_positions is not None else labels
+    q90_values = insight["q90"]
+    available_q90 = [float(value) for value in q90_values if value is not None]
+    mean_q90 = float(np.mean(available_q90)) if available_q90 else None
+    figure = go.Figure()
+    figure.add_trace(
+        go.Scatter(
+            x=x_values,
+            y=q90_values,
+            name="q90",
+            mode="lines+markers",
+            connectgaps=False,
+            line={"color": INSIGHT_Q90_COLOR, "width": 1.5},
+            marker={"color": INSIGHT_Q90_COLOR, "size": 5},
+            hoverinfo="skip",
+        )
+    )
+    figure.add_trace(
+        go.Scatter(
+            x=x_values,
+            y=[mean_q90] * len(labels),
+            name="mean q90",
+            mode="lines",
+            connectgaps=False,
+            line={"color": "#94A3B8", "width": 1.25, "dash": "dash"},
+            hoverinfo="skip",
+        )
+    )
+    figure.update_layout(
+        height=118,
+        margin={"l": 34, "r": 6, "t": 25, "b": 25},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        hovermode=False,
+        showlegend=True,
+        legend={
+            "orientation": "h",
+            "x": 1,
+            "xanchor": "right",
+            "y": 1.18,
+            "yanchor": "bottom",
+            "font": {"size": 9, "color": "#52627B"},
+            "itemwidth": 30,
+        },
+    )
+    figure.update_xaxes(
+        type="linear" if x_positions is not None else "category",
+        tickmode="array",
+        tickvals=x_values,
+        ticktext=insight.get("tick_labels", labels),
+        categoryorder="array" if x_positions is None else None,
+        categoryarray=labels if x_positions is None else None,
+        range=[0, 1] if x_positions is not None else None,
+        tickfont={"size": 8, "color": "#64748B"},
+        showgrid=True,
+        gridcolor="#EDF0F4",
+        zeroline=False,
+        fixedrange=True,
+    )
+    figure.update_yaxes(
+        tickfont={"size": 8, "color": "#64748B"},
+        nticks=3,
+        showgrid=True,
+        gridcolor="#EDF0F4",
+        zeroline=False,
+        fixedrange=True,
+    )
+    if not available_q90:
+        figure.add_annotation(
+            text="No bin data",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font={"size": 10, "color": "#64748B"},
+        )
+    return figure
+
+
+def _q90_profile(
+    insight: Dict[str, Any],
+    parameter: Optional[Dict[str, Any]] = None,
+    selection: Optional[Dict[str, Any]] = None,
+) -> Component:
+    """Render a compact q90 profile without exposing trial-level data to the browser."""
+    graph_id = {"type": "hpo-planner-q90-profile", "index": insight["index"]}
+    if parameter is None or selection is None:
+        return dcc.Graph(
+            id=graph_id,
+            figure=_q90_profile_figure(insight),
+            config={"displayModeBar": False, "responsive": True},
+            className="planner-q90-profile",
+        )
+
+    planning_context = parameter.get("planning_context", "")
+    graph_id["context"] = planning_context
+    metrics = _selection_metrics(parameter, selection)
+    return html.Div(
+        [
+            dcc.Graph(
+                id=graph_id,
+                figure=_q90_profile_figure(insight),
+                config={"displayModeBar": False, "responsive": True},
+                className="planner-q90-profile",
+            ),
+            html.Div(
+                _unselected_components(
+                    metrics,
+                    (0.0, 1.0),
+                    "planner-unselected-segment planner-q90-unselected-segment",
+                ),
+                id={
+                    "type": Q90_SELECTION_LAYER_TYPE,
+                    "index": parameter["index"],
+                    "context": planning_context,
+                },
+                className="planner-q90-selection-layer",
+            ),
+        ],
+        className="planner-q90-profile-container",
+    )
+
+
 def _updated_top_trial_visibility(
     metadata: Sequence[Dict[str, Any]],
     visible_indices: Sequence[Any],
@@ -813,6 +963,7 @@ def _numeric_row(
     selection: Dict[str, Any],
     top_trials: Sequence[Dict[str, Any]] = (),
     show_top_trials: bool = False,
+    insight: Optional[Dict[str, Any]] = None,
 ) -> Component:
     """Render one compact numerical planning row."""
     index = parameter["index"]
@@ -820,7 +971,6 @@ def _numeric_row(
     metrics = _selection_metrics(parameter, selection)
     slider_minimum, slider_maximum = _slider_domain(metrics)
     step = parameter.get("step")
-    input_step = step if step is not None else "any"
     return html.Div(
         [
             html.Div(
@@ -833,11 +983,29 @@ def _numeric_row(
             html.Div(
                 [
                     html.Div(
+                        (
+                            f"original: {_format_value(parameter['current_min'])}–"
+                            f"{_format_value(parameter['current_max'])} | current: "
+                            f"{_format_value(selection['min'])}–"
+                            f"{_format_value(selection['max'])}"
+                        ),
+                        id={
+                            "type": RANGE_SUMMARY_TYPE,
+                            "index": index,
+                            "context": planning_context,
+                        },
+                        className="planner-range-summary",
+                    ),
+                    html.Div(
                         html.Span(
                             className="planner-current-reference-segment",
                             style=_reference_style((slider_minimum, slider_maximum)),
                         ),
-                        id={"type": "hpo-planner-reference", "index": index},
+                        id={
+                            "type": REFERENCE_LAYER_TYPE,
+                            "index": index,
+                            "context": planning_context,
+                        },
                         className="planner-current-reference",
                     ),
                     dcc.RangeSlider(
@@ -864,12 +1032,20 @@ def _numeric_row(
                         className="planner-range-slider",
                     ),
                     html.Div(
-                        id={"type": "hpo-planner-extensions", "index": index},
+                        id={
+                            "type": EXTENSION_LAYER_TYPE,
+                            "index": index,
+                            "context": planning_context,
+                        },
                         className="planner-extension-layer",
                         children=_extension_components(metrics, (slider_minimum, slider_maximum)),
                     ),
                     html.Div(
-                        id={"type": "hpo-planner-elites", "index": index},
+                        id={
+                            "type": ELITE_LAYER_TYPE,
+                            "index": index,
+                            "context": planning_context,
+                        },
                         className="planner-elite-layer",
                         children=_elite_distribution_components(
                             parameter, (slider_minimum, slider_maximum)
@@ -903,32 +1079,7 @@ def _numeric_row(
                     "data-parameter-type": parameter["parameter_type"],
                 },
             ),
-            dbc.Input(
-                id={
-                    "type": "hpo-planner-min",
-                    "index": index,
-                    "context": planning_context,
-                },
-                type="number",
-                value=selection["min"],
-                step=input_step,
-                debounce=True,
-                size="sm",
-                className="planner-bound-input",
-            ),
-            dbc.Input(
-                id={
-                    "type": "hpo-planner-max",
-                    "index": index,
-                    "context": planning_context,
-                },
-                type="number",
-                value=selection["max"],
-                step=input_step,
-                debounce=True,
-                size="sm",
-                className="planner-bound-input",
-            ),
+            _q90_profile(insight, parameter, selection) if insight is not None else html.Div(),
         ],
         className="planner-parameter-row planner-parameter-row--numeric",
     )
@@ -939,6 +1090,7 @@ def _categorical_row(
     selection: Dict[str, Any],
     top_trials: Sequence[Dict[str, Any]] = (),
     show_top_trials: bool = False,
+    insight: Optional[Dict[str, Any]] = None,
 ) -> Component:
     """Render a categorical, ordinal, or constant parameter as a compact multiselect."""
     index = parameter["index"]
@@ -989,8 +1141,7 @@ def _categorical_row(
                 ],
                 className="planner-category-control",
             ),
-            html.Div(),
-            html.Div(),
+            _q90_profile(insight) if insight is not None else html.Div(),
         ],
         className="planner-parameter-row planner-parameter-row--categorical",
     )
@@ -1002,18 +1153,36 @@ def _planner_rows(
     trials: Sequence[Dict[str, Any]] = (),
     top_n: Any = DEFAULT_PARAMETER_TOP_TRIAL_COUNT,
     visible_top_trial_indices: Sequence[int] = (),
+    insights: Sequence[Dict[str, Any]] = (),
 ) -> List[Component]:
     """Render all planner rows while keeping numerical and categorical rows distinct."""
     rows = []
     top_trials = list(trials[: _parameter_top_trial_count(top_n)])
     visible = set(visible_top_trial_indices)
+    insight_lookup = {insight["index"]: insight for insight in insights}
     for parameter in metadata:
         selected = selection[parameter["name"]]
         show_top_trials = parameter["index"] in visible
         if parameter["parameter_type"] in ("integer", "float"):
-            rows.append(_numeric_row(parameter, selected, top_trials, show_top_trials))
+            rows.append(
+                _numeric_row(
+                    parameter,
+                    selected,
+                    top_trials,
+                    show_top_trials,
+                    insight_lookup.get(parameter["index"]),
+                )
+            )
         else:
-            rows.append(_categorical_row(parameter, selected, top_trials, show_top_trials))
+            rows.append(
+                _categorical_row(
+                    parameter,
+                    selected,
+                    top_trials,
+                    show_top_trials,
+                    insight_lookup.get(parameter["index"]),
+                )
+            )
     return rows
 
 
@@ -1619,13 +1788,12 @@ def _planner_layout(
                         [
                             html.Div("Parameter"),
                             html.Div("Position in current search space"),
-                            html.Div("Min (original)"),
-                            html.Div("Max (original)"),
+                            html.Div("Objective - q90 Profile"),
                         ],
                         className="planner-table-header",
                     ),
                     html.Div(
-                        _planner_rows(metadata, selection),
+                        _planner_rows(metadata, selection, insights=insights),
                         id=ROWS_ID,
                         className="planner-rows",
                     ),
@@ -1909,10 +2077,6 @@ def _updated_selection(
             minimum = _denormalize_value(value[0], parameter)
             maximum = _denormalize_value(value[1], parameter)
             updated[name] = _coerce_selection(minimum, maximum, parameter)
-        elif control_type == "hpo-planner-min":
-            updated[name] = _coerce_selection(value, updated[name]["max"], parameter)
-        elif control_type == "hpo-planner-max":
-            updated[name] = _coerce_selection(updated[name]["min"], value, parameter)
         elif control_type == "hpo-planner-categories":
             choices = value or []
             updated[name] = {
@@ -1941,10 +2105,6 @@ def _control_matches_selection(
         return True
     selected = selection[parameter["name"]]
     control_type = triggered_id.get("type")
-    if control_type == "hpo-planner-min":
-        return value is not None and np.isclose(float(value), float(selected["min"]))
-    if control_type == "hpo-planner-max":
-        return value is not None and np.isclose(float(value), float(selected["max"]))
     if control_type == "hpo-planner-range":
         if value is None or len(value) != 2:
             return False
@@ -2054,17 +2214,18 @@ def _extension_components(
 def _unselected_components(
     metrics: Dict[str, Any],
     domain: Tuple[float, float],
+    class_name: str = "planner-unselected-segment",
 ) -> List[Component]:
     """Shade the visible planner regions outside the selected range."""
     minimum = min(100.0, max(0.0, _position_percent(metrics["min_normalized"], domain)))
     maximum = min(100.0, max(0.0, _position_percent(metrics["max_normalized"], domain)))
     return [
         html.Span(
-            className="planner-unselected-segment",
+            className=class_name,
             style={"left": "0", "width": f"{minimum:.6f}%"},
         ),
         html.Span(
-            className="planner-unselected-segment",
+            className=class_name,
             style={"left": f"{maximum:.6f}%", "width": f"{100 - maximum:.6f}%"},
         ),
     ]
@@ -2232,6 +2393,38 @@ class HPOPlanning(DynamicPlugin):
         """Synchronize every planner control and derived view through one selection store."""
         super().register_callbacks()
         from deepcave import app
+
+        # The central browser reducer owns the range value and its expandable domain. Keep the
+        # dependent overlays in a separate, local view callback so a commit does not rebuild rows
+        # or wait for the server-side coverage update.
+        app.clientside_callback(  # type: ignore
+            ClientsideFunction(namespace="hpoPlanning", function_name="updateRangeOverlays"),
+            [
+                Output(
+                    {"type": REFERENCE_LAYER_TYPE, "index": MATCH, "context": MATCH}, "children"
+                ),
+                Output(
+                    {"type": EXTENSION_LAYER_TYPE, "index": MATCH, "context": MATCH}, "children"
+                ),
+                Output({"type": ELITE_LAYER_TYPE, "index": MATCH, "context": MATCH}, "children"),
+                Output({"type": RANGE_SUMMARY_TYPE, "index": MATCH, "context": MATCH}, "children"),
+                Output(
+                    {"type": Q90_SELECTION_LAYER_TYPE, "index": MATCH, "context": MATCH},
+                    "children",
+                ),
+            ],
+            [
+                Input({"type": "hpo-planner-range", "index": MATCH, "context": MATCH}, "min"),
+                Input({"type": "hpo-planner-range", "index": MATCH, "context": MATCH}, "max"),
+                Input({"type": "hpo-planner-range", "index": MATCH, "context": MATCH}, "value"),
+                Input(SELECTION_STORE_ID, "data"),
+            ],
+            [
+                State({"type": "hpo-planner-range", "index": MATCH, "context": MATCH}, "id"),
+                State(METADATA_STORE_ID, "data"),
+            ],
+            prevent_initial_call=True,
+        )
 
         @app.callback(  # type: ignore
             [

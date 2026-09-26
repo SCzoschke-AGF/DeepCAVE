@@ -298,6 +298,11 @@ table.table.exclude-head tbody {
 .planner-sidebar-card {
     position: sticky !important;
     top: 1rem;
+    max-height: calc(100vh - 2rem);
+    max-height: calc(100dvh - 2rem);
+    overflow-x: hidden;
+    overflow-y: auto !important;
+    scrollbar-gutter: stable;
 }
 
 .planner-sidebar-card .planner-card-title {
@@ -436,7 +441,7 @@ table.table.exclude-head tbody {
 .planner-table-header,
 .planner-parameter-row {
     display: grid;
-    grid-template-columns: minmax(7rem, 1fr) minmax(18rem, 4fr) 5.2rem 5.2rem;
+    grid-template-columns: minmax(7rem, 1fr) minmax(18rem, 4fr) minmax(15rem, 2.2fr);
     gap: 0.55rem;
     align-items: center;
 }
@@ -452,13 +457,35 @@ table.table.exclude-head tbody {
 }
 
 .planner-parameter-row {
-    min-height: 5.8rem;
+    min-height: 7.7rem;
     padding: 0.7rem 0.55rem;
     border-bottom: 1px solid #edf0f4;
 }
 
-.planner-parameter-row--numeric {
-    min-height: 6.2rem;
+.planner-table-header > :last-child {
+    text-align: center;
+}
+
+.planner-q90-profile-container {
+    position: relative;
+    min-width: 0;
+    height: 7.375rem;
+}
+
+.planner-q90-profile {
+    min-width: 0;
+    height: 7.375rem;
+}
+
+.planner-q90-selection-layer {
+    position: absolute;
+    z-index: 2;
+    top: 25px;
+    right: 6px;
+    bottom: 25px;
+    left: 34px;
+    overflow: hidden;
+    pointer-events: none;
 }
 
 .planner-parameter-name {
@@ -554,8 +581,22 @@ table.table.exclude-head tbody {
 
     position: relative;
     min-width: 0;
-    height: 5.5rem;
-    padding: 0.5rem 0.15rem 0;
+    height: 6.25rem;
+    padding: 1.25rem 0.15rem 0;
+}
+
+.planner-range-summary {
+    position: absolute;
+    top: 0;
+    right: 0.15rem;
+    left: 0.15rem;
+    overflow: hidden;
+    color: #7a889e;
+    font-size: 0.68rem;
+    line-height: 1rem;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .planner-range-slider {
@@ -591,7 +632,7 @@ table.table.exclude-head tbody {
 .planner-current-reference,
 .planner-extension-layer {
     position: absolute;
-    top: 0.84rem;
+    top: 1.59rem;
     right: calc(0.15rem + var(--planner-slider-gutter));
     left: calc(0.15rem + var(--planner-slider-gutter));
     height: 0.38rem;
@@ -621,7 +662,7 @@ table.table.exclude-head tbody {
 
 .planner-elite-layer {
     position: absolute;
-    top: 2.35rem;
+    top: 3.1rem;
     right: calc(0.15rem + var(--planner-slider-gutter));
     left: calc(0.15rem + var(--planner-slider-gutter));
     z-index: 5;
@@ -634,7 +675,7 @@ table.table.exclude-head tbody {
 
 .planner-unselected-layer {
     position: absolute;
-    top: 0.3rem;
+    top: 1.05rem;
     right: calc(0.15rem + var(--planner-slider-gutter));
     bottom: 0.05rem;
     left: calc(0.15rem + var(--planner-slider-gutter));
@@ -644,7 +685,7 @@ table.table.exclude-head tbody {
 
 .planner-top-trial-layer {
     position: absolute;
-    top: 0.3rem;
+    top: 1.05rem;
     right: calc(0.15rem + var(--planner-slider-gutter));
     bottom: 0.05rem;
     left: calc(0.15rem + var(--planner-slider-gutter));
@@ -707,13 +748,6 @@ table.table.exclude-head tbody {
     border: 1px solid #fff;
     border-radius: 50%;
     box-shadow: 0 0 0 1px rgba(51, 65, 85, 0.15);
-}
-
-.planner-bound-input.form-control {
-    height: 2.25rem;
-    padding: 0.4rem 0.45rem;
-    color: #26385f;
-    font-size: 0.84rem;
 }
 
 .planner-category-control {
@@ -881,6 +915,9 @@ table.table.exclude-head tbody {
 
     .planner-sidebar-card {
         position: static !important;
+        max-height: none;
+        overflow: visible !important;
+        scrollbar-gutter: auto;
     }
 }
 
@@ -909,7 +946,7 @@ table.table.exclude-head tbody {
     }
 
     .planner-parameter-row {
-        grid-template-columns: minmax(6rem, 1fr) minmax(12rem, 2fr) 4.5rem 4.5rem;
+        grid-template-columns: minmax(6rem, 1fr) minmax(12rem, 2fr) minmax(13rem, 1.4fr);
     }
 }
 

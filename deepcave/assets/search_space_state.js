@@ -261,12 +261,6 @@
             const maximum = denormalize(value[1], parameter);
             return coerce(minimum, maximum, parameter);
         }
-        if (id.type === "hpo-planner-min") {
-            return coerce(value, current.max, parameter);
-        }
-        if (id.type === "hpo-planner-max") {
-            return coerce(current.min, value, parameter);
-        }
         if (id.type === "hpo-planner-categories" ||
                 id.type === "two-dimensional-planning-categories") {
             return categorySelection(value, parameter);
@@ -304,12 +298,6 @@
                     ? selected.choices.slice()
                     : NO_UPDATE;
             }
-            if (property === "minimum") {
-                return selected ? selected.min : NO_UPDATE;
-            }
-            if (property === "maximum") {
-                return selected ? selected.max : NO_UPDATE;
-            }
             const view = selected ? numericView(parameter, selected) : null;
             return view ? view[property] : NO_UPDATE;
         });
@@ -317,8 +305,6 @@
 
     function reducePlanningEvents(
         _hpoRanges,
-        _hpoMinimums,
-        _hpoMaximums,
         _hpoCategories,
         _hpoResetClicks,
         _twoRanges,
@@ -327,8 +313,6 @@
         contexts,
         persistedState,
         hpoRangeIds,
-        hpoMinimumIds,
-        hpoMaximumIds,
         hpoCategoryIds,
         twoRangeIds,
         twoCategoryIds,
@@ -451,8 +435,6 @@
             controlValue(hpoRangeIds, contexts, state, "value"),
             controlValue(hpoRangeIds, contexts, state, "min"),
             controlValue(hpoRangeIds, contexts, state, "max"),
-            controlValue(hpoMinimumIds, contexts, state, "minimum"),
-            controlValue(hpoMaximumIds, contexts, state, "maximum"),
             controlValue(hpoCategoryIds, contexts, state, "categories"),
             controlValue(twoRangeIds, contexts, state, "value"),
             controlValue(twoRangeIds, contexts, state, "min"),
