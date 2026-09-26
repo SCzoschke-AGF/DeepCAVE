@@ -1,4 +1,26 @@
 services:
+  deepcave:
+    build: .
+    image: deepcave:local
+    ports:
+      - "${DEEPCAVE_BIND_ADDRESS:-0.0.0.0}:${DEEPCAVE_PORT:-8050}:8050"
+    volumes:
+      - deepcave-cache:/app/deepcave/cache
+      - ./logs:/app/logs:ro
+      - ./data:/app/data
+      - ../streamingmodel_NonRouterHHs/optuna.db:/app/data/optuna.db
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8050/', timeout=5).close()"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
+    init: true
+    restart: unless-stopped
+
   redis:
     image: redis:7-alpine
     container_name: deepcave-redis
@@ -11,3 +33,6 @@ services:
       timeout: 3s
       retries: 10
     restart: unless-stopped
+
+volumes:
+  deepcave-cache:

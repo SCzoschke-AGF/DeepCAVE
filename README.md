@@ -74,6 +74,10 @@ The webserver as well as the queue/workers can be started by simply running:
 deepcave --open
 ```
 
+To run DeepCAVE and Redis continuously in Docker, use `docker compose up -d --build`.
+The dashboard is then available at `http://<server-ip>:8050/`. See [RUNBOOK.md](RUNBOOK.md)
+for mounted data, port settings, and remote access precautions.
+
 If you specify `--open` your webbrowser automatically opens at `http://127.0.0.1:8050/`.
 You can find more arguments and information (like using custom configurations) in the
 [documentation](https://automl.github.io/DeepCAVE/main/getting_started.html).

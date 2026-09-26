@@ -82,9 +82,11 @@ def execute(_: Any) -> None:
     n_workers = str(FLAGS.n_workers)
 
     if FLAGS.config is not None:
-        subprocess.call([start, open, n_workers, str(FLAGS.config)])
+        return_code = subprocess.call([start, open, n_workers, str(FLAGS.config)])
     else:
-        subprocess.call([start, open, n_workers])
+        return_code = subprocess.call([start, open, n_workers])
+
+    raise SystemExit(return_code)
 
 
 def main() -> None:

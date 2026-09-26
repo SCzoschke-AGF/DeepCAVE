@@ -21,9 +21,7 @@ This module provides a utility for parsing the configurations from a filename.
 
 from typing import Optional
 
-import importlib
-import os
-import sys
+import importlib.util
 from pathlib import Path
 
 from deepcave.config import Config
@@ -59,26 +57,16 @@ def parse_config(filename: Optional[str] = None) -> Config:
     config = Config()
     if filename is not None and filename != "default":
         try:
-            p = Path(filename)
+            p = Path(filename).expanduser().resolve()
+            spec = importlib.util.spec_from_file_location("deepcave_user_config", p)
+            if spec is None or spec.loader is None:
+                raise ImportError(f"Could not create an import spec for {p}.")
 
-            # Absolute path
-            if filename.startswith("/") or filename.startswith("~"):
-                path = p.parent
-                script_dir = path.stem
-                module_name = p.stem
-            else:
-                path = Path(os.getcwd()) / p.parent
-
-            script_dir = path.stem  # That's the path without the script name
-            module_name = p.stem  # That's the script name without the extension
-
-            # Now it is added to sys path
-            sys.path.append(str(path))
-
-            module = importlib.import_module(f"{script_dir}.{module_name}")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
             config = module.Config()
 
-        except Exception:
-            raise RuntimeError(f"Could not load class Config from {p}.")
+        except Exception as exc:
+            raise RuntimeError(f"Could not load class Config from {p}.") from exc
 
     return config
