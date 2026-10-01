@@ -6,6 +6,14 @@ from dash import dcc
 import deepcave
 
 
+def test_configurations_plugin_is_not_exposed_in_ui():
+    plugin_ids = [
+        plugin.id for plugins in deepcave.config.PLUGINS.values() for plugin in plugins
+    ]
+
+    assert "configurations" not in plugin_ids
+
+
 def _walk_components(component):
     """Yield a Dash component and all descendants."""
     yield component

@@ -20,6 +20,7 @@ import hashlib
 import os
 import pickle
 import re
+import sqlite3
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -86,12 +87,12 @@ def _storage_url(database: Path) -> str:
 
 def list_optuna_studies(database: Path) -> List[str]:
     """List study names contained in a local Optuna SQLite database."""
-    optuna = _import_optuna()
-    summaries = optuna.get_all_study_summaries(
-        storage=_storage_url(database),
-        include_best_trial=False,
-    )
-    return sorted(summary.study_name for summary in summaries)
+    with sqlite3.connect(database) as connection:
+        rows = connection.execute(
+            "SELECT DISTINCT study_name FROM studies ORDER BY study_name"
+        ).fetchall()
+
+    return [study_name for (study_name,) in rows]
 
 
 def get_optuna_snapshot_path(database: Path, study_name: str, working_directory: Path) -> Path:

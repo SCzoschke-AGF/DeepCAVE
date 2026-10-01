@@ -128,7 +128,6 @@ class Config:
         )
         from deepcave.plugins.objective.cost_over_time import CostOverTime
         from deepcave.plugins.objective.pareto_front import ParetoFront
-        from deepcave.plugins.summary.configurations import Configurations
         from deepcave.plugins.summary.footprint import FootPrint
         from deepcave.plugins.summary.overview import Overview
 
@@ -136,7 +135,6 @@ class Config:
         plugins = {
             "Summary": [
                 Overview(),
-                Configurations(),
                 FootPrint(),
             ],
             "Objective Analysis": [

@@ -56,12 +56,14 @@ def test_optuna_study_dropdown_uses_full_study_names(monkeypatch, tmp_path):
 
     layout = object.__new__(general_module.GeneralLayout)
     layout._callback_discover_optuna_studies()
-    options, selected_study, _message, _class_name, discovery = callbacks[0](
+    options, selected_study, message, class_name, discovery = callbacks[0](
         "optuna.db", str(tmp_path), None
     )
 
     assert options == [{"label": long_study_name, "value": long_study_name}]
     assert selected_study == long_study_name
+    assert message == "Studies (1 study included)"
+    assert class_name == "mt-3"
     assert discovery["studies"] == [long_study_name]
 
 
@@ -105,3 +107,26 @@ def test_group_layout_restores_relaxed_configspace_setting(monkeypatch):
 
     assert checkbox.value is False
     assert hydration["congruence"] == {"comparison": False}
+
+
+def test_directory_browser_is_part_of_working_directory_section():
+    general_module = importlib.import_module("deepcave.layouts.general")
+    layout = object.__new__(general_module.GeneralLayout)()
+
+    input_group = next(
+        component
+        for component in layout
+        if isinstance(component, general_module.dbc.InputGroup)
+    )
+    component_ids = {
+        getattr(component, "id", None) for component in _walk_components(input_group)
+    }
+
+    assert "general-working-directory-input" in component_ids
+    assert "general-available-runs-container" in component_ids
+    browser = next(
+        component
+        for component in _walk_components(input_group)
+        if isinstance(component, general_module.dbc.DropdownMenu)
+    )
+    assert browser.label == "Browse"

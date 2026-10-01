@@ -480,13 +480,7 @@ def get_hovertext_from_config(
     if config_id < 0:
         return ""
 
-    # Retrieve the link for the config id
-    from deepcave.plugins.summary.configurations import Configurations
-
-    link = Configurations.get_link(run, config_id)
-
-    string = "<b>Configuration ID: "
-    string += f"<a href='{link}' style='color: #ffffff'>{int(config_id)}</a></b><br><br>"
+    string = f"<b>Configuration ID: {int(config_id)}</b><br><br>"
 
     # It's also nice to see the metrics
     objectives = run.get_objectives()

@@ -156,7 +156,7 @@ class GeneralLayout(Layout):
         def callback(database_value: str, working_dir: str, selected_study: Optional[str]):
             """Populate the study dropdown from a local Optuna database."""
             if database_value is None or working_dir is None:
-                return [], None, "", "", None
+                return [], None, "Studies", "mt-3", None
 
             try:
                 database = resolve_optuna_database(database_value, Path(working_dir))
@@ -167,12 +167,12 @@ class GeneralLayout(Layout):
                     "studies": [],
                     "error": str(exception),
                 }
-                return [], None, str(exception), "text-danger", discovery
+                return [], None, str(exception), "mt-3 text-danger", discovery
 
             if len(study_names) == 0:
-                message = f"No Optuna studies found in {database}."
+                message = "Studies (0 studies included)"
                 discovery = {"database": str(database), "studies": [], "error": None}
-                return [], None, message, "text-warning", discovery
+                return [], None, message, "mt-3 text-warning", discovery
 
             options = [
                 {
@@ -185,20 +185,19 @@ class GeneralLayout(Layout):
                 selected_study = study_names[0] if len(study_names) == 1 else None
 
             noun = "study" if len(study_names) == 1 else "studies"
-            message = f"{len(study_names)} Optuna {noun} in {database}"
+            message = f"Studies ({len(study_names)} {noun} included)"
             discovery = {
                 "database": str(database),
                 "studies": study_names,
                 "error": None,
             }
-            return options, selected_study, message, "text-muted", discovery
+            return options, selected_study, message, "mt-3", discovery
 
     def _callback_update_optuna_button(self) -> None:
         """Update the Optuna import button based on the selected snapshot."""
         outputs = [
             Output("general-optuna-load-button", "children"),
             Output("general-optuna-load-button", "disabled"),
-            Output("general-optuna-selected-study", "children"),
         ]
         inputs = [
             Input("general-optuna-database-input", "value"),
@@ -218,7 +217,7 @@ class GeneralLayout(Layout):
         ):
             """Choose the load or refresh state for the import button."""
             if database_value is None or study_name is None or working_dir is None:
-                return "Load Optuna Study", True, ""
+                return "Load Optuna Study", True
 
             try:
                 database = resolve_optuna_database(database_value, Path(working_dir))
@@ -227,15 +226,15 @@ class GeneralLayout(Layout):
                 )
                 study_names = discovery.get("studies", []) if isinstance(discovery, dict) else []
                 if str(database) != discovered_database or study_name not in study_names:
-                    return "Load Optuna Study", True, study_name
+                    return "Load Optuna Study", True
                 run_path = get_optuna_snapshot_path(database, study_name, Path(working_dir))
             except Exception:
-                return "Load Optuna Study", True, study_name
+                return "Load Optuna Study", True
 
             if (run_path / SNAPSHOT_FILENAME).is_file():
-                return "Refresh from Optuna", False, study_name
+                return "Refresh from Optuna", False
 
-            return "Load Optuna Study", False, study_name
+            return "Load Optuna Study", False
 
     def _callback_display_available_runs(self) -> None:
         """Display available runs."""
@@ -770,11 +769,22 @@ class GeneralLayout(Layout):
             # Working dir
             dbc.Label("Working Directory"),
             help_button("Relative and absolute paths are supported."),
-            dbc.Input(
-                id="general-working-directory-input",
-                placeholder="",
-                type="text",
-                debounce=True,
+            dbc.InputGroup(
+                [
+                    dbc.Input(
+                        id="general-working-directory-input",
+                        placeholder="",
+                        type="text",
+                        debounce=True,
+                    ),
+                    dbc.DropdownMenu(
+                        html.Div(id="general-available-runs-container", className="px-2 py-1"),
+                        label="Browse",
+                        addon_type="append",
+                        align_end=True,
+                        color="secondary",
+                    ),
+                ]
             ),
             dbc.FormText(id="general-converter-label"),
             dcc.Store(id="general-available-runs", data={}),
@@ -794,10 +804,12 @@ class GeneralLayout(Layout):
                                 value="optuna.db",
                                 debounce=True,
                             ),
-                            dbc.FormText(id="general-optuna-database-status"),
-                            dbc.Label("Study", className="mt-3"),
+                            dbc.Label(
+                                "Studies",
+                                id="general-optuna-database-status",
+                                className="mt-3",
+                            ),
                             dcc.Dropdown(id="general-optuna-study-dropdown", options=[]),
-                            dbc.FormText(id="general-optuna-selected-study"),
                             dbc.Button(
                                 "Load Optuna Study",
                                 id="general-optuna-load-button",
@@ -810,7 +822,6 @@ class GeneralLayout(Layout):
                 ],
                 className="mt-3 mb-3",
             ),
-            html.Div(id="general-available-runs-container", className="mt-2"),
             html.Hr(),
             # Selected Runs
             html.H2("Selected Runs"),

@@ -79,6 +79,15 @@ def test_list_studies_and_stable_snapshot_path(tmp_path: Path) -> None:
     assert "/" not in first.name and ":" not in first.name
 
 
+def test_list_studies_does_not_load_trial_history(tmp_path: Path) -> None:
+    database = tmp_path / "optuna.db"
+    names = ["second", "first"]
+    _create_database(database, names)
+
+    with patch("deepcave.utils.optuna._import_optuna", side_effect=AssertionError):
+        assert list_optuna_studies(database) == sorted(names)
+
+
 def test_snapshot_is_detached_and_tracks_skipped_trials(tmp_path: Path) -> None:
     database = tmp_path / "optuna.db"
     _create_database(database, ["live-study"])
