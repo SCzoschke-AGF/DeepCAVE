@@ -19,7 +19,7 @@
 This module samples random as well as border configurations.
 """
 
-from typing import Iterator, Optional
+from typing import Any, Iterator, Mapping, Optional, Sequence, Union
 
 import numpy as np
 from ConfigSpace.configuration_space import Configuration, ConfigurationSpace
@@ -31,6 +31,120 @@ from ConfigSpace.hyperparameters import (
     OrdinalHyperparameter,
 )
 from ConfigSpace.util import deactivate_inactive_hyperparameters
+
+
+ConfigurationLike = Union[Configuration, Mapping[str, Any]]
+
+
+def normalized_configuration_matrix(
+    configs: Sequence[ConfigurationLike],
+    configspace: ConfigurationSpace,
+) -> np.ndarray:
+    """Encode configurations for mixed-type distance calculations.
+
+    ConfigSpace already maps numerical hyperparameters to its vector space, including
+    logarithmic transformations. Ordinals are additionally scaled to the unit interval;
+    categorical vector values remain integer codes so equality can be evaluated explicitly.
+    Inactive hyperparameters remain ``NaN`` and are handled by
+    :func:`normalized_configuration_distance_components`.
+    """
+    hyperparameters = list(configspace.values())
+    matrix = np.empty((len(configs), len(hyperparameters)), dtype=float)
+
+    for row, config in enumerate(configs):
+        if not isinstance(config, Configuration):
+            config = Configuration(configspace, values=dict(config))
+        values = np.asarray(config.get_array(), dtype=float).copy()
+        for column, hyperparameter in enumerate(hyperparameters):
+            if isinstance(hyperparameter, Constant):
+                values[column] = 0.0
+            elif isinstance(hyperparameter, OrdinalHyperparameter) and np.isfinite(
+                values[column]
+            ):
+                denominator = max(1, len(hyperparameter.sequence) - 1)
+                values[column] /= denominator
+        matrix[row] = values
+
+    return matrix
+
+
+def normalized_configuration_distance_components(
+    reference: np.ndarray,
+    configs: np.ndarray,
+    configspace: ConfigurationSpace,
+) -> np.ndarray:
+    """Return one normalized distance contribution per configuration and hyperparameter.
+
+    Two inactive values contribute zero, while an active/inactive mismatch contributes one.
+    Constants never contribute. Categorical parameters use a binary mismatch and all remaining
+    parameter types use their absolute distance in ConfigSpace's normalized vector space.
+    """
+    reference_array = np.asarray(reference, dtype=float)
+    config_array = np.asarray(configs, dtype=float)
+    if reference_array.ndim != 1:
+        raise ValueError("The reference configuration must be a one-dimensional vector.")
+    if config_array.ndim != 2 or config_array.shape[1] != reference_array.shape[0]:
+        raise ValueError("Configuration matrix and reference vector have incompatible shapes.")
+    if config_array.shape[1] != len(configspace):
+        raise ValueError("Configuration vectors do not match the ConfigSpace dimensions.")
+
+    components = np.zeros_like(config_array, dtype=float)
+    reference_active = np.isfinite(reference_array)
+    configs_active = np.isfinite(config_array)
+
+    for column, hyperparameter in enumerate(configspace.values()):
+        if isinstance(hyperparameter, Constant):
+            continue
+
+        exactly_one_active = np.logical_xor(reference_active[column], configs_active[:, column])
+        components[exactly_one_active, column] = 1.0
+        both_active = reference_active[column] & configs_active[:, column]
+        if not np.any(both_active):
+            continue
+
+        if isinstance(hyperparameter, CategoricalHyperparameter):
+            components[both_active, column] = (
+                config_array[both_active, column] != reference_array[column]
+            ).astype(float)
+        else:
+            components[both_active, column] = np.abs(
+                config_array[both_active, column] - reference_array[column]
+            )
+
+    return components
+
+
+def configuration_euclidean_distances(
+    components: np.ndarray,
+    configspace: ConfigurationSpace,
+) -> np.ndarray:
+    """Aggregate normalized component differences to a Euclidean distance.
+
+    Each component remains normalized to the unit interval, but the aggregate is not divided by
+    the number of non-constant dimensions.
+    """
+    component_array = np.asarray(components, dtype=float)
+    if component_array.ndim != 2 or component_array.shape[1] != len(configspace):
+        raise ValueError("Distance components do not match the ConfigSpace dimensions.")
+    return np.sqrt(np.sum(np.square(component_array), axis=1))
+
+
+def compute_configuration_distances(
+    reference_config: ConfigurationLike,
+    configs: Sequence[ConfigurationLike],
+    configspace: ConfigurationSpace,
+) -> np.ndarray:
+    """Compute Euclidean distances between normalized configuration components."""
+    normalized = normalized_configuration_matrix(
+        [reference_config, *configs],
+        configspace,
+    )
+    components = normalized_configuration_distance_components(
+        normalized[0],
+        normalized[1:],
+        configspace,
+    )
+    return configuration_euclidean_distances(components, configspace)
 
 
 def sample_border_config(configspace: ConfigurationSpace) -> Iterator[Configuration]:

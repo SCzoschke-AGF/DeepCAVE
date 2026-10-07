@@ -2356,6 +2356,7 @@ class HPOPlanning(DynamicPlugin):
                                 min=ELITE_PROPORTION_MIN,
                                 max=ELITE_PROPORTION_MAX,
                                 step=0.001,
+                                value=ELITE_PROPORTION_DEFAULTS[index - 1],
                             ),
                             width="7rem",
                         )

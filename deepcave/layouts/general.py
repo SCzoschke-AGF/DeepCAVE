@@ -411,17 +411,22 @@ class GeneralLayout(Layout):
             optuna_import_trigger,
         ):
             """Add and remove runs."""
+            runs_changed = False
+
             # Add run path
             for n_click, run_path in zip(add_n_clicks, available_run_paths):
                 if n_click is not None:
                     success = run_handler.add_run(run_path)
                     if not success:
                         notification.update("The run could not be added.")
+                    else:
+                        runs_changed = True
 
             # Remove run path
             for n_click, run_path in zip(remove_n_clicks, selected_run_paths):
                 if n_click is not None:
                     run_handler.remove_run(run_path)
+                    runs_changed = True
 
             if optuna_n_clicks is not None:
                 try:
@@ -459,7 +464,7 @@ class GeneralLayout(Layout):
 
                         if success:
                             run_handler.update_groups()
-                            c.set("last_inputs", value={})
+                            runs_changed = True
                             optuna_import_trigger = (optuna_import_trigger or 0) + 1
                             action = "refreshed" if result.refreshed else "loaded"
                             notification.update(
@@ -478,8 +483,8 @@ class GeneralLayout(Layout):
             add_n_clicks = [None for _ in add_n_clicks]
             remove_n_clicks = [None for _ in remove_n_clicks]
 
-            # Remove last inputs
-            c.set("last_inputs", value={})
+            if runs_changed:
+                c.set("last_inputs", value={})
 
             return (
                 add_n_clicks,
@@ -718,12 +723,20 @@ class GeneralLayout(Layout):
                 from deepcave.plugins.hyperparameter.analysis_utils import (
                     clear_trial_table_cache,
                 )
+                from deepcave.plugins.hyperparameter.configuration_neighborhood import (
+                    clear_configuration_neighborhood_cache,
+                )
                 from deepcave.plugins.hyperparameter.one_dimensional_analysis import (
                     clear_one_dimensional_figure_cache,
                 )
+                from deepcave.plugins.hyperparameter.near_optimal_configurations import (
+                    clear_near_optimal_analysis_cache,
+                )
 
                 clear_trial_table_cache()
+                clear_configuration_neighborhood_cache()
                 clear_one_dimensional_figure_cache()
+                clear_near_optimal_analysis_cache()
 
                 # Also remove last inputs
                 c.set("last_inputs", value={})

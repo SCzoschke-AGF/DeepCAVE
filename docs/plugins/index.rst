@@ -15,6 +15,8 @@ Displaying Data with Plugins
    ablation_paths
    one_dimensional_analysis
    two_dimensional_analysis
+   near_optimal_configurations
+   configuration_neighborhood
    configuration_cube
    hpo_planning
    parallel_coordinates

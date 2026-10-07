@@ -54,6 +54,17 @@ from deepcave.utils.url import parse_url
 logger = get_logger(__name__)
 
 
+def _should_initialize_inputs(
+    persistent_analysis: bool, previous_inputs: Dict[str, Any], triggered_id: Any
+) -> bool:
+    """Return whether a newly mounted browser page must hydrate its controls."""
+    return (
+        not previous_inputs
+        or triggered_id is None
+        or (not persistent_analysis and triggered_id == "on-page-load")
+    )
+
+
 class Plugin(Layout, ABC):
     """
     Base class for all plugins.
@@ -329,11 +340,9 @@ class Plugin(Layout, ABC):
                     global_objective_state = inputs_list[-1]
                     inputs_list = inputs_list[:-1]
                 current_values = list(inputs_list)
-                init = len(self.previous_inputs) == 0
-                # Keep-alive plugin pages remain mounted while another analysis is visible.
-                # A route change alone must not repopulate their controls and figures.
-                if not persistent_analysis and not init and ctx.triggered_id == "on-page-load":
-                    raise PreventUpdate
+                init = _should_initialize_inputs(
+                    persistent_analysis, self.previous_inputs, ctx.triggered_id
+                )
                 cached_inputs = c.get("last_inputs", self.id) or {}
                 cached_run_id = cached_inputs.get("run", {}).get("value")
                 run_changed = cached_run_id is not None and cached_run_id != global_run_id
@@ -353,7 +362,7 @@ class Plugin(Layout, ABC):
                     if run_changed:
                         inputs = self.load_inputs()
 
-                previous_inputs = copy.deepcopy(self.previous_inputs or cached_inputs)
+                previous_inputs = copy.deepcopy(cached_inputs if init else self.previous_inputs)
                 inputs["run"] = {"value": global_run_id}
 
                 # Dependency callbacks may read controls whose values are entirely populated by

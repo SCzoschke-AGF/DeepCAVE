@@ -34,6 +34,7 @@ from deepcave.constants import COMBINED_COST_NAME
 from deepcave.evaluators.epm.fanova_forest import FanovaForest
 from deepcave.runs import AbstractRun
 from deepcave.runs.objective import Objective
+from deepcave.runs.status import Status
 from deepcave.utils.logs import get_logger
 
 
@@ -73,6 +74,7 @@ class fANOVA:
         budget: Optional[Union[int, float]] = None,
         n_trees: int = 16,
         seed: int = 0,
+        statuses: Optional[Union[Status, List[Status]]] = None,
     ) -> None:
         """
         Get the data with respect to budget and train the forest on the encoded data.
@@ -91,6 +93,9 @@ class fANOVA:
             How many trees should be used. By default 16.
         seed : int
             Random seed. By default 0.
+        statuses : Optional[Union[Status, List[Status]]]
+            Trial states included in model fitting. By default all states are included for
+            backwards compatibility.
         """
         if objectives is None:
             objectives = self.run.get_objectives()
@@ -102,7 +107,11 @@ class fANOVA:
 
         # Get data
         df = self.run.get_encoded_data(
-            objectives, budget, specific=True, include_combined_cost=True
+            objectives,
+            budget,
+            statuses=statuses,
+            specific=True,
+            include_combined_cost=True,
         )
         X = df[self.hp_names].to_numpy()
         # Combined cost name includes the cost of all selected objectives

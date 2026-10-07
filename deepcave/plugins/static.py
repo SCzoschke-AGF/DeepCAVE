@@ -26,11 +26,13 @@ It provides an Enum used for the plugin state.
 """
 
 from abc import ABC
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import traceback
 from enum import Enum
 from functools import wraps
+from time import monotonic
+from uuid import uuid4
 
 import dash_bootstrap_components as dbc
 from dash import ctx, dcc, html
@@ -42,6 +44,7 @@ from dash.exceptions import PreventUpdate
 from deepcave import interactive
 from deepcave.plugins import Plugin
 from deepcave.runs import AbstractRun
+from deepcave.utils.hash import string_to_hash
 from deepcave.utils.url import create_url
 
 
@@ -56,10 +59,13 @@ class PluginState(Enum):
 
 
 def _should_refresh_outputs(
-    inputs_changed: bool, refresh_required: bool, triggered_id: Optional[str]
+    inputs_changed: bool,
+    refresh_required: bool,
+    triggered_id: Optional[str],
+    delivery_pending: bool = False,
 ) -> bool:
     """Return whether cached outputs must be sent to the current browser page."""
-    return inputs_changed or refresh_required or triggered_id is None
+    return inputs_changed or refresh_required or triggered_id is None or delivery_pending
 
 
 def _should_update_status_content(
@@ -72,6 +78,84 @@ def _should_update_status_content(
 def _process_button_disabled(state: PluginState) -> bool:
     """Return whether starting another calculation would be unsafe."""
     return state in (PluginState.UNSET, PluginState.PROCESSING)
+
+
+def _result_delivery_complete(
+    state: PluginState, expected_key: Optional[str], rendered_key: Optional[str]
+) -> bool:
+    """Return whether the current page has received the ready result."""
+    return (
+        state == PluginState.READY
+        and expected_key is not None
+        and rendered_key == expected_key
+    )
+
+
+def _append_render_key(
+    processed_outputs: Any, output_count: int, render_key: str
+) -> List[Any]:
+    """Append a delivery key without unpacking a single list-like Dash component."""
+    outputs = [processed_outputs] if output_count == 1 else list(processed_outputs)
+    return [*outputs, render_key]
+
+
+def _delivery_attempt_due(
+    page_id: Optional[str],
+    render_key: str,
+    rendered_key: Optional[str],
+    attempts: Dict[Tuple[str, str], float],
+    now: float,
+    retry_after: float = 10.0,
+) -> bool:
+    """Allow one result delivery per page and retry it after a bounded timeout."""
+    if not page_id or rendered_key == render_key:
+        return False
+    last_attempt = attempts.get((page_id, render_key))
+    return last_attempt is None or now - last_attempt >= retry_after
+
+
+def _job_is_active(queue: Any, job_id: str, submitted_job_ids: Set[str]) -> bool:
+    """Keep a submitted job active across gaps between the queue registries."""
+    return (
+        job_id in submitted_job_ids
+        or queue.is_running(job_id)
+        or queue.is_pending(job_id)
+    )
+
+
+def _processing_inputs_key(plugin: "StaticPlugin", inputs: Dict[str, Any]) -> str:
+    """Hash only values consumed by ``process``, excluding transient UI metadata."""
+    processing_inputs: Dict[str, Any] = {}
+    used_ids = set()
+    for input_id, attribute, is_filter, _type in plugin.inputs:
+        if is_filter or input_id in used_ids:
+            continue
+        processing_inputs[input_id] = {
+            attribute: inputs.get(input_id, {}).get(attribute)
+        }
+        used_ids.add(input_id)
+    if "_global_main_objective" in inputs:
+        processing_inputs["_global_main_objective"] = inputs["_global_main_objective"]
+    return string_to_hash(str(processing_inputs))
+
+
+def _applied_inputs_key(plugin: "StaticPlugin", inputs: Dict[str, Any]) -> str:
+    """Identify processing inputs together with the globally selected run."""
+    return string_to_hash(
+        str(
+            {
+                "run": inputs.get("run", {}).get("value"),
+                "processing": _processing_inputs_key(plugin, inputs),
+            }
+        )
+    )
+
+
+def _process_button_was_triggered(
+    n_clicks: Optional[int], triggered_id: Any, button_id: str
+) -> bool:
+    """Return whether this callback invocation came from the process button itself."""
+    return n_clicks is not None and triggered_id == button_id
 
 
 def _manage_callback_blocking(plugin: "StaticPlugin") -> Callable:
@@ -156,8 +240,14 @@ class StaticPlugin(Plugin, ABC):
         self._state = PluginState.UNSET  # Set in the main loop to track what's going on right now
         self._previous_state: Optional[PluginState] = None  # Used for updating status
         self._refresh_required = True
-        self._reset_button = False
         self._blocked = False
+        self._expected_render_key: Optional[str] = None
+        # ``__call__`` resets the page-local state whenever the route is mounted. Keep submitted
+        # jobs across that reset so navigating away cannot make a running job look completed.
+        self._submitted_job_ids: Set[str] = getattr(self, "_submitted_job_ids", set())
+        self._render_attempts: Dict[Tuple[str, str], float] = getattr(
+            self, "_render_attempts", {}
+        )
 
     @interactive
     def register_callbacks(self) -> None:
@@ -176,6 +266,7 @@ class StaticPlugin(Plugin, ABC):
         outputs = []
         for id, attribute in self.outputs:
             outputs.append(Output(self.get_internal_output_id(id), attribute))
+        outputs.append(Output(self.get_internal_id("rendered-inputs-key"), "data"))
 
         inputs = [
             Input(self.get_internal_id("update-button"), "n_clicks"),
@@ -188,6 +279,8 @@ class StaticPlugin(Plugin, ABC):
             inputs.append(Input(self.get_internal_input_id(id), attribute))
         if self.main_objective_input is not None:
             inputs.append(Input("global-main-objective-state", "data"))
+        inputs.append(State(self.get_internal_id("rendered-inputs-key"), "data"))
+        inputs.append(State(self.get_internal_id("page-instance-id"), "data"))
 
         # Register updates from inputs
         @app.callback(outputs, inputs)  # type: ignore
@@ -196,6 +289,9 @@ class StaticPlugin(Plugin, ABC):
             n_clicks: int, _: Any, global_run_id: str, *inputs_list: str
         ) -> Optional[Any]:
             """Register updates from inputs."""
+            rendered_inputs_key = inputs_list[-2]
+            page_id = inputs_list[-1]
+            inputs_list = inputs_list[:-2]
             global_objective_state = None
             if self.main_objective_input is not None:
                 global_objective_state = inputs_list[-1]
@@ -212,18 +308,26 @@ class StaticPlugin(Plugin, ABC):
                     global_objective_state,
                     include_cache_signature=index == 0,
                 )
-            inputs_key = self._dict_as_key(inputs, remove_filters=True)
+            inputs_key = _processing_inputs_key(self, inputs)
             cleaned_inputs = self._clean_inputs(inputs)
             last_inputs = c.get("last_inputs", self.id)
 
             link = create_url(self.get_base_url(), inputs)
             self.check_runs_compatibility(runs)
 
-            button_pressed = n_clicks is not None
-            inputs_changed = inputs != last_inputs
+            button_pressed = _process_button_was_triggered(
+                n_clicks,
+                ctx.triggered_id,
+                self.get_internal_id("update-button"),
+            )
+            inputs_changed = last_inputs is None or _applied_inputs_key(
+                self, inputs
+            ) != _applied_inputs_key(self, last_inputs)
 
             if button_pressed:
                 self.logger.debug("Button pressed.")
+                c.set("last_inputs", self.id, value=inputs)
+                self._expected_render_key = _applied_inputs_key(self, inputs)
                 for run in runs:
                     job_id = self._get_job_id(run.id, inputs_key)
 
@@ -248,16 +352,26 @@ class StaticPlugin(Plugin, ABC):
                         job_id=job_id,
                         meta=job_meta,
                     )
+                    self._submitted_job_ids.add(job_id)
 
-                self._reset_button = True
                 self._refresh_required = True
                 self._state = PluginState.PROCESSING
+                raise PreventUpdate
+
+            # Controls can change without applying the analysis, and delayed callbacks can still
+            # carry values from a page that has already been replaced. Neither may overwrite the
+            # last explicitly applied result.
+            if last_inputs is not None and inputs_changed:
+                if self._state != PluginState.PROCESSING:
+                    self._state = PluginState.NEEDS_PROCESSING
                 raise PreventUpdate
 
             # Collect completed jobs before reading the cache so a recomputed result can be shown
             # immediately on this callback cycle.
             for job in queue.get_finished_jobs():
                 job_id = job.id
+                if job.meta.get("plugin_id") != self.id:
+                    continue
                 try:
                     job_run_outputs = job.result
                     job_meta = job.meta
@@ -271,14 +385,17 @@ class StaticPlugin(Plugin, ABC):
                     self.logger.debug(f"Job {job_id} cached.")
 
                     queue.delete_job(job_id)
+                    self._submitted_job_ids.discard(job_id)
                     self.logger.debug(f"Job {job_id} deleted.")
                 except Exception as e:
                     self.logger.error(f"Job {job_id} failed with exception {e}.")
                     queue.delete_job(job_id)
+                    self._submitted_job_ids.discard(job_id)
                     self.logger.debug(f"Job {job_id} deleted.")
                 except KeyboardInterrupt:
                     self.logger.error(f"Job {job_id} got interrupted by KeyboardInterrupt.")
                     queue.delete_job(job_id)
+                    self._submitted_job_ids.discard(job_id)
                     self.logger.debug(f"Job {job_id} deleted.")
                     raise
 
@@ -286,10 +403,13 @@ class StaticPlugin(Plugin, ABC):
             queue_failed = False
             for run in runs:
                 job_id = self._get_job_id(run.id, inputs_key)
-                queue_active = queue_active or queue.is_running(job_id) or queue.is_pending(job_id)
+                queue_active = queue_active or _job_is_active(
+                    queue, job_id, self._submitted_job_ids
+                )
                 if queue.has_failed(job_id):
                     queue_failed = True
                     queue.delete_job(job_id)
+                    self._submitted_job_ids.discard(job_id)
 
             if queue_active:
                 self._state = PluginState.PROCESSING
@@ -310,12 +430,36 @@ class StaticPlugin(Plugin, ABC):
             # instance are shared across browser pages, so ``_refresh_required`` may already be
             # false after an earlier page rendered the same cached result. Always return that
             # result on the initial call; otherwise a reload has an empty output.
-            if _should_refresh_outputs(inputs_changed, self._refresh_required, ctx.triggered_id):
-                c.set("last_inputs", self.id, value=inputs)
+            render_key = _applied_inputs_key(self, inputs)
+            now = monotonic()
+            delivery_due = _delivery_attempt_due(
+                page_id,
+                render_key,
+                rendered_inputs_key,
+                self._render_attempts,
+                now,
+            )
+            if rendered_inputs_key == render_key and page_id:
+                self._render_attempts.pop((page_id, render_key), None)
+            if _should_refresh_outputs(
+                inputs_changed,
+                self._refresh_required,
+                ctx.triggered_id,
+                delivery_due,
+            ):
                 self.raw_outputs = raw_outputs
-                outputs = self._process_raw_outputs(inputs, raw_outputs, runs)
+                processed_outputs = self._process_raw_outputs(inputs, raw_outputs, runs)
+                self._expected_render_key = render_key
                 self._refresh_required = False
-                return outputs
+                if page_id:
+                    self._render_attempts[(page_id, render_key)] = now
+                    if len(self._render_attempts) > 128:
+                        oldest = min(
+                            self._render_attempts,
+                            key=self._render_attempts.get,  # type: ignore[arg-type]
+                        )
+                        self._render_attempts.pop(oldest, None)
+                return _append_render_key(processed_outputs, len(self.outputs), render_key)
 
             raise PreventUpdate
 
@@ -327,13 +471,17 @@ class StaticPlugin(Plugin, ABC):
         inputs = [
             Input(self.get_internal_id("update-interval"), "n_intervals"),
             State(self.get_internal_id("update-interval-output"), "data"),
+            State(self.get_internal_id("rendered-inputs-key"), "data"),
+            State(self.get_internal_id("page-instance-id"), "data"),
         ]
 
         # Interval should not always run the main callback the whole time
         # Especially not if it's blocked because PreventUpdate
         # prevent output updates from previous callback calls.
         @app.callback(output, inputs)  # type: ignore
-        def plugin_check_blocked(_: Any, data: Any) -> Any:
+        def plugin_check_blocked(
+            _: Any, data: Any, rendered_inputs_key: Optional[str], page_id: Optional[str]
+        ) -> Any:
             """
             Check if blocked.
 
@@ -345,6 +493,25 @@ class StaticPlugin(Plugin, ABC):
             if self._blocked:
                 raise PreventUpdate
 
+            # The server-side callback ends before Dash receives and applies its response.
+            # A newer interval invocation can supersede that response even if it returns
+            # PreventUpdate. Keep polling quiet until this page acknowledges delivery, or
+            # the existing retry timeout expires.
+            if (
+                self._state == PluginState.READY
+                and page_id
+                and self._expected_render_key is not None
+                and rendered_inputs_key != self._expected_render_key
+                and not _delivery_attempt_due(
+                    page_id,
+                    self._expected_render_key,
+                    rendered_inputs_key,
+                    self._render_attempts,
+                    monotonic(),
+                )
+            ):
+                raise PreventUpdate
+
             # This will trigger the main loop
             return data + 1
 
@@ -354,28 +521,38 @@ class StaticPlugin(Plugin, ABC):
 
         output = [
             Output(self.get_internal_id("update-button"), "children"),
-            Output(self.get_internal_id("update-button"), "n_clicks"),
             Output(self.get_internal_id("update-button"), "disabled"),
         ]
-        input = Input(self.get_internal_id("update-interval"), "n_intervals")
+        inputs = [
+            Input(self.get_internal_id("update-interval"), "n_intervals"),
+            Input(self.get_internal_id("rendered-inputs-key"), "data"),
+        ]
 
         # Update status label
         # Register updates from inputs
-        @app.callback(output, input)  # type: ignore
-        def plugin_update_status(_: Any) -> Tuple[Any, Optional[Any], bool]:
+        @app.callback(output, inputs)  # type: ignore
+        def plugin_update_status(
+            _: Any, rendered_inputs_key: Optional[str]
+        ) -> Tuple[Any, bool]:
             """Update the status of the plugin."""
             button_text: Any = [html.Span(self.button_caption)]
 
             if self._state == PluginState.UNSET:
-                # Disable and reset button
-                return button_text, None, True
+                return button_text, True
 
             # Important so the button is not updated every time (would result in an ugly spinner).
             # An initial callback still has to synchronize a newly mounted page with the shared
             # plugin state, even if another page has already observed the same state.
             update_status_content = _should_update_status_content(
                 self._previous_state, self._state, ctx.triggered_id
-            )
+            ) or ctx.triggered_id == self.get_internal_id("rendered-inputs-key")
+            if _result_delivery_complete(
+                self._state, self._expected_render_key, rendered_inputs_key
+            ):
+                # Keep sending the spinner-free READY content. The callback that first clears
+                # the spinner can be superseded by a closely following interval callback after
+                # the result itself has already reached the browser.
+                update_status_content = True
             if not update_status_content:
                 # ``_previous_state`` is shared across browser pages. Only suppress replacement
                 # of the unchanged children; the disabled flag below must still be returned so
@@ -401,19 +578,18 @@ class StaticPlugin(Plugin, ABC):
                 )
 
             disabled = _process_button_disabled(self._state)
+            if self._state == PluginState.READY:
+                disabled = not _result_delivery_complete(
+                    self._state, self._expected_render_key, rendered_inputs_key
+                )
             if self._state == PluginState.PROCESSING:
                 if update_status_content:
                     button_text += [dbc.Spinner(size="sm", spinner_class_name="ms-2")]
 
-            button = no_update
-            if self._reset_button:
-                self._reset_button = False
-                button = None
-
             # Update the previous state
             self._previous_state = self._state
 
-            return button_text, button, disabled
+            return button_text, disabled
 
     def _get_job_id(self, run_name: str, inputs_key: str) -> str:
         """
@@ -452,6 +628,8 @@ class StaticPlugin(Plugin, ABC):
         components = [
             dcc.Interval(id=self.get_internal_id("update-interval"), interval=config.REFRESH_RATE),
             dcc.Store(id=self.get_internal_id("update-interval-output"), data=0),
+            dcc.Store(id=self.get_internal_id("rendered-inputs-key")),
+            dcc.Store(id=self.get_internal_id("page-instance-id"), data=str(uuid4())),
         ]
         components += super().__call__(True)
 

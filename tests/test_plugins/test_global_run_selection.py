@@ -2,7 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import deepcave
-from deepcave.plugins import Plugin
+from deepcave.plugins import Plugin, _should_initialize_inputs
 
 
 class MultiRunPlugin(Plugin):
@@ -16,6 +16,15 @@ class MultiRunPlugin(Plugin):
 
     def get_additional_run_candidates(self, active_run):
         return self.candidates
+
+
+def test_remounted_non_persistent_plugin_hydrates_cached_inputs() -> None:
+    previous_inputs = {"cluster_count": {"value": "1"}}
+
+    assert _should_initialize_inputs(False, previous_inputs, "on-page-load") is True
+    assert _should_initialize_inputs(False, previous_inputs, None) is True
+    assert _should_initialize_inputs(False, previous_inputs, "cluster-count") is False
+    assert _should_initialize_inputs(True, previous_inputs, "on-page-load") is False
 
 
 def test_multi_run_selection_keeps_global_run_first_and_sanitizes_additions(monkeypatch):

@@ -226,6 +226,15 @@ def test_converter_retains_model_family(tmp_path: Path) -> None:
     assert run.meta["model_family"] == "xgboost"
 
 
+def test_converter_retains_sampler_name(tmp_path: Path) -> None:
+    study = optuna.create_study(direction="minimize", sampler=optuna.samplers.RandomSampler())
+    study.add_trial(create_trial(value=0.4))
+
+    run = OptunaRun.from_path(_write_study(tmp_path / "run", study))
+
+    assert run.meta["optuna_sampler"] == "RandomSampler"
+
+
 def test_converter_rejects_study_without_completed_trial(tmp_path: Path) -> None:
     study = optuna.create_study(direction="minimize")
     study.add_trial(create_trial(state=TrialState.WAITING))

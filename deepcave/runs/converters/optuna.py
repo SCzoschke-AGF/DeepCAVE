@@ -268,7 +268,10 @@ class OptunaRun(Run):
 
         # Let's create a new run object
         study_name = optuna_study.study_name
-        meta = {"optuna_study_name": study_name}
+        meta = {
+            "optuna_study_name": study_name,
+            "optuna_sampler": type(optuna_study.sampler).__name__,
+        }
         model_family = optuna_study.user_attrs.get("model_family")
         if model_family is not None:
             meta["model_family"] = model_family

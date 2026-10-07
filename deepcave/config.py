@@ -108,11 +108,16 @@ class Config:
     @property
     def PLUGINS(self) -> Dict[str, List[Any]]:
         """A list of available plugins per category."""
-        from deepcave.plugins.budget.budget_correlation import BudgetCorrelation
         from deepcave.plugins.hyperparameter.ablation_paths import AblationPaths
         from deepcave.plugins.hyperparameter.configuration_cube import ConfigurationCube
+        from deepcave.plugins.hyperparameter.configuration_neighborhood import (
+            ConfigurationNeighborhood,
+        )
         from deepcave.plugins.hyperparameter.hpo_planning import HPOPlanning
         from deepcave.plugins.hyperparameter.importances import Importances
+        from deepcave.plugins.hyperparameter.near_optimal_configurations import (
+            NearOptimalConfigurations,
+        )
         from deepcave.plugins.hyperparameter.one_dimensional_analysis import (
             OneDimensionalAnalysis,
         )
@@ -141,14 +146,13 @@ class Config:
                 CostOverTime(),
                 ParetoFront(),
             ],
-            "Budget Analysis": [
-                BudgetCorrelation(),
-            ],
             "Hyperparameter Analysis": [
                 Importances(),
                 AblationPaths(),
                 OneDimensionalAnalysis(),
                 TwoDimensionalAnalysis(),
+                NearOptimalConfigurations(),
+                ConfigurationNeighborhood(),
                 ConfigurationCube(),
                 HPOPlanning(),
                 ParallelCoordinates(),

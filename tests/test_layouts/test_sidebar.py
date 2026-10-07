@@ -14,6 +14,14 @@ def test_configurations_plugin_is_not_exposed_in_ui():
     assert "configurations" not in plugin_ids
 
 
+def test_budget_analysis_is_not_exposed_in_ui():
+    assert "Budget Analysis" not in deepcave.config.PLUGINS
+    plugin_ids = [
+        plugin.id for plugins in deepcave.config.PLUGINS.values() for plugin in plugins
+    ]
+    assert "budget_correlation" not in plugin_ids
+
+
 def _walk_components(component):
     """Yield a Dash component and all descendants."""
     yield component

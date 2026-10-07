@@ -32,6 +32,7 @@ from deepcave.evaluators.epm.fanova_forest import FanovaForest
 from deepcave.evaluators.fanova import fANOVA
 from deepcave.runs import AbstractRun
 from deepcave.runs.objective import Objective
+from deepcave.runs.status import Status
 from deepcave.utils.multi_objective_importance import get_weightings
 
 
@@ -58,6 +59,7 @@ class MOfANOVA(fANOVA):
         budget: Optional[Union[int, float]] = None,
         n_trees: int = 100,
         seed: int = 0,
+        statuses: Optional[Union[Status, List[Status]]] = None,
     ) -> None:
         """
         Get the data with respect to budget and train the forest on the encoded data.
@@ -78,6 +80,8 @@ class MOfANOVA(fANOVA):
             How many trees should be used. By default 100.
         seed : int
             Random seed. By default 0.
+        statuses : Optional[Union[Status, List[Status]]]
+            Trial states included in model fitting. By default all states are included.
         """
         if objectives is None:
             objectives = self.run.get_objectives()
@@ -89,7 +93,11 @@ class MOfANOVA(fANOVA):
 
         # Get data
         df = self.run.get_encoded_data(
-            objectives, budget, specific=True, include_combined_cost=True
+            objectives,
+            budget,
+            statuses=statuses,
+            specific=True,
+            include_combined_cost=True,
         )
 
         # normalize objectives

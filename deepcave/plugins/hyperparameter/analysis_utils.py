@@ -15,8 +15,9 @@
 # noqa: D400
 """Shared empirical-analysis helpers for Optuna hyperparameter plugins."""
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import copy
 from collections import OrderedDict
 from threading import Lock, RLock
 
@@ -32,9 +33,11 @@ from ConfigSpace.hyperparameters import (
 
 from deepcave.runs import AbstractRun
 from deepcave.runs.status import Status
+from deepcave.utils.configspace import normalized_configuration_matrix
 
 N_BINS = 10
 TRIAL_TABLE_CACHE_SIZE = 8
+NORMALIZED_TRIAL_CACHE_SIZE = 8
 
 
 # Feature-specific plugin caches cannot be reused when a different feature is selected. Keep a
@@ -43,6 +46,8 @@ _TRIAL_TABLE_CACHE: "OrderedDict[Tuple[str, str, int, str], pd.DataFrame]" = Ord
 _TRIAL_TABLE_CACHE_LOCK = RLock()
 _TRIAL_TABLE_BUILD_LOCKS: Dict[Tuple[str, str, int, str], Lock] = {}
 _TRIAL_TABLE_CACHE_GENERATION = 0
+_NORMALIZED_TRIAL_CACHE: "OrderedDict[Tuple[str, str], Dict[str, Any]]" = OrderedDict()
+_NORMALIZED_TRIAL_CACHE_LOCK = RLock()
 
 
 def clear_trial_table_cache() -> None:
@@ -52,6 +57,97 @@ def clear_trial_table_cache() -> None:
         _TRIAL_TABLE_CACHE.clear()
         _TRIAL_TABLE_BUILD_LOCKS.clear()
         _TRIAL_TABLE_CACHE_GENERATION += 1
+
+
+def clear_normalized_trial_cache() -> None:
+    """Clear cached normalized trial configurations shared by analysis plugins."""
+    with _NORMALIZED_TRIAL_CACHE_LOCK:
+        _NORMALIZED_TRIAL_CACHE.clear()
+
+
+def _normalized_trial_cache_key(run: AbstractRun) -> Optional[Tuple[str, str]]:
+    """Return a content-aware key, or no key for lightweight test doubles."""
+    try:
+        run_id = run.id
+        latest_change = run.latest_change
+    except (AttributeError, RuntimeError):
+        return None
+    if not isinstance(run_id, str) or not isinstance(latest_change, (int, float)):
+        return None
+    return run_id, f"{id(run)}:{latest_change}:{len(run.history)}"
+
+
+def _json_value(value: Any) -> Any:
+    """Return a JSON-compatible scalar while preserving ordinary Python values."""
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
+def _build_normalized_trials(
+    run: AbstractRun,
+    normalizer: Callable = normalized_configuration_matrix,
+) -> Dict[str, Any]:
+    """Build objective-independent trial metadata and normalized configurations."""
+    hyperparameter_names = list(run.configspace.keys())
+    configurations: Dict[int, Any] = {}
+    records = []
+    configuration_list = []
+
+    for history_index, trial in enumerate(run.history):
+        if trial.status != Status.SUCCESS:
+            continue
+        trial_id = int(trial.additional.get("optuna_trial_number", history_index))
+        if trial.config_id not in configurations:
+            configurations[trial.config_id] = run.get_config(trial.config_id)
+        configuration = configurations[trial.config_id]
+        records.append(
+            {
+                "trial_id": trial_id,
+                "config_id": int(trial.config_id),
+                "start_time": float(trial.start_time),
+                "end_time": float(trial.end_time),
+                "configuration": {
+                    name: _json_value(configuration.get(name)) for name in hyperparameter_names
+                },
+            }
+        )
+        configuration_list.append(configuration)
+
+    matrix = normalizer(configuration_list, run.configspace)
+    return {
+        "records": records,
+        "matrix": matrix.tolist(),
+        "hyperparameters": hyperparameter_names,
+    }
+
+
+def get_normalized_trials(
+    run: AbstractRun,
+    normalizer: Callable = normalized_configuration_matrix,
+) -> Dict[str, Any]:
+    """Return one normalized configuration matrix per run version."""
+    key = _normalized_trial_cache_key(run)
+    if key is None:
+        return _build_normalized_trials(run, normalizer)
+
+    with _NORMALIZED_TRIAL_CACHE_LOCK:
+        cached = _NORMALIZED_TRIAL_CACHE.get(key)
+        if cached is not None:
+            _NORMALIZED_TRIAL_CACHE.move_to_end(key)
+            return copy.deepcopy(cached)
+
+    normalized = _build_normalized_trials(run, normalizer)
+    with _NORMALIZED_TRIAL_CACHE_LOCK:
+        stale_keys = [
+            cached_key for cached_key in _NORMALIZED_TRIAL_CACHE if cached_key[0] == key[0]
+        ]
+        for stale_key in stale_keys:
+            del _NORMALIZED_TRIAL_CACHE[stale_key]
+        _NORMALIZED_TRIAL_CACHE[key] = normalized
+        while len(_NORMALIZED_TRIAL_CACHE) > NORMALIZED_TRIAL_CACHE_SIZE:
+            _NORMALIZED_TRIAL_CACHE.popitem(last=False)
+    return copy.deepcopy(normalized)
 
 
 def _trial_table_cache_key(

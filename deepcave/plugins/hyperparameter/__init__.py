@@ -34,6 +34,10 @@ parallel_coordinates
     This module provides utilities for visualizing the parallel coordinates.
 configuration_cube
     This module provides utilities for visualizing and creating a configruation cube.
+configuration_neighborhood
+    This module provides normalized configuration-neighborhood analysis for Optuna trials.
+near_optimal_configurations
+    This module analyzes observed near-optimal configuration diversity and regimes.
 hpo_planning
     This module provides empirical single-feature ranges for subsequent HPO planning.
 """

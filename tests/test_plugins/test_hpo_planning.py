@@ -75,6 +75,15 @@ def test_toolbar_contains_only_local_planning_controls():
     assert show_top_n.max == planning.TOP_TRIAL_LIMIT
     assert show_top_n.step == 1
     assert show_top_n.debounce is True
+    elite_inputs = [
+        component
+        for component in _walk_components(toolbar)
+        if isinstance(component, dbc.Input)
+        and component.id in {f"elite_proportion_{index}" for index in range(1, 4)}
+    ]
+    assert [component.value for component in elite_inputs] == list(
+        planning.ELITE_PROPORTION_DEFAULTS
+    )
     hidden_direction_inputs = [
         component
         for component in _walk_components(toolbar)

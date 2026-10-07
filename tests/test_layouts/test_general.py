@@ -109,6 +109,41 @@ def test_group_layout_restores_relaxed_configspace_setting(monkeypatch):
     assert hydration["congruence"] == {"comparison": False}
 
 
+def test_initial_run_management_callback_preserves_plugin_inputs(monkeypatch):
+    callbacks = []
+    writes = []
+
+    def register_callback(*_args, **_kwargs):
+        def decorator(callback):
+            callbacks.append(callback)
+            return callback
+
+        return decorator
+
+    general_module = importlib.import_module("deepcave.layouts.general")
+    monkeypatch.setattr(
+        general_module,
+        "app",
+        SimpleNamespace(callback=register_callback),
+    )
+    monkeypatch.setattr(
+        general_module,
+        "c",
+        SimpleNamespace(set=lambda *keys, **kwargs: writes.append((keys, kwargs))),
+    )
+    monkeypatch.setattr(
+        general_module,
+        "run_handler",
+        SimpleNamespace(get_selected_run_paths=lambda: ["/run-a"]),
+    )
+
+    layout = object.__new__(general_module.GeneralLayout)
+    layout._callback_manage_run()
+    callbacks[0]([], [], None, [], [], None, None, 0)
+
+    assert writes == []
+
+
 def test_directory_browser_is_part_of_working_directory_section():
     general_module = importlib.import_module("deepcave.layouts.general")
     layout = object.__new__(general_module.GeneralLayout)()
