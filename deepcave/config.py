@@ -132,7 +132,7 @@ class Config:
             TwoDimensionalAnalysis,
         )
         from deepcave.plugins.objective.cost_over_time import CostOverTime
-        from deepcave.plugins.objective.pareto_front import ParetoFront
+        from deepcave.plugins.objective.multi_metrics_comparison import MultiMetricsComparison
         from deepcave.plugins.summary.footprint import FootPrint
         from deepcave.plugins.summary.overview import Overview
 
@@ -144,7 +144,7 @@ class Config:
             ],
             "Objective Analysis": [
                 CostOverTime(),
-                ParetoFront(),
+                MultiMetricsComparison(),
             ],
             "Hyperparameter Analysis": [
                 Importances(),

@@ -20,6 +20,8 @@
 ----------
 cost_over_time
     This module provides utilities for visualizing the cost over time.
+multi_metrics_comparison
+    This module compares two metrics within one Optuna study.
 pareto_front
     This module provides utilities for creating a visualization of the Pareto Front.
 """

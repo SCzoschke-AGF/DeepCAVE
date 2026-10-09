@@ -9,7 +9,7 @@ Displaying Data with Plugins
    configurations
    configuration_footprint
    cost_over_time
-   pareto_front
+   multi_metrics_comparison
    budget_correlation
    importances
    ablation_paths

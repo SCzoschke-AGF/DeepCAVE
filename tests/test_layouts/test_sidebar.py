@@ -22,6 +22,15 @@ def test_budget_analysis_is_not_exposed_in_ui():
     assert "budget_correlation" not in plugin_ids
 
 
+def test_multi_metrics_comparison_replaces_pareto_front_in_ui():
+    plugin_ids = [
+        plugin.id for plugins in deepcave.config.PLUGINS.values() for plugin in plugins
+    ]
+
+    assert "multi_metrics_comparison" in plugin_ids
+    assert "pareto_front" not in plugin_ids
+
+
 def _walk_components(component):
     """Yield a Dash component and all descendants."""
     yield component
