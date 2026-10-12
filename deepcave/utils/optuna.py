@@ -127,6 +127,13 @@ def create_optuna_snapshot(
         to_study_name=study_name,
     )
     snapshot = optuna.load_study(storage=memory, study_name=study_name)
+    # Storage does not retain the original sampler. Do not report load_study's default.
+    sampler_name = snapshot.user_attrs.get("optuna_sampler")
+    snapshot._deepcave_sampler_name = (
+        sampler_name.strip()
+        if isinstance(sampler_name, str) and sampler_name.strip()
+        else "Unknown sampler"
+    )
 
     total_trials = len(snapshot.trials)
     imported_trials = sum(

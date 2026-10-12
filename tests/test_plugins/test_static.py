@@ -110,6 +110,61 @@ def test_render_key_keeps_single_list_like_output_atomic() -> None:
     assert _append_render_key(["left", "right"], 2, "key") == ["left", "right", "key"]
 
 
+def test_cached_render_failure_allows_recalculation(monkeypatch) -> None:
+    callbacks = []
+
+    def register_callback(_output, _inputs):
+        def register(callback):
+            callbacks.append(callback)
+            return callback
+
+        return register
+
+    monkeypatch.setattr(deepcave, "app", SimpleNamespace(callback=register_callback), raising=False)
+    monkeypatch.setattr(deepcave, "c", SimpleNamespace(get=lambda *_args: None), raising=False)
+    monkeypatch.setattr(
+        deepcave, "rc", SimpleNamespace(get=lambda *_args: {"legacy": True}), raising=False
+    )
+    monkeypatch.setattr(deepcave, "run_handler", SimpleNamespace(), raising=False)
+    monkeypatch.setattr(
+        deepcave,
+        "queue",
+        SimpleNamespace(
+            get_finished_jobs=lambda: [],
+            is_running=lambda _id: False,
+            is_pending=lambda _id: False,
+            has_failed=lambda _id: False,
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        static, "ctx", SimpleNamespace(triggered_id="analysis-update-interval-output")
+    )
+    plugin = object.__new__(StaticPlugin)
+    plugin.id = "analysis"
+    plugin.inputs = []
+    plugin.outputs = [("content", "children")]
+    plugin._setup()
+    plugin._list_to_dict = lambda _values, input=True: {}
+    plugin._clean_inputs = lambda _inputs: {}
+    plugin.get_selected_runs = lambda _inputs: [SimpleNamespace(id="run")]
+    plugin.check_runs_compatibility = lambda _runs: None
+
+    def render(*_args):
+        raise KeyError("silhouette")
+
+    plugin._process_raw_outputs = render
+    StaticPlugin._callback_inputs_changed.__wrapped__(plugin)
+
+    with pytest.raises(KeyError, match="silhouette"):
+        callbacks[0](None, 0, "run", None, "page")
+
+    assert plugin._state == PluginState.FAILED
+    assert plugin._expected_render_key is None
+    assert _process_button_disabled(plugin._state) is False
+    assert plugin._blocked is False
+
+
 def test_result_delivery_is_not_duplicated_while_first_response_is_in_flight() -> None:
     attempts = {("page", "result"): 5.0}
 

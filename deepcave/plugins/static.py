@@ -158,6 +158,15 @@ def _process_button_was_triggered(
     return n_clicks is not None and triggered_id == button_id
 
 
+def _render_inputs_key(plugin: "StaticPlugin", inputs: Dict[str, Any]) -> str:
+    """Track view filters for browser delivery while keeping processing cache keys unchanged."""
+    filters: Dict[str, Any] = {}
+    for input_id, attribute, is_filter, _ in plugin.inputs:
+        if is_filter and input_id not in filters:
+            filters[input_id] = inputs.get(input_id, {}).get(attribute)
+    return string_to_hash(str({"applied": _applied_inputs_key(plugin, inputs), "filters": filters}))
+
+
 def _manage_callback_blocking(plugin: "StaticPlugin") -> Callable:
     """Block interval callbacks only while the decorated callback is running."""
 
@@ -242,6 +251,7 @@ class StaticPlugin(Plugin, ABC):
         self._refresh_required = True
         self._blocked = False
         self._expected_render_key: Optional[str] = None
+        self._expected_render_keys: Dict[str, str] = getattr(self, "_expected_render_keys", {})
         # ``__call__`` resets the page-local state whenever the route is mounted. Keep submitted
         # jobs across that reset so navigating away cannot make a running job look completed.
         self._submitted_job_ids: Set[str] = getattr(self, "_submitted_job_ids", set())
@@ -327,7 +337,9 @@ class StaticPlugin(Plugin, ABC):
             if button_pressed:
                 self.logger.debug("Button pressed.")
                 c.set("last_inputs", self.id, value=inputs)
-                self._expected_render_key = _applied_inputs_key(self, inputs)
+                self._expected_render_key = _render_inputs_key(self, inputs)
+                if page_id:
+                    self._expected_render_keys[page_id] = self._expected_render_key
                 for run in runs:
                     job_id = self._get_job_id(run.id, inputs_key)
 
@@ -430,7 +442,7 @@ class StaticPlugin(Plugin, ABC):
             # instance are shared across browser pages, so ``_refresh_required`` may already be
             # false after an earlier page rendered the same cached result. Always return that
             # result on the initial call; otherwise a reload has an empty output.
-            render_key = _applied_inputs_key(self, inputs)
+            render_key = _render_inputs_key(self, inputs)
             now = monotonic()
             delivery_due = _delivery_attempt_due(
                 page_id,
@@ -441,15 +453,31 @@ class StaticPlugin(Plugin, ABC):
             )
             if rendered_inputs_key == render_key and page_id:
                 self._render_attempts.pop((page_id, render_key), None)
+            filter_changed = ctx.triggered_id in {
+                self.get_internal_input_id(input_id)
+                for input_id, _, is_filter, _ in self.inputs
+                if is_filter
+            }
             if _should_refresh_outputs(
-                inputs_changed,
+                inputs_changed or filter_changed,
                 self._refresh_required,
                 ctx.triggered_id,
                 delivery_due,
             ):
                 self.raw_outputs = raw_outputs
-                processed_outputs = self._process_raw_outputs(inputs, raw_outputs, runs)
+                try:
+                    processed_outputs = self._process_raw_outputs(inputs, raw_outputs, runs)
+                except Exception:
+                    # A cached result can be incompatible with a newer renderer. Do not leave
+                    # READY waiting for a browser acknowledgement that can never arrive.
+                    self._state = PluginState.FAILED
+                    self._expected_render_key = None
+                    if page_id:
+                        self._expected_render_keys.pop(page_id, None)
+                    raise
                 self._expected_render_key = render_key
+                if page_id:
+                    self._expected_render_keys[page_id] = render_key
                 self._refresh_required = False
                 if page_id:
                     self._render_attempts[(page_id, render_key)] = now
@@ -497,14 +525,17 @@ class StaticPlugin(Plugin, ABC):
             # A newer interval invocation can supersede that response even if it returns
             # PreventUpdate. Keep polling quiet until this page acknowledges delivery, or
             # the existing retry timeout expires.
+            expected_render_key = self._expected_render_keys.get(
+                page_id or "", self._expected_render_key
+            )
             if (
                 self._state == PluginState.READY
                 and page_id
-                and self._expected_render_key is not None
-                and rendered_inputs_key != self._expected_render_key
+                and expected_render_key is not None
+                and rendered_inputs_key != expected_render_key
                 and not _delivery_attempt_due(
                     page_id,
-                    self._expected_render_key,
+                    expected_render_key,
                     rendered_inputs_key,
                     self._render_attempts,
                     monotonic(),
@@ -526,16 +557,20 @@ class StaticPlugin(Plugin, ABC):
         inputs = [
             Input(self.get_internal_id("update-interval"), "n_intervals"),
             Input(self.get_internal_id("rendered-inputs-key"), "data"),
+            State(self.get_internal_id("page-instance-id"), "data"),
         ]
 
         # Update status label
         # Register updates from inputs
         @app.callback(output, inputs)  # type: ignore
         def plugin_update_status(
-            _: Any, rendered_inputs_key: Optional[str]
+            _: Any, rendered_inputs_key: Optional[str], page_id: Optional[str] = None
         ) -> Tuple[Any, bool]:
             """Update the status of the plugin."""
             button_text: Any = [html.Span(self.button_caption)]
+            expected_render_key = self._expected_render_keys.get(
+                page_id or "", self._expected_render_key
+            )
 
             if self._state == PluginState.UNSET:
                 return button_text, True
@@ -547,7 +582,7 @@ class StaticPlugin(Plugin, ABC):
                 self._previous_state, self._state, ctx.triggered_id
             ) or ctx.triggered_id == self.get_internal_id("rendered-inputs-key")
             if _result_delivery_complete(
-                self._state, self._expected_render_key, rendered_inputs_key
+                self._state, expected_render_key, rendered_inputs_key
             ):
                 # Keep sending the spinner-free READY content. The callback that first clears
                 # the spinner can be superseded by a closely following interval callback after
@@ -580,7 +615,7 @@ class StaticPlugin(Plugin, ABC):
             disabled = _process_button_disabled(self._state)
             if self._state == PluginState.READY:
                 disabled = not _result_delivery_complete(
-                    self._state, self._expected_render_key, rendered_inputs_key
+                    self._state, expected_render_key, rendered_inputs_key
                 )
             if self._state == PluginState.PROCESSING:
                 if update_status_content:

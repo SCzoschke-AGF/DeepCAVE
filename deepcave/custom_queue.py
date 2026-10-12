@@ -346,7 +346,8 @@ class Queue:
             """
             if job_id is not None:
                 try:
-                    registry.remove(self.get_job(job_id), delete_job=True)
+                    # Remove the registry marker even when its job record is already gone.
+                    registry.remove(job_id, delete_job=True)
                 except Exception:
                     pass
             else:
@@ -420,6 +421,9 @@ class Queue:
             logger.debug("Job was not added because it was processed already.")
             return
 
+        # A retry reuses its job id. An old failure marker must not classify the new job
+        # as failed before the worker has processed it (including orphaned markers).
+        self._queue.failed_job_registry.remove(job_id)
         self._queue.enqueue(
             func,
             args=args,

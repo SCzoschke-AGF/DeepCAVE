@@ -112,6 +112,10 @@ class Plugin(Layout, ABC):
     allow_additional_runs: bool = False
     main_objective_input: Optional[str] = None
     main_objective_input_type: Any = int
+    # View events merged into the native input callback, keeping each control's writer unique.
+    # Entries are (event name, component id, property); these never enter processing cache keys.
+    input_update_inputs: Tuple[Tuple[str, str, str], ...] = ()
+    configuration_output_ids: Optional[Tuple[str, ...]] = None
 
     def __init__(self) -> None:
         # Registered inputs and outputs
@@ -324,9 +328,13 @@ class Plugin(Layout, ABC):
             callback_inputs.append(Input(self.get_internal_input_id(id), attribute))
         if self.main_objective_input is not None:
             callback_inputs.append(Input("global-main-objective-state", "data"))
+        for _, component_id, component_property in self.input_update_inputs:
+            callback_inputs.append(Input(component_id, component_property))
 
         for id, attribute, _, _ in self.inputs:
             outputs.append(Output(self.get_internal_input_id(id), attribute))
+        for _, component_id, component_property in self.input_update_inputs:
+            outputs.append(Output(component_id, component_property))
 
         if len(outputs) > 0:
 
@@ -335,6 +343,15 @@ class Plugin(Layout, ABC):
                 pathname: str, global_run_id: Optional[str], *inputs_list: str
             ) -> List[Optional[str]]:
                 """Update the input of the plugin."""
+                event_values: Dict[str, Any] = {}
+                if self.input_update_inputs:
+                    event_values = {
+                        name: value
+                        for (name, _, _), value in zip(
+                            self.input_update_inputs, inputs_list[-len(self.input_update_inputs) :]
+                        )
+                    }
+                    inputs_list = inputs_list[: -len(self.input_update_inputs)]
                 global_objective_state = None
                 if self.main_objective_input is not None:
                     global_objective_state = inputs_list[-1]
@@ -363,6 +380,8 @@ class Plugin(Layout, ABC):
                         inputs = self.load_inputs()
 
                 previous_inputs = copy.deepcopy(cached_inputs if init else self.previous_inputs)
+                event_updates = self.load_input_updates(event_values)
+                update_dict(inputs, event_updates)
                 inputs["run"] = {"value": global_run_id}
 
                 # Dependency callbacks may read controls whose values are entirely populated by
@@ -420,9 +439,15 @@ class Plugin(Layout, ABC):
                         return False
                     return isinstance(equal, bool) and equal
 
-                return [
+                control_updates = [
                     no_update if unchanged(current, desired) else desired
                     for current, desired in zip(current_values, inputs_list_from_dict)
+                ]
+                # Consume selection events in this same callback so downstream readers cannot
+                # clear a click before its parameter is selected, and repeated clicks still work.
+                return control_updates + [
+                    None if event_updates and ctx.triggered_id == component_id else no_update
+                    for _, component_id, _ in self.input_update_inputs
                 ]
 
         # Register modal for raw data here
@@ -461,7 +486,14 @@ class Plugin(Layout, ABC):
             return is_open
 
         # Register callback to click on configurations
-        for id, *_ in self.outputs:
+        for id, attribute in self.outputs:
+            if attribute != "figure":
+                continue
+            if (
+                self.configuration_output_ids is not None
+                and id not in self.configuration_output_ids
+            ):
+                continue
             internal_id = self.get_internal_output_id(id)
 
             @app.callback(
@@ -659,9 +691,6 @@ class Plugin(Layout, ABC):
 
         result: List[Optional[str]] = []
         for id, attribute, *_ in order:
-            if not input:
-                continue
-
             try:
                 value = d[id][attribute]
                 result += [value]
@@ -1255,6 +1284,10 @@ class Plugin(Layout, ABC):
         Dict[str, Any]
             Content to be filled.
         """
+        return {}
+
+    def load_input_updates(self, events: Dict[str, Any]) -> Dict[str, Any]:
+        """Map optional plot/table events to controls within the native input callback."""
         return {}
 
     def load_dependency_inputs(

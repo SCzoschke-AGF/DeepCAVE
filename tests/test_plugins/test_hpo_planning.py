@@ -21,11 +21,10 @@ from deepcave.runs.status import Status
 from deepcave.runs.trial import Trial
 
 
-def test_plugin_is_registered_directly_after_configuration_cube():
+def test_plugin_is_registered_for_hyperparameter_analysis():
     plugin_ids = [plugin.id for plugin in config.PLUGINS["Hyperparameter Analysis"]]
 
-    configuration_cube_index = plugin_ids.index("ccube")
-    assert plugin_ids[configuration_cube_index + 1] == "hpo_planning"
+    assert "hpo_planning" in plugin_ids
     assert planning.HPOPlanning.name == "HPO Planner"
 
 

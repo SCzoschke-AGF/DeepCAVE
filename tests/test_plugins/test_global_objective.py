@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from deepcave.plugins import Plugin
 from deepcave.plugins.budget.budget_correlation import BudgetCorrelation
+from deepcave.plugins.cost_efficiency import CostEfficiency
 from deepcave.plugins.hyperparameter.ablation_paths import AblationPaths
 from deepcave.plugins.hyperparameter.configuration_cube import ConfigurationCube
 from deepcave.plugins.hyperparameter.hpo_planning import HPOPlanning
@@ -17,6 +18,7 @@ from deepcave.plugins.hyperparameter.two_dimensional_analysis import (
 )
 from deepcave.plugins.objective.cost_over_time import CostOverTime
 from deepcave.plugins.objective.pareto_front import ParetoFront
+from deepcave.plugins.objective.performance_cost import PerformanceCost
 from deepcave.plugins.summary.footprint import FootPrint
 from deepcave.runs.objective import Objective
 
@@ -35,6 +37,8 @@ def test_every_objective_selector_plugin_declares_its_primary_input() -> None:
         TwoDimensionalAnalysis,
         CostOverTime,
         ParetoFront,
+        PerformanceCost,
+        CostEfficiency,
         FootPrint,
     )
     expected_inputs = {
@@ -50,6 +54,8 @@ def test_every_objective_selector_plugin_declares_its_primary_input() -> None:
         "two_dimensional_analysis": "objective_id",
         "cost_over_time": "objective_id",
         "pareto_front": "objective_id_1",
+        "performance_cost": "objective_id",
+        "cost_efficiency": "objective_id",
         "footprint": "objective_id",
     }
     assert {plugin.id: plugin.main_objective_input for plugin in plugin_classes} == expected_inputs

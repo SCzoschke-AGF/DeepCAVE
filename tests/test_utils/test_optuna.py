@@ -108,6 +108,30 @@ def test_snapshot_is_detached_and_tracks_skipped_trials(tmp_path: Path) -> None:
     assert len(run.history) == 1
 
 
+@pytest.mark.parametrize("sampler_name", [None, "RandomSampler", "TPESampler", "", 42])
+def test_snapshot_reports_original_sampler_metadata(
+    tmp_path: Path, sampler_name: str | int | None
+) -> None:
+    database = tmp_path / "optuna.db"
+    study_name = "xgb_random"
+    study = optuna.create_study(
+        storage=f"sqlite:///{database}",
+        study_name=study_name,
+        sampler=optuna.samplers.RandomSampler(seed=7),
+    )
+    if sampler_name is not None:
+        study.set_user_attr("optuna_sampler", sampler_name)
+    study.optimize(lambda trial: trial.suggest_float("x", 0.0, 1.0), n_trials=1)
+
+    result = create_optuna_snapshot(database, study_name, tmp_path)
+    run = OptunaRun.from_path(result.run_path)
+
+    assert run.meta["optuna_study_name"] == study_name
+    assert run.meta["optuna_sampler"] == (
+        sampler_name if isinstance(sampler_name, str) and sampler_name else "Unknown sampler"
+    )
+
+
 def test_failed_refresh_preserves_previous_snapshot(tmp_path: Path) -> None:
     database = tmp_path / "optuna.db"
     _create_database(database, ["study"])

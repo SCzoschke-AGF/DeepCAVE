@@ -96,10 +96,12 @@ def _payload():
 
 
 def test_plugin_and_footprint_are_registered_together():
-    plugin_ids = [plugin.id for plugin in config.PLUGINS["Hyperparameter Analysis"]]
-    summary_ids = [plugin.id for plugin in config.PLUGINS["Summary"]]
-    assert "near_optimal_configurations" in plugin_ids
-    assert "footprint" in summary_ids
+    plugin_ids = [plugin.id for plugin in config.PLUGINS["Configuration Analyses"]]
+    assert plugin_ids == [
+        "footprint",
+        "near_optimal_configurations",
+        "configuration_neighborhood",
+    ]
 
 
 def test_plugin_is_optuna_only():
@@ -315,6 +317,31 @@ def test_analysis_data_cache_uses_stable_tokens_and_can_be_cleared():
     assert near_optimal._get_analysis_data(first) is not None
     near_optimal.clear_near_optimal_analysis_cache()
     assert near_optimal._get_analysis_data(first) is None
+
+
+@pytest.mark.parametrize("clusters", [[1, 1, 1, 1], [1, 1, 2, 2], [1, 2, 3, 4]])
+def test_legacy_heatmap_cache_recovers_missing_silhouettes(clusters):
+    payload = _payload()
+    matrix = [[0, 0.1, 0.8, 0.9], [0.1, 0, 0.9, 0.8], [0.8, 0.9, 0, 0.1], [0.9, 0.8, 0.1, 0]]
+    payload["heatmap"].update(
+        matrix=matrix, trial_ids=[3, 8, 9, 10], clusters=clusters, linkage=[], shown=4, total=4
+    )
+    expected = (
+        near_optimal.silhouette_samples(np.asarray(matrix), clusters, metric="precomputed")
+        if len(set(clusters)) == 2
+        else np.zeros(4)
+    )
+    payload["heatmap"].pop("silhouette")
+
+    page = near_optimal.NearOptimalConfigurations.load_outputs(None, {}, payload)
+    graph = next(
+        component
+        for component in near_optimal._walk_components(page)
+        if getattr(component, "id", None) == near_optimal.HEATMAP_ID
+    )
+    strip = next(trace for trace in graph.figure.data if trace.type == "bar")
+    np.testing.assert_allclose(strip.x, expected)
+    assert "silhouette" not in payload["heatmap"]
 
 
 def test_cluster_profiles_are_compared_in_columns_without_activity_or_graph():

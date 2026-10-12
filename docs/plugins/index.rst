@@ -9,6 +9,8 @@ Displaying Data with Plugins
    configurations
    configuration_footprint
    cost_over_time
+   performance_cost
+   cost_efficiency
    multi_metrics_comparison
    budget_correlation
    importances

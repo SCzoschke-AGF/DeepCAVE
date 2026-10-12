@@ -108,8 +108,8 @@ class Config:
     @property
     def PLUGINS(self) -> Dict[str, List[Any]]:
         """A list of available plugins per category."""
+        from deepcave.plugins.cost_efficiency import CostEfficiency
         from deepcave.plugins.hyperparameter.ablation_paths import AblationPaths
-        from deepcave.plugins.hyperparameter.configuration_cube import ConfigurationCube
         from deepcave.plugins.hyperparameter.configuration_neighborhood import (
             ConfigurationNeighborhood,
         )
@@ -121,18 +121,13 @@ class Config:
         from deepcave.plugins.hyperparameter.one_dimensional_analysis import (
             OneDimensionalAnalysis,
         )
-        from deepcave.plugins.hyperparameter.parallel_coordinates import (
-            ParallelCoordinates,
-        )
         from deepcave.plugins.hyperparameter.pdp import PartialDependencies
-        from deepcave.plugins.hyperparameter.symbolic_explanations import (
-            SymbolicExplanations,
-        )
         from deepcave.plugins.hyperparameter.two_dimensional_analysis import (
             TwoDimensionalAnalysis,
         )
         from deepcave.plugins.objective.cost_over_time import CostOverTime
         from deepcave.plugins.objective.multi_metrics_comparison import MultiMetricsComparison
+        from deepcave.plugins.objective.performance_cost import PerformanceCost
         from deepcave.plugins.summary.footprint import FootPrint
         from deepcave.plugins.summary.overview import Overview
 
@@ -140,10 +135,10 @@ class Config:
         plugins = {
             "Summary": [
                 Overview(),
-                FootPrint(),
             ],
             "Objective Analysis": [
                 CostOverTime(),
+                PerformanceCost(),
                 MultiMetricsComparison(),
             ],
             "Hyperparameter Analysis": [
@@ -151,14 +146,15 @@ class Config:
                 AblationPaths(),
                 OneDimensionalAnalysis(),
                 TwoDimensionalAnalysis(),
+                HPOPlanning(),
+                PartialDependencies(),
+            ],
+            "Configuration Analyses": [
+                FootPrint(),
                 NearOptimalConfigurations(),
                 ConfigurationNeighborhood(),
-                ConfigurationCube(),
-                HPOPlanning(),
-                ParallelCoordinates(),
-                PartialDependencies(),
-                SymbolicExplanations(),
             ],
+            "Cost & Efficiency": [CostEfficiency()],
         }
         return plugins
 

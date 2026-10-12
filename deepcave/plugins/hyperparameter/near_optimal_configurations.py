@@ -702,7 +702,14 @@ def heatmap_figure(data: Dict[str, Any], ordering: str = "hierarchical") -> go.F
     matrix = np.asarray(heatmap["matrix"], dtype=float)
     trial_ids = heatmap["trial_ids"]
     clusters = heatmap["clusters"]
-    silhouettes = heatmap["silhouette"]
+    silhouettes = heatmap.get("silhouette")
+    if silhouettes is None:
+        # Earlier cached analyses predate the silhouette strip. Recover it from the stored
+        # distances and cluster assignments instead of failing to render the entire analysis.
+        if len(trial_ids) > 1 and 1 < len(set(clusters)) < len(trial_ids):
+            silhouettes = silhouette_samples(matrix, clusters, metric="precomputed").tolist()
+        else:
+            silhouettes = [0.0] * len(trial_ids)
     if matrix.size == 0:
         figure = go.Figure()
         figure.add_annotation(text="No pairwise distances available.", showarrow=False)
@@ -1836,7 +1843,7 @@ class NearOptimalConfigurations(StaticPlugin):
     """Analyze diversity and regimes among observed near-optimal Optuna trials."""
 
     id = "near_optimal_configurations"
-    name = "Near-Optimal Configurations"
+    name = "Rashomon Set Analysis"
     description = "Rashomon Set Analysis"
     icon = "fas fa-layer-group"
     help = "plugins/near_optimal_configurations.html"

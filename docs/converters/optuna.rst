@@ -21,6 +21,19 @@ state and the snapshot is refreshed again. Automatic refresh is not supported.
 Only local SQLite file paths are accepted by this importer. Other Optuna storage backends can
 still be exported manually as described below.
 
+Optuna storage does not retain the original sampler. SQLite imports therefore display
+``Unknown sampler`` unless the study explicitly records its sampler in a user attribute:
+
+.. code-block:: python
+
+    study.set_user_attr("optuna_sampler", type(study.sampler).__name__)
+
+Set this attribute on the study used for optimization, before exporting or importing it.
+For an existing study, set it only if the original sampler is known; a newly loaded study's
+default sampler does not establish which sampler generated its trials. Study names are not
+used to infer the sampler. Refresh existing DeepCAVE snapshots to update the displayed value.
+Manual Pickle exports continue to report the sampler attached to the exported study object.
+
 Manual Pickle export
 ^^^^^^^^^^^^^^^^^^^^
 

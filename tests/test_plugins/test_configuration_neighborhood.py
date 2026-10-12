@@ -61,8 +61,8 @@ def _component_by_id(component, component_id):
     )
 
 
-def test_plugin_is_registered_for_hyperparameter_analysis():
-    plugin_ids = [plugin.id for plugin in config.PLUGINS["Hyperparameter Analysis"]]
+def test_plugin_is_registered_for_configuration_analyses():
+    plugin_ids = [plugin.id for plugin in config.PLUGINS["Configuration Analyses"]]
     assert "configuration_neighborhood" in plugin_ids
 
 

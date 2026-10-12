@@ -66,7 +66,8 @@ def test_global_run_selector_survives_page_navigation(monkeypatch):
         ),
     )
 
-    sidebar = object.__new__(sidebar_class)
+    monkeypatch.setattr(sidebar_class, "register_callbacks", lambda self: None)
+    sidebar = sidebar_class(deepcave.config.PLUGINS)
     layout = sidebar()
     components = list(_walk_components(layout))
     selector = next(
@@ -112,7 +113,8 @@ def test_global_objective_controls_are_available_without_a_runtime(monkeypatch):
         staticmethod(lambda: ([{"label": "Run B", "value": "run-b"}], "run-b")),
     )
 
-    sidebar = object.__new__(sidebar_class)
+    monkeypatch.setattr(sidebar_class, "register_callbacks", lambda self: None)
+    sidebar = sidebar_class(deepcave.config.PLUGINS)
     components = list(_walk_components(sidebar()))
 
     assert any(

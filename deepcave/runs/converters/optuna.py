@@ -270,7 +270,9 @@ class OptunaRun(Run):
         study_name = optuna_study.study_name
         meta = {
             "optuna_study_name": study_name,
-            "optuna_sampler": type(optuna_study.sampler).__name__,
+            "optuna_sampler": getattr(
+                optuna_study, "_deepcave_sampler_name", type(optuna_study.sampler).__name__
+            ),
         }
         model_family = optuna_study.user_attrs.get("model_family")
         if model_family is not None:
