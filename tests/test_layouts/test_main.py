@@ -103,6 +103,35 @@ def test_active_analysis_is_mounted_first_and_warm_pages_are_not_remounted(monke
     assert plugins["one_dimensional_analysis"].calls == 1
 
 
+def test_coverage_mounts_without_workers_and_keeps_a_warm_page(monkeypatch):
+    fake_app = _FakeApp()
+    run = SimpleNamespace(id="run-a", latest_change=1, history=[1], get_objectives=lambda: [])
+    plugin = _Plugin("search_space_coverage")
+    monkeypatch.setattr(main_module, "app", fake_app)
+    monkeypatch.setattr(main_module, "queue", SimpleNamespace(ready=lambda: False))
+    monkeypatch.setattr(
+        main_module,
+        "run_handler",
+        SimpleNamespace(set_active_run_id=lambda _: None, get_run=lambda _: run),
+    )
+    layout = object.__new__(main_module.MainLayout)
+    layout.plugins = {"search_space_coverage": plugin}
+    layout.register_callbacks()
+    mount = next(
+        callback
+        for callback in fake_app.callbacks
+        if callback.__name__ == "mount_persistent_analysis"
+    )
+    children, state = mount("/plugins/search_space_coverage", 0, 0, [], 0, 0, run.id, _state())
+    assert len(children) == 1
+    assert state["mounted"] == ["search_space_coverage"]
+    assert mount("/plugins/search_space_coverage", 0, 0, [], 0, 0, run.id, state) == (
+        no_update,
+        no_update,
+    )
+    assert plugin.calls == 1
+
+
 def test_same_run_data_invalidation_replaces_warm_analysis_context(monkeypatch):
     fake_app = _FakeApp()
     run = SimpleNamespace(id="run-a", latest_change=3.0, history=[1], get_objectives=lambda: [])

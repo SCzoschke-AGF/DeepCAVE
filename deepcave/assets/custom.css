@@ -502,8 +502,24 @@ table.table.exclude-head tbody {
     min-width: 0;
 }
 
+#cost_over_time-input .cost-over-time__runs-dropdown .Select-menu-outer {
+    z-index: 1100;
+    width: min(48rem, calc(100vw - 26rem));
+    min-width: 100%;
+}
+
+#cost_over_time-input .cost-over-time__runs-dropdown .Select-option,
+#cost_over_time-input .cost-over-time__runs-dropdown .VirtualizedSelectOption {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 35px;
+    font-size: 0.85rem;
+}
+
 #cost_over_time-input .cost-over-time__runs-dropdown .Select-control {
-    height: 31px;
+    height: auto;
     min-height: 31px;
     border-radius: 0 0.2rem 0.2rem 0;
 }
@@ -515,6 +531,54 @@ table.table.exclude-head tbody {
 
 #cost_over_time-input .cost-over-time__runs-dropdown .Select-input {
     height: 29px;
+}
+
+#cost_over_time-input .cost-over-time__runs-dropdown.Select--multi .Select-control {
+    align-items: center;
+    display: flex;
+}
+
+#cost_over_time-input .cost-over-time__runs-dropdown .Select-multi-value-wrapper {
+    align-items: center;
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    gap: 3px;
+    min-width: 0;
+    padding: 2px 4px;
+}
+
+#cost_over_time-input .cost-over-time__runs-dropdown.Select--multi .Select-value {
+    align-items: center;
+    display: inline-flex;
+    flex: 0 1 auto;
+    margin: 0;
+    max-width: 100%;
+    min-width: 0;
+}
+
+#cost_over_time-input .cost-over-time__runs-dropdown .Select-value-icon {
+    align-items: center;
+    display: flex;
+    flex: 0 0 auto;
+}
+
+#cost_over_time-input .cost-over-time__runs-dropdown .Select-value-label {
+    display: block;
+    max-width: 14rem;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#cost_over_time-input .cost-over-time__runs-dropdown.Select--multi .Select-input {
+    height: 23px;
+    margin: 0;
+}
+
+#cost_over_time-input .cost-over-time__runs-dropdown.Select--multi .Select-input > input {
+    padding: 2px 0;
 }
 
 .analysis-toolbar .input-group-text {
@@ -2241,5 +2305,248 @@ table.table.exclude-head tbody {
     .near-optimal-cluster-plot-toolbar {
         align-items: flex-start;
         flex-direction: column;
+    }
+}
+
+.coverage-header,
+.coverage-toolbar,
+.coverage-job-actions,
+.coverage-range-labels {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.coverage-header {
+    margin-bottom: 1rem;
+}
+
+.coverage-header h1 {
+    margin-bottom: 0.3rem;
+}
+
+.coverage-suite .tab-content {
+    padding-top: 1rem;
+}
+
+.coverage-card,
+.coverage-job {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    min-width: 0;
+}
+
+.coverage-card > h3,
+.coverage-job h4 {
+    font-size: 1.15rem;
+    margin-bottom: 0.6rem;
+}
+
+.coverage-metric-grid,
+.coverage-global-modules,
+.coverage-growth-modules,
+.coverage-baseline-grid,
+.coverage-pair-selectors {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.coverage-growth-modules,
+.coverage-baseline-grid,
+.coverage-pair-selectors {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.coverage-metric-grid {
+    margin-bottom: 1rem;
+}
+
+.coverage-metric {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 0.5rem 0;
+    overflow-wrap: anywhere;
+}
+
+.coverage-metric-label,
+.coverage-metric small,
+.coverage-job-description,
+.coverage-job-metadata {
+    color: #64748b;
+    font-size: 0.8rem;
+}
+
+.coverage-metric-value {
+    font-size: 1.3rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.coverage-metric-stack .coverage-metric {
+    padding: 0.3rem 0;
+}
+
+.coverage-metric-stack .coverage-metric-value {
+    font-size: 1.15rem;
+}
+
+.coverage-diagnostic,
+.coverage-regions,
+.coverage-pair-diagnostic {
+    display: grid;
+    grid-template-columns: minmax(180px, 0.3fr) minmax(0, 1fr);
+    gap: 1.25rem;
+    align-items: start;
+}
+
+.coverage-pair-diagnostic {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.coverage-plot {
+    min-width: 0;
+}
+
+.coverage-selector {
+    width: min(100%, 300px);
+}
+
+.coverage-toolbar {
+    margin-bottom: 0.75rem;
+}
+
+.coverage-details {
+    margin-top: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.coverage-details > summary {
+    cursor: pointer;
+    padding: 0.5rem 0;
+    font-weight: 500;
+}
+
+.coverage-job-description {
+    display: block;
+    min-height: 2.5em;
+}
+
+.coverage-job-status,
+.coverage-job-metadata {
+    margin-top: 0.5rem;
+}
+
+.coverage-job-actions {
+    justify-content: flex-start;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+.coverage-job--inline {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    border: 0;
+    padding: 0;
+}
+
+.coverage-job--inline .coverage-job-description {
+    grid-column: 1 / -1;
+    min-height: 0;
+}
+
+.coverage-job--inline .coverage-job-actions {
+    grid-column: 2;
+    grid-row: 2 / span 2;
+}
+
+.coverage-pair-metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.4rem;
+    margin-bottom: 0;
+}
+
+.coverage-pair-metrics .coverage-metric-value {
+    font-size: 1rem;
+}
+
+.coverage-radius-metrics {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.coverage-job > div[id$="-summary"] > div {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.coverage-suite .dash-graph {
+    width: 100%;
+    min-width: 0;
+}
+
+.coverage-definition-list {
+    margin: 0;
+}
+
+.coverage-definition-list > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.35rem 0;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.coverage-definition-list dt {
+    font-weight: 500;
+    overflow-wrap: anywhere;
+}
+
+.coverage-definition-list dd {
+    text-align: right;
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+}
+
+.coverage-regions {
+    grid-template-columns: minmax(180px, 0.4fr) minmax(0, 1fr);
+    margin-top: 0.75rem;
+}
+
+.coverage-regions .coverage-definition-list {
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+@media (max-width: 1100px) {
+    .coverage-pair-diagnostic {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 700px) {
+    .coverage-header,
+    .coverage-toolbar {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .coverage-global-modules,
+    .coverage-growth-modules,
+    .coverage-baseline-grid,
+    .coverage-diagnostic,
+    .coverage-regions {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .coverage-metric-grid,
+    .coverage-metric-stack {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.5rem;
     }
 }

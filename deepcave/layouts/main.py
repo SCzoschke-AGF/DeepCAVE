@@ -54,6 +54,7 @@ PERSISTENT_ANALYSIS_IDS = (
     "hpo_planning",
     "one_dimensional_analysis",
     "two_dimensional_analysis",
+    "search_space_coverage",
 )
 PERSISTENT_ANALYSIS_CACHE_ID = "persistent-analysis-cache"
 PERSISTENT_ANALYSIS_STATE_ID = "persistent-analysis-state"

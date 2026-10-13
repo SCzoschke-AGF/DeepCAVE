@@ -122,13 +122,12 @@ class Config:
             OneDimensionalAnalysis,
         )
         from deepcave.plugins.hyperparameter.pdp import PartialDependencies
+        from deepcave.plugins.hyperparameter.search_space_coverage import SearchSpaceCoverage
         from deepcave.plugins.hyperparameter.two_dimensional_analysis import (
             TwoDimensionalAnalysis,
         )
         from deepcave.plugins.objective.cost_over_time import CostOverTime
         from deepcave.plugins.objective.multi_metrics_comparison import MultiMetricsComparison
-        from deepcave.plugins.objective.performance_cost import PerformanceCost
-        from deepcave.plugins.summary.footprint import FootPrint
         from deepcave.plugins.summary.overview import Overview
 
         plugins: Dict[str, List[Any]] = {}
@@ -138,23 +137,22 @@ class Config:
             ],
             "Objective Analysis": [
                 CostOverTime(),
-                PerformanceCost(),
                 MultiMetricsComparison(),
             ],
             "Hyperparameter Analysis": [
-                Importances(),
-                AblationPaths(),
                 OneDimensionalAnalysis(),
                 TwoDimensionalAnalysis(),
                 HPOPlanning(),
+                CostEfficiency(),
+                Importances(),
+                AblationPaths(),
                 PartialDependencies(),
             ],
             "Configuration Analyses": [
-                FootPrint(),
+                SearchSpaceCoverage(),
                 NearOptimalConfigurations(),
                 ConfigurationNeighborhood(),
             ],
-            "Cost & Efficiency": [CostEfficiency()],
         }
         return plugins
 

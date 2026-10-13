@@ -17,6 +17,7 @@ Displaying Data with Plugins
    ablation_paths
    one_dimensional_analysis
    two_dimensional_analysis
+   search_space_coverage
    near_optimal_configurations
    configuration_neighborhood
    configuration_cube

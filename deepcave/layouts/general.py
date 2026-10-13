@@ -732,11 +732,15 @@ class GeneralLayout(Layout):
                 from deepcave.plugins.hyperparameter.near_optimal_configurations import (
                     clear_near_optimal_analysis_cache,
                 )
+                from deepcave.plugins.hyperparameter.search_space_coverage import (
+                    clear_coverage_cache,
+                )
 
                 clear_trial_table_cache()
                 clear_configuration_neighborhood_cache()
                 clear_one_dimensional_figure_cache()
                 clear_near_optimal_analysis_cache()
+                clear_coverage_cache()
 
                 # Also remove last inputs
                 c.set("last_inputs", value={})

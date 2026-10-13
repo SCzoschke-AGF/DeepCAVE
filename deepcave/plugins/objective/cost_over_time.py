@@ -36,17 +36,43 @@ from dash.exceptions import PreventUpdate
 from plotly.subplots import make_subplots
 
 from deepcave import config, notification
+from deepcave.constants import COMBINED_BUDGET
+from deepcave.plugins.cost_efficiency import elite_figure
 from deepcave.plugins.dynamic import DynamicPlugin
+from deepcave.plugins.objective.performance_cost import PerformanceCost
 from deepcave.runs import AbstractRun, check_equality
 from deepcave.runs.exceptions import NotMergeableError, RunInequality
 from deepcave.runs.status import Status
 from deepcave.utils.analysis_layout import analysis_toolbar_item, style_analysis
 from deepcave.utils.layout import get_select_options
+from deepcave.utils.performance_cost import (
+    extract_trial_data,
+    filter_trial_data,
+    prepare_plot_data,
+)
 from deepcave.utils.styled_plotty import (
     get_color,
     get_hovertext_from_config,
     save_image,
 )
+
+
+def performance_cost_data(run: AbstractRun, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    """Reuse valid trial durations and the selected trajectory budget for cost comparisons."""
+    objective = run.get_objective(inputs["objective_id"])
+    assert objective is not None
+    budget = run.get_budget(inputs["budget_id"])
+    rows = extract_trial_data(run, inputs["objective_id"])
+    if budget == COMBINED_BUDGET:
+        highest = {}
+        for row in rows:
+            highest[row["config_id"]] = max(
+                highest.get(row["config_id"], row["budget"]), row["budget"]
+            )
+        rows = [row for row in rows if row["budget"] == highest[row["config_id"]]]
+    else:
+        rows = filter_trial_data(rows, budget)
+    return prepare_plot_data(rows, maximize=objective.optimize == "upper")
 
 
 class CostOverTime(DynamicPlugin):
@@ -63,7 +89,7 @@ class CostOverTime(DynamicPlugin):
 
     id = "cost_over_time"
     main_objective_input = "objective_id"
-    name = "Cost Over Time"
+    name = "Objective Overview"
     icon = "fas fa-chart-line"
     help = "plugins/cost_over_time.html"
     allow_additional_runs = True
@@ -183,17 +209,9 @@ class CostOverTime(DynamicPlugin):
         return [
             html.Div(
                 [
-                    analysis_toolbar_item(
-                        "Budget",
-                        dbc.Select(
-                            id=register("budget_id", ["value", "options"], type=int),
-                            placeholder="Select budget ...",
-                        ),
-                        width="10rem",
-                        help_text=(
-                            "Budget refers to the multi-fidelity budget. Combined budget means "
-                            "that the trial on the highest evaluated budget is used."
-                        ),
+                    dbc.Select(
+                        id=register("budget_id", ["value", "options"], type=int),
+                        style={"display": "none"},
                     ),
                     analysis_toolbar_item(
                         "X-Axis",
@@ -206,6 +224,24 @@ class CostOverTime(DynamicPlugin):
                             placeholder="Select ...",
                         ),
                         width="12rem",
+                    ),
+                    dbc.Checkbox(
+                        id=register("show_pareto", "value", filter=True),
+                        label="Pareto front",
+                        value=True,
+                        className="mb-0",
+                    ),
+                    analysis_toolbar_item(
+                        "Elite trials",
+                        dbc.Select(
+                            id=register("elite_fraction", "value", filter=True),
+                            options=[
+                                {"label": f"Top {percent}%", "value": str(percent / 100)}
+                                for percent in (1, 5, 10, 20)
+                            ],
+                            value="0.05",
+                        ),
+                        width="10rem",
                     ),
                 ],
                 className="analysis-toolbar cost-over-time-toolbar",
@@ -251,6 +287,8 @@ class CostOverTime(DynamicPlugin):
                 ],
                 "value": "times",
             },
+            "show_pareto": {"value": True},
+            "elite_fraction": {"value": "0.05"},
         }
 
     @staticmethod
@@ -303,6 +341,7 @@ class CostOverTime(DynamicPlugin):
             "ids": ids,
             "config_ids": config_ids,
             "objective_values": objective_values,
+            "performance_cost": performance_cost_data(run, inputs),
         }
 
     @staticmethod
@@ -324,7 +363,7 @@ class CostOverTime(DynamicPlugin):
         return dcc.Graph(
             register("graph", "figure"),
             responsive=True,
-            style={"width": "100%", "minHeight": "500px"},
+            style={"width": "100%", "height": "1050px"},
             config={"toImageButtonOptions": {"scale": config.FIGURE_DOWNLOAD_SCALE}},
         )
 
@@ -359,12 +398,20 @@ class CostOverTime(DynamicPlugin):
             return go.Figure()
 
         figure = make_subplots(
-            rows=1,
+            rows=2,
             cols=2,
+            specs=[[{}, {}], [{}, {}]],
+            row_heights=[0.45, 0.55],
             column_widths=[0.45, 0.55],
-            subplot_titles=("Objective Distribution", "Running Best"),
+            subplot_titles=(
+                "Objective Distribution", "Running Best", "Performance vs. Computational Cost",
+                "Near-Optimal Cost Efficiency",
+            ),
             horizontal_spacing=0.1,
+            vertical_spacing=0.15,
         )
+        visible_cost_rows = []
+        visible_elite_rows = []
         for idx, run in enumerate(runs):
             objective = run.get_objective(inputs["objective_id"])
             ids = outputs[run.id]["ids"]
@@ -440,6 +487,40 @@ class CostOverTime(DynamicPlugin):
                 col=2,
             )
 
+            # Older trajectory caches do not contain cost data. Populate this inexpensive
+            # subset directly from the selected run without invalidating the trajectory cache.
+            cost_data = outputs[run.id].get("performance_cost")
+            if cost_data is None:
+                cost_data = performance_cost_data(run, inputs)
+            visible_cost_rows.extend(cost_data["trials"])
+            if cost_data["trials"]:
+                cost_figure = PerformanceCost.load_outputs(run, inputs, cost_data)
+                for trace in cost_figure.data:
+                    trace.legendgroup = run.id
+                    trace.showlegend = False
+                    trace.name = f"{run.name} · {trace.name}"
+                    if trace.mode == "lines+markers":
+                        trace.marker.color = color
+                        trace.line.color = color
+                    elif len(runs) > 1:
+                        trace.marker.color = color
+                    figure.add_trace(trace, row=2, col=1)
+                elite, _summary = elite_figure(
+                    run, inputs, cost_data["trials"], objective.optimize == "upper"
+                )
+                visible_elite_rows.extend(
+                    {"duration": duration, "objective": value}
+                    for duration, value in zip(elite.data[0].x, elite.data[0].y)
+                )
+                for trace in elite.data:
+                    trace.legendgroup = run.id
+                    trace.showlegend = False
+                    trace.marker.color = color
+                    if trace.mode == "lines+markers":
+                        trace.line.color = color
+                    trace.name = f"{run.name} · {trace.name}"
+                    figure.add_trace(trace, row=2, col=2)
+
             figure.add_trace(
                 go.Scatter(
                     x=x,
@@ -487,12 +568,43 @@ class CostOverTime(DynamicPlugin):
         figure.update_yaxes(title_text="Trials", row=1, col=1)
         figure.update_xaxes(title_text=xaxis_label, type=type, row=1, col=2)
         figure.update_yaxes(title_text=objective.name, row=1, col=2)
+        figure.update_xaxes(
+            title_text="Trial duration [s]",
+            type=prepare_plot_data(visible_cost_rows)["xaxis_type"],
+            row=2,
+            col=1,
+        )
+        figure.update_yaxes(title_text=objective.name, row=2, col=1)
+        figure.update_xaxes(
+            title_text="Trial duration [s]",
+            type=prepare_plot_data(visible_elite_rows)["xaxis_type"],
+            row=2,
+            col=2,
+        )
+        figure.update_yaxes(title_text=objective.name, row=2, col=2)
+        if not visible_cost_rows:
+            figure.add_annotation(
+                text="No valid completed trials with duration data available.",
+                x=0.5,
+                y=0.5,
+                xref="x3 domain",
+                yref="y3 domain",
+                showarrow=False,
+            )
+            figure.add_annotation(
+                text="No valid elite trials available.",
+                x=0.5,
+                y=0.5,
+                xref="x4 domain",
+                yref="y4 domain",
+                showarrow=False,
+            )
         figure.update_layout(
             barmode="overlay",
             legend=dict(
                 orientation="h",
                 yanchor="top",
-                y=-0.3,
+                y=-0.12,
                 xanchor="center",
                 x=0.5,
                 groupclick="togglegroup",
@@ -500,7 +612,7 @@ class CostOverTime(DynamicPlugin):
             margin={**config.FIGURE_MARGIN, "b": 120},
             font=dict(size=config.FIGURE_FONT_SIZE),
         )
-        style_analysis(figure, height=520 + 24 * max(0, len(runs) - 2))
+        style_analysis(figure, height=1050 + 24 * max(0, len(runs) - 2))
         save_image(figure, "cost_over_time.pdf")
 
         return figure

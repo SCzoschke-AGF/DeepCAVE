@@ -270,14 +270,13 @@ def parameter_figure(
 def elite_figure(
     run: AbstractRun, inputs: Dict[str, Any], rows: List[Dict[str, Any]], maximize: bool
 ) -> List[Any]:
-    """Render only the elite set and highlight its cheapest member with native drilldown."""
+    """Render only the elite set and its Pareto front with native drilldown."""
     order = select_elite_indices(rows, fraction=1.0, maximize=maximize)
     ranks = {index: rank for rank, index in enumerate(order, 1)}
     indices = select_elite_indices(rows, float(inputs.get("elite_fraction") or 0.05), maximize)
     elite = [rows[index] for index in indices]
-    figure = PerformanceCost.load_outputs(
-        run, {**inputs, "show_pareto": False}, prepare_plot_data(elite, maximize)
-    )
+    plot_data = prepare_plot_data(elite, maximize)
+    figure = PerformanceCost.load_outputs(run, inputs, plot_data)
     if elite:
         trace = figure.data[0]
         trace.name = "Elite trials"
@@ -288,19 +287,6 @@ def elite_figure(
             f" (top {100 * ranks[index] / len(rows):.1f}%)"
             for hover, index in zip(trace.hovertext, indices)
         ]
-        cheapest = min(range(len(elite)), key=lambda index: (elite[index]["duration"], index))
-        figure.add_trace(
-            go.Scatter(
-                x=[elite[cheapest]["duration"]],
-                y=[elite[cheapest]["objective"]],
-                mode="markers",
-                marker={"color": get_color(1), "size": 14, "symbol": "star"},
-                customdata=[trace.customdata[cheapest]],
-                hovertext=["<b>Cheapest elite configuration</b><br>" + trace.hovertext[cheapest]],
-                hoverinfo="text",
-                name="Cheapest elite configuration",
-            )
-        )
     stats = elite_summary(elite)
     summary = "No valid elite trials available."
     if elite:
@@ -319,7 +305,7 @@ class CostEfficiency(StaticPlugin):
     """Connect fANOVA main effects to observed duration and configuration efficiency."""
 
     id = "cost_efficiency"
-    name = "Cost & Efficiency"
+    name = "Compuational Cost"
     description = (
         "Understand which hyperparameters drive computational cost, where cost can be reduced, "
         "and which configurations are compute-efficient."

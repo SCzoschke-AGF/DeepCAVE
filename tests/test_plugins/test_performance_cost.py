@@ -65,7 +65,7 @@ def test_control_row_and_single_plot_reuse_native_components():
     assert card.children[0].children == "Performance vs. Computational Cost"
     assert len([child for child in _walk(card) if isinstance(child, dcc.Graph)]) == 1
     assert instance.load_inputs()["show_pareto"]["value"] is True
-    assert any(item.id == instance.id for item in Config().PLUGINS["Objective Analysis"])
+    assert all(item.id != instance.id for item in Config().PLUGINS["Objective Analysis"])
 
 
 def test_dependency_inputs_expose_all_trials_and_native_budget_subsets():

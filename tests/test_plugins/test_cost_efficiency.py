@@ -77,7 +77,17 @@ def _native_links_and_no_image_export(monkeypatch):
 
 def test_page_registration_structure_and_global_objective_only():
     plugin = CostEfficiency()
-    assert any(item.id == plugin.id for item in Config().PLUGINS["Cost & Efficiency"])
+    assert plugin.name == "Compuational Cost"
+    assert [item.name for item in Config().PLUGINS["Hyperparameter Analysis"]] == [
+        "1-D Analyses",
+        "2-D Analyses",
+        "HPO Planner",
+        "Compuational Cost",
+        "Importances",
+        "Ablation Paths",
+        "Partial Dependencies",
+    ]
+    assert "Cost & Efficiency" not in Config().PLUGINS
     inputs = plugin.get_input_layout(plugin.register_input)
     filters = plugin.get_filter_layout(lambda a, b: plugin.register_input(a, b, filter=True))
     components = [child for control in inputs + filters for child in _walk(control)]
@@ -162,12 +172,13 @@ def test_process_serializes_and_elite_plot_contains_no_nonelite_trials():
     json.dumps(outputs, allow_nan=False)
     figures = CostEfficiency.load_outputs(run, inputs, outputs)
     assert len(figures["performance"]["figure"].data[0].x) == 20
-    elite, cheapest = figures["elite"]["figure"].data
+    elite, pareto = figures["elite"]["figure"].data
     assert list(elite.y) == [19, 18, 17, 16]
-    assert list(cheapest.x) == [17]
-    assert "Cheapest elite configuration" in cheapest.hovertext[0]
-    assert "Objective rank: 4 / 20" in cheapest.hovertext[0]
-    assert "<a href='/configs/study/16'" in cheapest.hovertext[0]
+    assert list(pareto.x) == [17, 18, 19, 20]
+    assert list(pareto.y) == [16, 17, 18, 19]
+    assert all(trace.marker.symbol != "star" for trace in figures["elite"]["figure"].data)
+    assert "Objective rank: 4 / 20" in elite.hovertext[-1]
+    assert "<a href='/configs/study/16'" in elite.hovertext[-1]
     assert "Elite trials: 4" in figures["elite_summary"]["children"]
     assert outputs["importances"]["errors"] == {}
 
@@ -181,7 +192,43 @@ def test_objective_direction_and_budget_filter_apply_to_every_analysis():
     assert list(figures["elite"]["figure"].data[0].y) == [11, 12]
     assert figures["performance"]["figure"].layout.yaxis.title.text == "loss"
     assert list(figures["parameter_duration"]["figure"].data[0].y) == list(range(1, 11))
-    assert list(figures["elite"]["figure"].data[1].x) == [9]
+    assert list(figures["elite"]["figure"].data[1].x) == [9, 10]
+
+
+@pytest.mark.parametrize(
+    "maximize,objective_id,expected_durations",
+    [(True, 0, [1, 3]), (False, 1, [1, 2, 4])],
+)
+def test_elite_pareto_front_respects_direction_and_visibility(
+    maximize, objective_id, expected_durations
+):
+    run = _run()
+    rows = CostEfficiency.process(run, _inputs())["trials"][:4]
+    for row, duration, objective in zip(rows, [1, 2, 3, 4], [3, 2, 4, 1]):
+        row.update(duration=duration, objective=objective)
+    inputs = _inputs(objective_id=objective_id, elite_fraction="1")
+    figure, _ = elite_figure(run, inputs, rows, maximize)
+    assert list(figure.data[1].x) == expected_durations
+    assert figure.data[1].name == "Pareto front"
+    assert figure.data[1].mode == "lines+markers"
+    assert [trace.name for trace in figure.data] == ["Elite trials", "Pareto front"]
+    hidden, _ = elite_figure(run, {**inputs, "show_pareto": False}, rows, maximize)
+    assert [trace.name for trace in hidden.data] == ["Elite trials"]
+
+
+def test_singleton_elite_pareto_front_remains_visible_without_star():
+    run = _run()
+    rows = CostEfficiency.process(run, _inputs())["trials"][:4]
+    for index, row in enumerate(rows):
+        row.update(duration=index + 1, objective=4 - index)
+    figure, _ = elite_figure(run, _inputs(elite_fraction="1"), rows, True)
+    elite, front = figure.data
+    assert list(front.x) == [1]
+    assert list(front.y) == [4]
+    assert front.mode == "lines+markers"
+    assert front.marker.size > elite.marker.size
+    assert "Pareto-efficient" in front.hovertext[0]
+    assert all(trace.marker.symbol != "star" for trace in figure.data)
 
 
 def test_filters_redraw_from_same_cached_data_and_categorical_distribution():
@@ -626,6 +673,7 @@ def test_native_filter_callback_redraws_cached_results_without_reprocessing(
         assert len(by_name["elite"].data[0].x) == 4
     elif filter_name == "show_pareto":
         assert len(by_name["performance"].data) == 1
+        assert [trace.name for trace in by_name["elite"].data] == ["Elite trials"]
     elif filter_name == "show_trend":
         assert len(by_name["parameter_duration"].data) == 3
     elif filter_name == "mark_elite":
