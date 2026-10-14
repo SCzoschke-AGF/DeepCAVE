@@ -22,15 +22,17 @@ from ConfigSpace.hyperparameters import (
     OrdinalHyperparameter,
 )
 from ConfigSpace.types import NotSet
-from scipy.ndimage import distance_transform_edt
 from scipy.spatial import cKDTree
 from scipy.stats import kstest, qmc
 
 from deepcave.runs.status import Status
 
-VERSION = 2
+VERSION = 5
 DEFAULT_BINS = 20
 DEFAULT_REFERENCES = 2048
+PAIR_REFERENCES = 512
+PAIR_MMD_MAX_TRIALS = 1024
+PAIR_KERNEL_SCALE = 0.2
 
 
 def _python(value: Any) -> Any:
@@ -112,6 +114,31 @@ class CoverageAxis:
         rv = getattr(self.hp._vector_dist, "rv", None)
         return np.asarray(rv.cdf(vectors) if rv is not None else vectors, dtype=float)
 
+    @property
+    def integer_probabilities(self) -> Optional[np.ndarray]:
+        """Return explicit masses in support order, when the integer definition has them."""
+        if self.kind != "integer":
+            return None
+        probabilities = (self.hp.meta or {}).get("probabilities")
+        if probabilities is None:
+            probabilities = getattr(self.hp, "probabilities", None)
+        if probabilities is None:
+            probabilities = getattr(self.hp._vector_dist, "probabilities", None)
+        if probabilities is None:
+            return None
+        probabilities = np.asarray(probabilities, dtype=float)
+        if (
+            probabilities.shape != (self.size,)
+            or not np.isfinite(probabilities).all()
+            or np.any(probabilities < 0)
+            or probabilities.sum() <= 0
+        ):
+            raise ValueError(
+                f"{self.name}: probabilities must contain one nonnegative, finite mass "
+                "per valid support value and have a positive sum."
+            )
+        return probabilities / probabilities.sum()
+
     def mass_edges(self, ranks: np.ndarray) -> tuple:
         """Return the CDF interval occupied by each discrete value."""
         size = self.size
@@ -121,6 +148,11 @@ class CoverageAxis:
             return edges[ranks], edges[ranks + 1]
         if self.kind in ("ordinal", "constant"):
             return ranks / size, (ranks + 1) / size
+        probabilities = self.integer_probabilities
+        if probabilities is not None:
+            edges = np.r_[0.0, np.cumsum(probabilities)]
+            edges[-1] = 1.0
+            return edges[ranks], edges[ranks + 1]
         left, right = ranks / size, (ranks + 1) / size
         if getattr(self.hp, "log", False):
             # ConfigSpace quantizes log integers in value space before converting
@@ -145,6 +177,7 @@ class CoverageAxis:
         if distribution.startswith("Uniform") and getattr(self.hp, "log", False):
             distribution = "Log" + distribution
         numeric = self.kind in ("continuous", "integer")
+        integer_probabilities = self.integer_probabilities
         return {
             "name": self.name,
             "type": self.kind,
@@ -154,7 +187,9 @@ class CoverageAxis:
             "upper": _python(self.hp.upper) if numeric else None,
             "choices": self.choices,
             "probabilities": (
-                list(map(float, self.hp.probabilities)) if self.kind == "categorical" else None
+                list(map(float, self.hp.probabilities))
+                if self.kind == "categorical"
+                else (integer_probabilities.tolist() if integer_probabilities is not None else None)
             ),
             "step": self.step,
             "cardinality": self.size,
@@ -178,6 +213,7 @@ class CoverageData:
     fingerprint: str
     overview: Dict[str, Any]
     constrained: bool = False
+    configspace: Optional[ConfigurationSpace] = None
 
     @property
     def count(self) -> int:
@@ -199,7 +235,9 @@ def normalize_configurations(
         active = [i for i, config in enumerate(values) if config.get(axis.name) is not None]
         if active:
             points[active, j] = axis.encode([values[i][axis.name] for i in active])
-    return CoverageData(axes, values, points, "", {}, bool(configspace.forbidden_clauses))
+    return CoverageData(
+        axes, values, points, "", {}, bool(configspace.forbidden_clauses), configspace
+    )
 
 
 def prepare_coverage(run: Any) -> CoverageData:
@@ -239,8 +277,49 @@ def prepare_coverage(run: Any) -> CoverageData:
     return data
 
 
+def _integer_ecdf(axis: CoverageAxis, visited: np.ndarray, counts: np.ndarray) -> Dict:
+    """Compute support-based CDFs and an exact descriptive distance, without a p-value."""
+    size = axis.size
+    assert size is not None
+    cumulative = np.r_[0, np.cumsum(counts)]
+    count = int(cumulative[-1])
+
+    def observed_at(ranks: np.ndarray) -> np.ndarray:
+        return cumulative[np.searchsorted(visited, ranks, side="right")] / count
+
+    # Between observations the empirical CDF is constant and the reference is monotone.
+    # Its largest difference is thus at a visited rank or just before it, including edges.
+    check_ranks = np.unique(np.r_[0, size - 1, visited, visited[visited > 0] - 1])
+    _, expected = axis.mass_edges(check_ranks)
+    ks = float(np.max(np.abs(observed_at(check_ranks) - expected))) if count else None
+    complete = size <= 1000
+    if complete:
+        ranks = np.arange(size)
+    else:
+        selected = visited[
+            np.unique(np.linspace(0, len(visited) - 1, min(len(visited), 1000), dtype=int))
+        ]
+        ranks = np.unique(
+            np.r_[
+                np.linspace(0, size - 1, 1000, dtype=int),
+                selected,
+                selected[selected > 0] - 1,
+            ]
+        )
+    support = axis.values_at(ranks)
+    _, expected = axis.mass_edges(ranks)
+    return {
+        "ecdf_x": support if count else [],
+        "ecdf_y": observed_at(ranks).tolist() if count else [],
+        "expected_cdf_x": support,
+        "expected_cdf_y": expected.tolist(),
+        "ecdf_complete": complete,
+        "ks": ks,
+    }
+
+
 def compute_univariate_coverage(data: CoverageData, bins: int = DEFAULT_BINS) -> List[Dict]:
-    """Compute cheap marginal frequencies, gaps and sampling-space ECDFs."""
+    """Compute cheap marginals, continuous sampling ECDFs and integer support ECDFs."""
     results = []
     for j, axis in enumerate(data.axes):
         active = np.isfinite(data.points[:, j])
@@ -274,7 +353,23 @@ def compute_univariate_coverage(data: CoverageData, bins: int = DEFAULT_BINS) ->
             )
         else:
             frequencies, edges = np.histogram(u, bins=bins, range=(0, 1))
+            gap = None
+            if len(u):
+                boundaries = np.r_[0, u, 1]
+                raw_boundaries = np.r_[axis.hp.lower, np.sort(values), axis.hp.upper]
+                index = int(np.argmax(np.diff(boundaries)))
+                gap = dict(
+                    lower=float(boundaries[index]),
+                    upper=float(boundaries[index + 1]),
+                    lower_value=float(raw_boundaries[index]),
+                    upper_value=float(raw_boundaries[index + 1]),
+                    lower_observed=index > 0,
+                    upper_observed=index < len(u),
+                    width=float(boundaries[index + 1] - boundaries[index]),
+                )
             row.update(
+                trial_coordinates=u.tolist(),
+                largest_gap=gap,
                 labels=((edges[:-1] + edges[1:]) / 2).tolist(),
                 frequencies=frequencies.tolist(),
                 expected=[len(u) / bins] * bins,
@@ -317,6 +412,8 @@ def compute_univariate_coverage(data: CoverageData, bins: int = DEFAULT_BINS) ->
             ecdf_x=u[indices].tolist(),
             ecdf_y=((indices + 1) / len(u)).tolist() if len(u) else [],
         )
+        if axis.kind == "integer":
+            row.update(_integer_ecdf(axis, visited, counts))
         results.append(row)
     return results
 
@@ -355,10 +452,91 @@ def compute_global_discrepancy(
     }
 
 
+def _pair_projection(data: CoverageData, columns: List[int], active: np.ndarray) -> CoverageData:
+    """Use valid support coordinates for ordered values and identities for categories."""
+    values = [data.values[i] for i in np.flatnonzero(active)]
+    points = data.points[active][:, columns].copy()
+    axes = [data.axes[j] for j in columns]
+    for j, axis in enumerate(axes):
+        if axis.size is not None:
+            ranks = axis.ranks([config[axis.name] for config in values])
+            points[:, j] = ranks if axis.kind == "categorical" else ranks / max(1, axis.size - 1)
+    return CoverageData(axes, values, points, "", {})
+
+
+def _pair_kernel_mean(left: np.ndarray, right: np.ndarray, axes: List[CoverageAxis]) -> float:
+    """Average a product of Gaussian numeric kernels and categorical equality kernels."""
+    total = 0.0
+    for start in range(0, len(left), 128):
+        for offset in range(0, len(right), 128):
+            lhs, rhs = left[start : start + 128], right[offset : offset + 128]
+            kernel = np.ones((len(lhs), len(rhs)))
+            for j, axis in enumerate(axes):
+                if axis.kind == "categorical":
+                    kernel *= lhs[:, j, None] == rhs[None, :, j]
+                else:
+                    difference = (lhs[:, j, None] - rhs[None, :, j]) / PAIR_KERNEL_SCALE
+                    kernel *= np.exp(-0.5 * difference**2)
+            total += float(kernel.sum())
+    return total / (len(left) * len(right))
+
+
+def _pair_mmd(observed: CoverageData, references: CoverageData) -> tuple:
+    """Compute the nonnegative biased empirical MMD, without a significance test."""
+    points = observed.points
+    if observed.count > PAIR_MMD_MAX_TRIALS:
+        indices = np.random.default_rng(0).choice(
+            observed.count, PAIR_MMD_MAX_TRIALS, replace=False
+        )
+        points = points[indices]
+    reference_points = references.points
+    if references.count > PAIR_REFERENCES:
+        indices = np.random.default_rng(1).choice(references.count, PAIR_REFERENCES, replace=False)
+        reference_points = reference_points[indices]
+    squared = (
+        _pair_kernel_mean(points, points, observed.axes)
+        + _pair_kernel_mean(reference_points, reference_points, observed.axes)
+        - 2 * _pair_kernel_mean(points, reference_points, observed.axes)
+    )
+    return float(np.sqrt(max(0.0, squared))), len(points), len(reference_points)
+
+
+def _pair_grid(data: CoverageData, columns: List[int], bins: int) -> tuple:
+    """Count joint-active trials in the shared continuous-bin/discrete-support grid."""
+    active = np.isfinite(data.points[:, columns]).all(axis=1)
+    indices = np.flatnonzero(active)
+    shape = tuple(min(bins, data.axes[j].size or bins) for j in columns)
+    cells = []
+    for column, count in zip(columns, shape):
+        axis = data.axes[column]
+        if axis.size is not None:
+            ranks = axis.ranks([data.values[k][axis.name] for k in indices])
+            cells.append(np.minimum(count - 1, ranks * count // axis.size))
+        else:
+            cells.append(np.minimum(count - 1, (data.points[active, column] * count).astype(int)))
+    grid = np.zeros(shape, dtype=int)
+    np.add.at(grid, tuple(cells), 1)
+    return grid, active
+
+
 def compute_pairwise_coverage(
-    data: CoverageData, bins: int = DEFAULT_BINS, include_discrepancy: bool = True
+    data: CoverageData,
+    bins: int = DEFAULT_BINS,
+    include_distances: bool = True,
+    references: Optional[CoverageData] = None,
 ) -> Dict[str, Any]:
-    """Rank nominal projection grids by occupancy; compute numerical hole scores."""
+    """Compute occupancy, MMD and maximum coverage radius for every parameter type."""
+    if include_distances and references is None:
+        if data.configspace is None:
+            raise ValueError(
+                "Pairwise distances require the configuration space or a reference design."
+            )
+        references = sample_reference_design(data.configspace, PAIR_REFERENCES, 0)
+    if include_distances and references is not None:
+        if [axis.name for axis in data.axes] != [axis.name for axis in references.axes]:
+            raise ValueError(
+                "Pairwise references must use the same parameter axes in the same order."
+            )
     rows = []
     for i, x in enumerate(data.axes):
         if x.kind == "constant":
@@ -367,38 +545,21 @@ def compute_pairwise_coverage(
             y = data.axes[j]
             if y.kind == "constant":
                 continue
-            active = np.isfinite(data.points[:, [i, j]]).all(axis=1)
+            grid, active = _pair_grid(data, [i, j], bins)
             indices = np.flatnonzero(active)
-            shape = (min(bins, x.size or bins), min(bins, y.size or bins))
-            cells = []
-            for axis, column, count in ((x, i, shape[0]), (y, j, shape[1])):
-                if axis.size is not None:
-                    ranks = axis.ranks([data.values[k][axis.name] for k in indices])
-                    cells.append(np.minimum(count - 1, ranks * count // axis.size))
-                else:
-                    cells.append(
-                        np.minimum(count - 1, (data.points[active, column] * count).astype(int))
-                    )
-            grid = np.zeros(shape, dtype=int)
-            np.add.at(grid, tuple(cells), 1)
             occupancy = float(np.count_nonzero(grid) / grid.size)
-            continuous = x.size is None and y.size is None
-            discrepancy = (
-                float(qmc.discrepancy(data.points[active][:, [i, j]], method="CD"))
-                if include_discrepancy
-                and len(indices)
-                and continuous
-                and not x.conditional
-                and not y.conditional
-                and not data.constrained
-                else None
-            )
-            # Padding occupied boundaries measures distance to samples or the grid edge.
-            hole = (
-                float(distance_transform_edt(np.pad(grid == 0, 1))[1:-1, 1:-1].max() / bins)
-                if continuous
-                else None
-            )
+            mmd, radius, metric_trials, metric_references, reference_count = None, None, 0, 0, 0
+            reason = "No joint observations." if not len(indices) else None
+            if include_distances and references is not None:
+                ref_active = np.isfinite(references.points[:, [i, j]]).all(axis=1)
+                reference_count = int(np.count_nonzero(ref_active))
+                if len(indices) and reference_count:
+                    observed = _pair_projection(data, [i, j], active)
+                    reference = _pair_projection(references, [i, j], ref_active)
+                    mmd, metric_trials, metric_references = _pair_mmd(observed, reference)
+                    radius = float(np.max(_nearest_distances(observed, reference)))
+                elif len(indices):
+                    reason = "No joint reference samples; increase the reference sample count."
             rows.append(
                 {
                     "x": x.name,
@@ -408,15 +569,25 @@ def compute_pairwise_coverage(
                     "total_cells": int(grid.size),
                     "occupancy": occupancy,
                     "empty_cell_rate": 1 - occupancy,
-                    "hole_score": hole,
-                    "discrepancy": discrepancy,
+                    "mmd": mmd,
+                    "max_radius": radius,
+                    "mmd_trials": metric_trials,
+                    "mmd_reference_samples": metric_references,
+                    "reference_samples": reference_count,
+                    "distance_reason": reason,
                 }
             )
     return {
-        "pairs": sorted(rows, key=lambda row: (row["occupancy"], -(row["discrepancy"] or 0))),
+        "pairs": sorted(rows, key=lambda row: (row["occupancy"], -(row["mmd"] or 0))),
         "bins": bins,
         "note": "Nominal projection cells; conditional or forbidden cells may be unreachable. "
-        "Discrete axes above the bin limit are grouped. Hole score is an approximate grid radius.",
+        "Discrete axes above the bin limit are grouped. MMD and maximum radius compare joint-active "
+        "trials with legal reference configurations for every parameter type; lower is better. "
+        f"Reference configurations: {references.count if references is not None else 0}. "
+        f"Gaussian kernel scale: {PAIR_KERNEL_SCALE}; "
+        f"categorical equality kernel. MMD uses at most {PAIR_MMD_MAX_TRIALS} trials and "
+        f"{PAIR_REFERENCES} references; "
+        "radius uses all joint-active trials. No p-value is computed.",
     }
 
 
@@ -426,7 +597,11 @@ def sample_reference_design(configspace: ConfigurationSpace, count: int, seed: i
         raise ValueError("At least one reference sample is required.")
     space = deepcopy(configspace)
     axes = [CoverageAxis(hp) for hp in space.values()]
-    custom_steps = any(a.step is not None and (a.kind == "continuous" or a.step != 1) for a in axes)
+    custom_steps = any(
+        (a.step is not None and (a.kind == "continuous" or a.step != 1))
+        or a.integer_probabilities is not None
+        for a in axes
+    )
     space.seed(int(seed))
     if not custom_steps:
         samples = space.sample_configuration(size=count)
@@ -448,14 +623,20 @@ def sample_reference_design(configspace: ConfigurationSpace, count: int, seed: i
             if axis.size is not None and axis.kind in ("continuous", "integer"):
                 # Draw from the same quantization intervals as mass_edges, without
                 # enumerating a potentially enormous integer lattice.
-                rv = getattr(axis.hp._vector_dist, "rv", None)
-                v = float(rv.rvs(random_state=rng)) if rv is not None else float(rng.rand())
-                if getattr(axis.hp, "log", False):
-                    v = (
-                        np.exp(np.log(axis.hp.lower) + v * np.log(axis.hp.upper / axis.hp.lower))
-                        - axis.hp.lower
-                    ) / (axis.hp.upper - axis.hp.lower)
-                rank = np.array([min(axis.size - 1, int(v * axis.size))])
+                probabilities = axis.integer_probabilities
+                if probabilities is not None:
+                    rank = np.array([rng.choice(axis.size, p=probabilities)])
+                else:
+                    rv = getattr(axis.hp._vector_dist, "rv", None)
+                    v = float(rv.rvs(random_state=rng)) if rv is not None else float(rng.rand())
+                    if getattr(axis.hp, "log", False):
+                        v = (
+                            np.exp(
+                                np.log(axis.hp.lower) + v * np.log(axis.hp.upper / axis.hp.lower)
+                            )
+                            - axis.hp.lower
+                        ) / (axis.hp.upper - axis.hp.lower)
+                    rank = np.array([min(axis.size - 1, int(v * axis.size))])
                 value = axis.values_at(rank)[0]
             else:
                 value = _python(axis.hp.sample_value(seed=rng))
@@ -539,7 +720,7 @@ def compute_coverage_radius(
 def _metrics(data: CoverageData, references: CoverageData) -> Dict[str, Optional[float]]:
     discrepancy = compute_global_discrepancy(data, methods=("CD",))
     radius = compute_coverage_radius(data, references, holes=0)
-    pairs = compute_pairwise_coverage(data, include_discrepancy=False)["pairs"]
+    pairs = compute_pairwise_coverage(data, include_distances=False)["pairs"]
     marginals = compute_univariate_coverage(data)
     return {
         "centered_discrepancy": discrepancy["centered"],
@@ -689,7 +870,10 @@ def run_coverage_analysis(
 ) -> Dict[str, Any]:
     """Dispatch exactly one explicitly requested worker job."""
     if analysis == "pairwise":
-        return compute_pairwise_coverage(data)
+        references = sample_reference_design(
+            configspace, options.get("reference_samples", PAIR_REFERENCES), options.get("seed", 0)
+        )
+        return compute_pairwise_coverage(data, references=references)
     if analysis == "discrepancy":
         return compute_global_discrepancy(data)
     if analysis == "radius":

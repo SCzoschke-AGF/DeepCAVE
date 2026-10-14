@@ -1,6 +1,6 @@
 """Coverage suite with immediate marginals and independently queued analyses."""
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import hashlib
 import json
@@ -11,6 +11,8 @@ from time import time
 from uuid import uuid4
 
 import dash_bootstrap_components as dbc
+import numpy as np
+import pandas as pd
 from dash import ctx, dcc, html, no_update
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
@@ -25,9 +27,14 @@ from deepcave.evaluators.coverage import (
     run_coverage_analysis,
 )
 from deepcave.plugins import Plugin
+from deepcave.plugins.hyperparameter.analysis_utils import (
+    _add_trial_statistics,
+    _get_objectives_without_time,
+)
 from deepcave.plugins.hyperparameter.coverage_views import (
     GROWTH_METRICS,
     PAIR_METRICS,
+    PAIR_PLOT_HEIGHT,
     _baseline_details,
     _card,
     _compatible_growth,
@@ -37,14 +44,17 @@ from deepcave.plugins.hyperparameter.coverage_views import (
     _id,
     _module_summary,
     _overview,
+    _pair_legend,
     _pair_matrix,
+    _pair_panel,
     _radius_details,
     _region_detail,
     _sampler,
     _scatter,
     _table,
-    _univariate,
+    _univariate_rows,
 )
+from deepcave.runs.status import Status
 
 PREFIX = "search_space_coverage"
 ANALYSES = {
@@ -91,7 +101,7 @@ def _prepared(run: Any) -> tuple:
 
 def analysis_options(analysis: str, designs: Any, references: Any, seed: Any) -> Dict[str, int]:
     """Validate only the controls consumed by the selected analysis."""
-    if analysis in ("pairwise", "discrepancy"):
+    if analysis == "discrepancy":
         return {}
     options = {}
     for name, value, lower, upper in (
@@ -264,6 +274,25 @@ class CoverageJobs:
             return entry
 
 
+def _elite_trials(run: Any, proportion: float) -> Tuple[List[int], str]:
+    """Identify elite history rows with the same quantile and tie rules as 1-D analysis."""
+    objectives = _get_objectives_without_time(run)
+    if not objectives:
+        return [], "Elite unavailable: no optimization objective"
+    objective = objectives[0]
+    objective_id = run.get_objective_id(objective)
+    rows = []
+    for index, trial in enumerate(run.history):
+        value = trial.costs[objective_id]
+        if trial.status == Status.SUCCESS and value is not None and np.isfinite(value):
+            rows.append({"history_index": index, "objective": float(value)})
+    if not rows:
+        return [], f"Elite unavailable: no successful trials with {objective.name}"
+    trials, _, _ = _add_trial_statistics(pd.DataFrame(rows), objective.optimize, proportion)
+    indices = trials.loc[trials["is_elite"], "history_index"].astype(int).tolist()
+    return indices, f"Elite: best {100 * proportion:g}% ({objective.name})"
+
+
 def _analysis_panel(analysis: str, summary: bool = False) -> Any:
     title, description = ANALYSES[analysis]
     cost = (
@@ -282,10 +311,18 @@ def _analysis_panel(analysis: str, summary: bool = False) -> Any:
                 if analysis != "pairwise"
                 else None
             ),
-            html.Small(description, className="coverage-job-description"),
-            html.Div("Not computed", id=_id(f"{analysis}-status"), className="coverage-job-status"),
+            (
+                html.Small(description, className="coverage-job-description")
+                if analysis != "pairwise"
+                else None
+            ),
             html.Div(
-                f"Estimated compute: {cost}",
+                "" if analysis == "pairwise" else "Not computed",
+                id=_id(f"{analysis}-status"),
+                className="coverage-job-status",
+            ),
+            html.Div(
+                "" if analysis == "pairwise" else f"Estimated compute: {cost}",
                 id=_id(f"{analysis}-metadata"),
                 className="coverage-job-metadata",
             ),
@@ -334,6 +371,12 @@ def _current(entry: Any, context: Any) -> Dict:
         if isinstance(entry, dict) and context and entry.get("run_id") == context.get("run_id")
         else {}
     )
+
+
+def _pair_result(entry: Any, context: Any) -> Any:
+    """Require the current metric definitions before displaying pairwise results."""
+    current = _current(entry, context)
+    return current.get("result") if current.get("version") == VERSION else None
 
 
 def _status_label(status: str, entry: Dict, count: int) -> str:
@@ -420,32 +463,104 @@ class SearchSpaceCoverage(Plugin):
             _card("Coverage status", [html.Div(id=_id("coverage-status"))]),
             html.Div(id=_id("definition")),
         ]
-        univariate = _card(
-            "Univariate Coverage",
+        univariate = html.Section(
             [
                 html.Div(
                     [
                         html.Div(
                             [
-                                dbc.Label("Parameter"),
-                                dcc.Dropdown(id=_id("parameter"), clearable=False),
+                                html.H3("Univariate Coverage"),
+                                html.P(
+                                    "Distribution of observed trials across the search space "
+                                    "for each parameter."
+                                ),
                             ],
-                            className="coverage-selector",
+                            className="coverage-univariate-heading",
                         ),
-                        dbc.RadioItems(
-                            id=_id("univariate-mode"),
-                            value="distribution",
-                            inline=True,
-                            options=[
-                                {"label": "Distribution", "value": "distribution"},
-                                {"label": "ECDF", "value": "ecdf"},
+                        html.Div(
+                            [
+                                html.Div(
+                                    [
+                                        dbc.Label("View", html_for=_id("univariate-mode")),
+                                        dbc.RadioItems(
+                                            id=_id("univariate-mode"),
+                                            value="distribution",
+                                            inline=True,
+                                            options=[
+                                                {"label": "Distribution", "value": "distribution"},
+                                                {"label": "ECDF", "value": "ecdf"},
+                                            ],
+                                        ),
+                                    ],
+                                ),
+                                html.Div(
+                                    [
+                                        dbc.Label("Group by", html_for=_id("univariate-group")),
+                                        dcc.Dropdown(
+                                            id=_id("univariate-group"),
+                                            value="type",
+                                            clearable=False,
+                                            options=[
+                                                {"label": "Type", "value": "type"},
+                                                {"label": "None", "value": "none"},
+                                            ],
+                                        ),
+                                    ],
+                                    className="coverage-univariate-select",
+                                ),
+                                html.Div(
+                                    [
+                                        dbc.Label("Sort by", html_for=_id("univariate-sort")),
+                                        dcc.Dropdown(
+                                            id=_id("univariate-sort"),
+                                            value="max_gap",
+                                            clearable=False,
+                                            options=[
+                                                {"label": "Largest gap", "value": "max_gap"},
+                                                {"label": "Coverage", "value": "coverage"},
+                                                {"label": "KS", "value": "ks"},
+                                                {"label": "Name", "value": "name"},
+                                            ],
+                                        ),
+                                    ],
+                                    className="coverage-univariate-select",
+                                ),
+                                html.Div(
+                                    dbc.Switch(
+                                        id=_id("univariate-problematic"),
+                                        value=False,
+                                        label="Only problematic",
+                                    ),
+                                    title="Coverage below 100%, KS distance above 0.1, or a "
+                                    "continuous sampling-space gap above 0.1. ECDF applies to "
+                                    "continuous and integer parameters; categories retain their "
+                                    "frequency distribution. Integer KS is descriptive, with no p-value.",
+                                    className="coverage-univariate-filter",
+                                ),
                             ],
+                            className="coverage-univariate-controls",
                         ),
                     ],
-                    className="coverage-toolbar",
+                    className="coverage-univariate-header",
+                ),
+                html.Div(
+                    [
+                        html.Span("Observed", className="coverage-legend-observed"),
+                        html.Span("Expected", className="coverage-legend-expected"),
+                        html.Span(
+                            "Largest gap", className="coverage-legend-gap",
+                            title=(
+                                "Largest interval without observed trials in transformed "
+                                "search space, including edge gaps. Orange rug ticks mark "
+                                "observed boundaries; labels identify search-space edges."
+                            ),
+                        ),
+                    ],
+                    className="coverage-univariate-legend",
                 ),
                 html.Div(id=_id("univariate")),
             ],
+            className="coverage-card coverage-univariate",
         )
         pairwise = _card(
             "Pairwise Coverage",
@@ -453,29 +568,62 @@ class SearchSpaceCoverage(Plugin):
                 _analysis_panel("pairwise"),
                 html.Div(
                     [
+                        dbc.Label("Elite trials", html_for=_id("elite-proportion")),
+                        dcc.Dropdown(
+                            id=_id("elite-proportion"),
+                            options=[
+                                {"label": f"{percent}%", "value": percent / 100}
+                                for percent in (20, 10, 5, 2, 1)
+                            ],
+                            value=0.1,
+                            clearable=False,
+                            searchable=False,
+                        ),
+                    ],
+                    className="coverage-pair-elite-controls",
+                ),
+                html.Div(
+                    [
                         html.Div(
                             [
-                                dbc.Label("Matrix metric"),
-                                dcc.Dropdown(
-                                    id=_id("pair-metric"),
-                                    value="occupancy",
-                                    clearable=False,
-                                    options=[
-                                        {"label": label, "value": key}
-                                        for key, label in PAIR_METRICS.items()
+                                html.Div(
+                                    [
+                                        html.Div(
+                                            [
+                                                dbc.Label(
+                                                    "Matrix metric", html_for=_id("pair-metric")
+                                                ),
+                                                dbc.RadioItems(
+                                                    id=_id("pair-metric"),
+                                                    value="occupancy",
+                                                    className=(
+                                                        "multi-metrics-segmented "
+                                                        "coverage-pair-metric-buttons"
+                                                    ),
+                                                    options=[
+                                                        {"label": label, "value": key}
+                                                        for key, label in PAIR_METRICS.items()
+                                                    ],
+                                                ),
+                                            ],
+                                        ),
                                     ],
+                                    className="coverage-pair-controls",
                                 ),
-                                dcc.Graph(
-                                    id=_id("pair-matrix"),
-                                    responsive=True,
-                                    style={"height": "360px"},
-                                    figure=_empty_figure(
-                                        "Run pairwise analysis to populate the matrix."
+                                _pair_panel(
+                                    "Pairwise Parameter Matrix",
+                                    _pair_legend(),
+                                    dcc.Graph(
+                                        id=_id("pair-matrix"),
+                                        responsive=True,
+                                        style={"height": f"{PAIR_PLOT_HEIGHT}px"},
+                                        figure=_pair_matrix(None, "occupancy", []),
+                                        className="coverage-pair-plot-row",
+                                        config={"displaylogo": False},
                                     ),
-                                    config={"displaylogo": False},
                                 ),
                             ],
-                            className="coverage-plot",
+                            className="coverage-pair-column",
                         ),
                         html.Div(
                             [
@@ -483,29 +631,76 @@ class SearchSpaceCoverage(Plugin):
                                     [
                                         html.Div(
                                             [
-                                                dbc.Label("X"),
-                                                dcc.Dropdown(id=_id("x"), clearable=False),
+                                                dbc.Label(name.upper()),
+                                                dcc.Dropdown(id=_id(name), clearable=False),
                                             ]
-                                        ),
-                                        html.Div(
-                                            [
-                                                dbc.Label("Y"),
-                                                dcc.Dropdown(id=_id("y"), clearable=False),
-                                            ]
-                                        ),
+                                        )
+                                        for name in ("x", "y")
                                     ],
                                     className="coverage-pair-selectors",
                                 ),
-                                html.Div(id=_id("scatter")),
+                                html.Div(
+                                    [
+                                        html.Div(id=_id("scatter")),
+                                        html.Div(
+                                            [
+                                                dbc.Switch(
+                                                    id=_id("highlight-empty-cells"),
+                                                    label="Highlight empty cells",
+                                                    value=True,
+                                                    className="coverage-pair-highlight",
+                                                ),
+                                                dbc.Switch(
+                                                    id=_id("highlight-elite-trials"),
+                                                    label="Highlight elite trials",
+                                                    value=False,
+                                                    className="coverage-pair-highlight",
+                                                ),
+                                            ],
+                                            className="coverage-pair-scatter-footer",
+                                        ),
+                                    ],
+                                    className="coverage-pair-slot",
+                                ),
                             ],
-                            className="coverage-plot",
+                            className="coverage-pair-column",
                         ),
                     ],
                     className="coverage-pair-diagnostic",
                 ),
-                html.Small(
-                    "Click a matrix cell to inspect that pair. "
-                    "Empty diagonal and unavailable metrics are not selectable."
+                html.Dl(
+                    [
+                        html.Div([html.Dt(PAIR_METRICS[key]), html.Dd(description)])
+                        for key, description in (
+                            (
+                                "occupancy",
+                                "Share of grid cells with at least one trial. "
+                                "Higher means broader grid coverage.",
+                            ),
+                            (
+                                "empty_cell_rate",
+                                "Share of grid cells without trials (100% − occupancy). "
+                                "Lower means fewer empty cells.",
+                            ),
+                            (
+                                "mmd",
+                                "Difference between the observed joint distribution and a "
+                                "synthetic reference distribution randomly sampled from the "
+                                "configured search space (Similar to Mutual Information, but "
+                                "here the reference distribution is sampled from the defined "
+                                "search space instead of from the observed marginals of the "
+                                "two features).",
+                            ),
+                            (
+                                "max_radius",
+                                "Largest normalized distance from a randomly drawn reference "
+                                "point to its nearest observed feature configuration. "
+                                "Lower means smaller sampled gaps.",
+                            ),
+                        )
+                    ],
+                    className="coverage-pair-glossary",
+                    **{"aria-label": "Metric glossary"},
                 ),
                 html.Details(
                     [
@@ -519,8 +714,8 @@ class SearchSpaceCoverage(Plugin):
                                 "active_trials",
                                 "occupancy",
                                 "empty_cell_rate",
-                                "hole_score",
-                                "discrepancy",
+                                "max_radius",
+                                "mmd",
                             ],
                             id=_id("pair-ranking"),
                             cell_selectable=True,
@@ -530,6 +725,7 @@ class SearchSpaceCoverage(Plugin):
                 ),
             ],
         )
+        pairwise.className = "coverage-card coverage-pairwise"
         global_view = [
             html.Div(
                 [
@@ -729,23 +925,17 @@ class SearchSpaceCoverage(Plugin):
             )
 
         @app.callback(  # type: ignore[untyped-decorator]
-            [
-                Output(_id(name), prop)
-                for name in ("parameter", "x", "y")
-                for prop in ("options", "value")
-            ]
+            [Output(_id(name), prop) for name in ("x", "y") for prop in ("options", "value")]
             + [Output(_id("pair-ranking"), "active_cell"), Output(_id("pair-matrix"), "clickData")],
             Input(_id("context"), "data"),
             Input(_id("pair-ranking"), "active_cell"),
             Input(_id("pair-matrix"), "clickData"),
             State(_id("pair-ranking"), "data"),
-            *[State(_id(name), "value") for name in ("parameter", "x", "y")],
+            *[State(_id(name), "value") for name in ("x", "y")],
         )
-        def selectors(
-            context: Any, active_cell: Any, click: Any, rows: Any, parameter: str, x: str, y: str
-        ) -> Any:
+        def selectors(context: Any, active_cell: Any, click: Any, rows: Any, x: str, y: str) -> Any:
             if not context:
-                return [[], None, [], None, [], None, None, None]
+                return [[], None, [], None, None, None]
             data, _ = _prepared(run_handler.get_run(context["run_id"]))
             names = [a.name for a in data.axes]
             options = [{"label": name, "value": name} for name in names]
@@ -765,8 +955,6 @@ class SearchSpaceCoverage(Plugin):
                     x, y = point["x"], point["y"]
             return [
                 options,
-                parameter if parameter in names else names[0],
-                options,
                 x if x in names else names[0],
                 options,
                 y if y in names else names[min(1, len(names) - 1)],
@@ -779,21 +967,26 @@ class SearchSpaceCoverage(Plugin):
             Output(_id("univariate-mode"), "options"),
             Output(_id("univariate-mode"), "value"),
             Input(_id("context"), "data"),
-            Input(_id("parameter"), "value"),
             Input(_id("univariate-mode"), "value"),
+            Input(_id("univariate-group"), "value"),
+            Input(_id("univariate-sort"), "value"),
+            Input(_id("univariate-problematic"), "value"),
         )
-        def marginal(context: Any, parameter: str, mode: str) -> Any:
+        def marginal(
+            context: Any, mode: str, group_by: str, sort_by: str, only_problematic: bool
+        ) -> Any:
             if not context:
                 raise PreventUpdate
             _, rows = _prepared(run_handler.get_run(context["run_id"]))
-            row = next((r for r in rows if r["name"] == parameter), None)
-            continuous = row is not None and row["cardinality"] is None
+            supports_ecdf = any(
+                row["cardinality"] is None or row["type"] == "integer" for row in rows
+            )
             options = [
                 {"label": "Distribution", "value": "distribution"},
-                {"label": "ECDF", "value": "ecdf", "disabled": not continuous},
+                {"label": "ECDF", "value": "ecdf", "disabled": not supports_ecdf},
             ]
-            mode = mode if continuous and mode in ("distribution", "ecdf") else "distribution"
-            return _univariate(row, mode) if row else [], options, mode
+            mode = mode if supports_ecdf and mode in ("distribution", "ecdf") else "distribution"
+            return _univariate_rows(rows, mode, group_by, sort_by, only_problematic), options, mode
 
         @app.callback(  # type: ignore[untyped-decorator]
             Output(_id("scatter"), "children"),
@@ -801,12 +994,38 @@ class SearchSpaceCoverage(Plugin):
             Input(_id("x"), "value"),
             Input(_id("y"), "value"),
             Input(_id("pairwise-data"), "data"),
+            Input(_id("highlight-empty-cells"), "value"),
+            Input(_id("highlight-elite-trials"), "value"),
+            Input(_id("elite-proportion"), "value"),
         )
-        def scatter(context: Any, x: str, y: str, entry: Any) -> Any:
+        def scatter(
+            context: Any,
+            x: str,
+            y: str,
+            entry: Any,
+            highlight_empty: bool,
+            highlight_elite: bool = False,
+            elite_proportion: float = 0.1,
+        ) -> Any:
             if not context:
                 return []
-            data, _ = _prepared(run_handler.get_run(context["run_id"]))
-            return _scatter(data, x, y, _current(entry, context).get("result"))
+            run = run_handler.get_run(context["run_id"])
+            data, _ = _prepared(run)
+            proportion = (
+                elite_proportion if elite_proportion in (0.2, 0.1, 0.05, 0.02, 0.01) else 0.1
+            )
+            elite_indices, elite_label = (
+                _elite_trials(run, proportion) if highlight_elite else (None, None)
+            )
+            return _scatter(
+                data,
+                x,
+                y,
+                _pair_result(entry, context),
+                highlight_empty,
+                elite_indices,
+                elite_label,
+            )
 
         for analysis in ANALYSES:
             self._register_analysis_callback(app, jobs, run_handler, analysis)
@@ -856,7 +1075,7 @@ class SearchSpaceCoverage(Plugin):
             if not context:
                 raise PreventUpdate
             data, _ = _prepared(run_handler.get_run(context["run_id"]))
-            result = _current(raw, context).get("result")
+            result = _pair_result(raw, context)
             names = [a.name for a in data.axes if a.kind != "constant"]
             metric = metric if metric in PAIR_METRICS else "occupancy"
             rows = [{**r, "id": f"{r['x']} × {r['y']}"} for r in result["pairs"]] if result else []
@@ -1049,6 +1268,8 @@ class SearchSpaceCoverage(Plugin):
                 "computed_at": entry.get("computed_at"),
             }
             label = _status_label(status, entry, data.count)
+            if analysis == "pairwise" and status in ("not_run", "completed") and not error:
+                label = ""
             if error:
                 label += " · " + error
             button = (
@@ -1071,7 +1292,7 @@ class SearchSpaceCoverage(Plugin):
                 status == "running" or bool(error) or data.count == 0,
                 view,
                 {} if status == "running" else {"display": "none"},
-                _metadata(analysis, status, entry),
+                "" if analysis == "pairwise" else _metadata(analysis, status, entry),
             ]
             if analysis in ("discrepancy", "radius", "baseline"):
                 outputs.append(_module_summary(analysis, entry.get("result")))
