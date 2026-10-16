@@ -121,6 +121,7 @@ class Config:
         from deepcave.plugins.hyperparameter.one_dimensional_analysis import (
             OneDimensionalAnalysis,
         )
+        from deepcave.plugins.hyperparameter.parameter_dependencies import ParameterDependencies
         from deepcave.plugins.hyperparameter.pdp import PartialDependencies
         from deepcave.plugins.hyperparameter.search_space_coverage import SearchSpaceCoverage
         from deepcave.plugins.hyperparameter.two_dimensional_analysis import (
@@ -129,11 +130,13 @@ class Config:
         from deepcave.plugins.objective.cost_over_time import CostOverTime
         from deepcave.plugins.objective.multi_metrics_comparison import MultiMetricsComparison
         from deepcave.plugins.summary.overview import Overview
+        from deepcave.plugins.summary.run_overview import RunOverview
 
         plugins: Dict[str, List[Any]] = {}
         plugins = {
             "Summary": [
                 Overview(),
+                RunOverview(),
             ],
             "Objective Analysis": [
                 CostOverTime(),
@@ -149,6 +152,7 @@ class Config:
                 PartialDependencies(),
             ],
             "Configuration Analyses": [
+                ParameterDependencies(),
                 SearchSpaceCoverage(),
                 NearOptimalConfigurations(),
                 ConfigurationNeighborhood(),

@@ -118,7 +118,7 @@ table.table.exclude-head tbody {
 }
 */
 /* Compact single-row control toolbar for the dense analysis views. */
-:is(#one_dimensional_analysis-input, #two_dimensional_analysis-input, #hpo_planning-input, #cost_over_time-input, #multi_metrics_comparison-input) {
+:is(#one_dimensional_analysis-input, #two_dimensional_analysis-input, #hpo_planning-input, #cost_over_time-input, #multi_metrics_comparison-input, #parameter_dependencies-input) {
     padding: 0.6rem 0.75rem !important;
 }
 
@@ -605,7 +605,7 @@ table.table.exclude-head tbody {
 }
 
 /* Analysis grid: raw trials on the left, the coupled range panels stacked on the right. */
-:is(#one_dimensional_analysis-output, #two_dimensional_analysis-output, #hpo_planning-output, #configuration_neighborhood-output) {
+:is(#one_dimensional_analysis-output, #two_dimensional_analysis-output, #hpo_planning-output, #configuration_neighborhood-output, #parameter_dependencies-output) {
     background: transparent !important;
     box-shadow: none !important;
     padding: 0 !important;
@@ -693,6 +693,7 @@ table.table.exclude-head tbody {
 }
 
 .analysis-grid .analysis-card,
+#parameter_dependencies-output .analysis-card,
 .hpo-planning-grid .analysis-card {
     position: relative;
     background-color: #fff;

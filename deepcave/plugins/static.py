@@ -136,6 +136,8 @@ def _processing_inputs_key(plugin: "StaticPlugin", inputs: Dict[str, Any]) -> st
         used_ids.add(input_id)
     if "_global_main_objective" in inputs:
         processing_inputs["_global_main_objective"] = inputs["_global_main_objective"]
+    if getattr(plugin, "processing_version", 0):
+        processing_inputs["_processing_version"] = plugin.processing_version
     return string_to_hash(str(processing_inputs))
 
 

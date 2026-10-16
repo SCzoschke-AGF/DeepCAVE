@@ -15,9 +15,17 @@
 import json
 import unittest
 
+import pytest
+
 from deepcave.runs.exceptions import NotMergeableError
 from deepcave.runs.objective import Objective
 from deepcave.utils.compression import Encoder
+
+
+@pytest.mark.parametrize("optimize,expected", [("lower", [0, 0.25, 1]), ("upper", [1, 0.75, 0])])
+def test_normalize_uses_bounds_and_optimization_direction(optimize, expected):
+    objective = Objective("score", lower=10, upper=50, optimize=optimize)
+    assert [objective.normalize(value) for value in (10, 20, 50)] == expected
 
 
 class TestRun(unittest.TestCase):

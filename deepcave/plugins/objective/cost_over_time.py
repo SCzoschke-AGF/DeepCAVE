@@ -89,7 +89,7 @@ class CostOverTime(DynamicPlugin):
 
     id = "cost_over_time"
     main_objective_input = "objective_id"
-    name = "Objective Overview"
+    name = "Multi-Run Comparison"
     icon = "fas fa-chart-line"
     help = "plugins/cost_over_time.html"
     allow_additional_runs = True
@@ -368,7 +368,7 @@ class CostOverTime(DynamicPlugin):
         )
 
     @staticmethod
-    def load_outputs(runs, inputs, outputs) -> go.Figure:  # type: ignore
+    def load_outputs(runs, inputs, outputs, *, trajectory_only=False) -> go.Figure:  # type: ignore
         """
         Read in the raw data and prepare them for the layout.
 
@@ -386,6 +386,8 @@ class CostOverTime(DynamicPlugin):
             The input and filter values from the user.
         outputs :
             The raw outputs from the runs.
+        trajectory_only : bool, optional
+            Render only the distribution and trajectory for embedding in other views.
 
         Returns
         -------
@@ -398,12 +400,11 @@ class CostOverTime(DynamicPlugin):
             return go.Figure()
 
         figure = make_subplots(
-            rows=2,
+            rows=1 if trajectory_only else 2,
             cols=2,
-            specs=[[{}, {}], [{}, {}]],
-            row_heights=[0.45, 0.55],
+            row_heights=[1] if trajectory_only else [0.45, 0.55],
             column_widths=[0.45, 0.55],
-            subplot_titles=(
+            subplot_titles=("Objective Distribution", "Running Best") if trajectory_only else (
                 "Objective Distribution", "Running Best", "Performance vs. Computational Cost",
                 "Near-Optimal Cost Efficiency",
             ),
@@ -489,37 +490,38 @@ class CostOverTime(DynamicPlugin):
 
             # Older trajectory caches do not contain cost data. Populate this inexpensive
             # subset directly from the selected run without invalidating the trajectory cache.
-            cost_data = outputs[run.id].get("performance_cost")
-            if cost_data is None:
-                cost_data = performance_cost_data(run, inputs)
-            visible_cost_rows.extend(cost_data["trials"])
-            if cost_data["trials"]:
-                cost_figure = PerformanceCost.load_outputs(run, inputs, cost_data)
-                for trace in cost_figure.data:
-                    trace.legendgroup = run.id
-                    trace.showlegend = False
-                    trace.name = f"{run.name} · {trace.name}"
-                    if trace.mode == "lines+markers":
+            if not trajectory_only:
+                cost_data = outputs[run.id].get("performance_cost")
+                if cost_data is None:
+                    cost_data = performance_cost_data(run, inputs)
+                visible_cost_rows.extend(cost_data["trials"])
+                if cost_data["trials"]:
+                    cost_figure = PerformanceCost.load_outputs(run, inputs, cost_data)
+                    for trace in cost_figure.data:
+                        trace.legendgroup = run.id
+                        trace.showlegend = False
+                        trace.name = f"{run.name} · {trace.name}"
+                        if trace.mode == "lines+markers":
+                            trace.marker.color = color
+                            trace.line.color = color
+                        elif len(runs) > 1:
+                            trace.marker.color = color
+                        figure.add_trace(trace, row=2, col=1)
+                    elite, _summary = elite_figure(
+                        run, inputs, cost_data["trials"], objective.optimize == "upper"
+                    )
+                    visible_elite_rows.extend(
+                        {"duration": duration, "objective": value}
+                        for duration, value in zip(elite.data[0].x, elite.data[0].y)
+                    )
+                    for trace in elite.data:
+                        trace.legendgroup = run.id
+                        trace.showlegend = False
                         trace.marker.color = color
-                        trace.line.color = color
-                    elif len(runs) > 1:
-                        trace.marker.color = color
-                    figure.add_trace(trace, row=2, col=1)
-                elite, _summary = elite_figure(
-                    run, inputs, cost_data["trials"], objective.optimize == "upper"
-                )
-                visible_elite_rows.extend(
-                    {"duration": duration, "objective": value}
-                    for duration, value in zip(elite.data[0].x, elite.data[0].y)
-                )
-                for trace in elite.data:
-                    trace.legendgroup = run.id
-                    trace.showlegend = False
-                    trace.marker.color = color
-                    if trace.mode == "lines+markers":
-                        trace.line.color = color
-                    trace.name = f"{run.name} · {trace.name}"
-                    figure.add_trace(trace, row=2, col=2)
+                        if trace.mode == "lines+markers":
+                            trace.line.color = color
+                        trace.name = f"{run.name} · {trace.name}"
+                        figure.add_trace(trace, row=2, col=2)
 
             figure.add_trace(
                 go.Scatter(
@@ -568,37 +570,38 @@ class CostOverTime(DynamicPlugin):
         figure.update_yaxes(title_text="Trials", row=1, col=1)
         figure.update_xaxes(title_text=xaxis_label, type=type, row=1, col=2)
         figure.update_yaxes(title_text=objective.name, row=1, col=2)
-        figure.update_xaxes(
-            title_text="Trial duration [s]",
-            type=prepare_plot_data(visible_cost_rows)["xaxis_type"],
-            row=2,
-            col=1,
-        )
-        figure.update_yaxes(title_text=objective.name, row=2, col=1)
-        figure.update_xaxes(
-            title_text="Trial duration [s]",
-            type=prepare_plot_data(visible_elite_rows)["xaxis_type"],
-            row=2,
-            col=2,
-        )
-        figure.update_yaxes(title_text=objective.name, row=2, col=2)
-        if not visible_cost_rows:
-            figure.add_annotation(
-                text="No valid completed trials with duration data available.",
-                x=0.5,
-                y=0.5,
-                xref="x3 domain",
-                yref="y3 domain",
-                showarrow=False,
+        if not trajectory_only:
+            figure.update_xaxes(
+                title_text="Trial duration [s]",
+                type=prepare_plot_data(visible_cost_rows)["xaxis_type"],
+                row=2,
+                col=1,
             )
-            figure.add_annotation(
-                text="No valid elite trials available.",
-                x=0.5,
-                y=0.5,
-                xref="x4 domain",
-                yref="y4 domain",
-                showarrow=False,
+            figure.update_yaxes(title_text=objective.name, row=2, col=1)
+            figure.update_xaxes(
+                title_text="Trial duration [s]",
+                type=prepare_plot_data(visible_elite_rows)["xaxis_type"],
+                row=2,
+                col=2,
             )
+            figure.update_yaxes(title_text=objective.name, row=2, col=2)
+            if not visible_cost_rows:
+                figure.add_annotation(
+                    text="No valid completed trials with duration data available.",
+                    x=0.5,
+                    y=0.5,
+                    xref="x3 domain",
+                    yref="y3 domain",
+                    showarrow=False,
+                )
+                figure.add_annotation(
+                    text="No valid elite trials available.",
+                    x=0.5,
+                    y=0.5,
+                    xref="x4 domain",
+                    yref="y4 domain",
+                    showarrow=False,
+                )
         figure.update_layout(
             barmode="overlay",
             legend=dict(
@@ -612,7 +615,12 @@ class CostOverTime(DynamicPlugin):
             margin={**config.FIGURE_MARGIN, "b": 120},
             font=dict(size=config.FIGURE_FONT_SIZE),
         )
-        style_analysis(figure, height=1050 + 24 * max(0, len(runs) - 2))
-        save_image(figure, "cost_over_time.pdf")
+        style_analysis(
+            figure,
+            height=500 if trajectory_only else 1050 + 24 * max(0, len(runs) - 2),
+            show_legend=not trajectory_only,
+        )
+        if not trajectory_only:
+            save_image(figure, "cost_over_time.pdf")
 
         return figure

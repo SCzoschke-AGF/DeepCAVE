@@ -1047,25 +1047,7 @@ class AbstractRun(ABC):
             if objective_id is None:
                 raise RuntimeError("The objective was not found.")
 
-            cost = costs[objective_id]
-
-            assert objective.lower is not None
-            assert objective.upper is not None
-
-            # TODO: What to do if we deal with infinity here?
-            assert objective.lower != np.inf
-            assert objective.upper != -np.inf
-
-            a = cost - objective.lower
-            b = objective.upper - objective.lower
-            normalized_cost = a / b
-
-            # The lower is optimized
-            # So the normalized cost needs to be flipped
-            if objective.optimize == "upper":
-                normalized_cost = 1 - normalized_cost
-
-            normalized_costs.append(normalized_cost)
+            normalized_costs.append(objective.normalize(costs[objective_id]))
             filtered_objectives.append(objective)
 
         # Give the same weight to all objectives (for now)

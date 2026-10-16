@@ -100,7 +100,7 @@ def main():
             objective_id2=None, hyperparameter_names=names, budget_ids=[0], n_hps=9, method="local"
         ),
         {0: {name: (0.7 / (i + 1) ** 3, 0.001) for i, name in enumerate(names)}},
-    )
+    )["graph"]["figure"]
     for name, figure in ([] if "--browser-only" in sys.argv else figures.items()):
         for extension in ("png", "pdf"):
             path = target / f"{name}.{extension}"

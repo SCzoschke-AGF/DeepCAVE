@@ -108,6 +108,7 @@ class Plugin(Layout, ABC):
     icon: str = "far fa-file"
     help: Optional[str] = None
     button_caption: str = "Process"
+    processing_version: int = 0
     activate_run_selection: bool = False
     allow_additional_runs: bool = False
     main_objective_input: Optional[str] = None
@@ -727,6 +728,8 @@ class Plugin(Layout, ABC):
         new_d = copy.deepcopy(d)
         new_d.pop("run", None)
         new_d.pop("additional_runs", None)
+        if self.processing_version:
+            new_d["_processing_version"] = self.processing_version
         if remove_filters:
             for id, _, filter, _ in self.inputs:
                 if filter:

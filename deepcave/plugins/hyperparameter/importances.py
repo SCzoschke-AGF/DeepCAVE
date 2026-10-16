@@ -27,7 +27,11 @@ processing the data and loading the outputs. Also provides a matplotlib version.
 
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+import itertools
+import json
+from copy import copy
 from io import StringIO
+from textwrap import dedent
 
 import dash_bootstrap_components as dbc
 import numpy as np
@@ -35,10 +39,11 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objs as go
 from ConfigSpace import ConfigurationSpace, Constant
-from dash import dcc, html
+from dash import Input, Output, dash_table, dcc, html
+from dash.dash_table.Format import Format, Scheme
 from dash.exceptions import PreventUpdate
 
-from deepcave import config
+from deepcave import config, interactive
 from deepcave.evaluators.fanova import fANOVA as GlobalEvaluator
 from deepcave.evaluators.lpi import LPI as LocalEvaluator
 from deepcave.evaluators.mo_fanova import MOfANOVA
@@ -47,8 +52,10 @@ from deepcave.evaluators.ped_anova import PEDANOVA
 from deepcave.plugins.static import StaticPlugin
 from deepcave.runs import AbstractRun
 from deepcave.runs.objective import Objective
+from deepcave.runs.status import Status
 from deepcave.utils.analysis_layout import style_analysis
 from deepcave.utils.cast import optional_int
+from deepcave.utils.interaction_screening import get_cached_fanova, save_cached_fanova
 from deepcave.utils.layout import get_checklist_options, get_select_options, help_button
 from deepcave.utils.logs import get_logger
 from deepcave.utils.styled_plotty import get_color, save_image
@@ -56,6 +63,134 @@ from deepcave.utils.styled_plotty import get_color, save_image
 logger = get_logger(__name__)
 
 MAX_INTERACTION_HYPERPARAMETERS = 4
+
+
+def _importance_method_guide() -> html.Details:
+    """Explain the methods and interaction screening below the analysis results."""
+    return html.Details(
+        [
+            html.Summary(
+                "How are importances calculated?",
+                style={"cursor": "pointer", "fontWeight": "600"},
+            ),
+            dcc.Markdown(
+                dedent(r"""
+                    #### fANOVA — global importance
+
+                    A random forest learns to predict the selected objective across the search
+                    space. fANOVA decomposes each tree's prediction variance into individual
+                    parameter effects and interactions, then averages the variance fractions
+                    across trees. A main-effect score of 0.20 means that this parameter alone
+                    accounts for about 20% of the modeled variance under the integration measure.
+                    Main effects need not sum to one: interactions can explain the remainder.
+                    These are effects in the fitted model, not evidence of causality.
+
+                    #### LPI — local parameter importance
+
+                    LPI uses a random forest to vary one parameter at a time around the best
+                    observed configuration (Incumbent) while holding the other settings fixed.
+                    Parameters whose changes produce more prediction variance receive higher
+                    importance. The variances are normalized across parameters within each tree
+                    and then averaged. This explains sensitivity near the incumbent, so its ranking
+                    can differ from global fANOVA. LPI does not separately estimate
+                    pair interactions.
+
+                    #### PED-ANOVA — importance in the top-performing region
+
+                    PED-ANOVA compares estimated parameter distributions in the best trials with
+                    their distributions across the observed search. The target quantile selects
+                    that top-performing region: 0.10 corresponds to approximately the best 10%.
+                    A parameter receives a high score when its distribution differs strongly
+                    between these regions. Scores are normalized to sum to one. This method uses
+                    density estimates rather than a random forest and does not calculate pair
+                    interactions here. Its scores have a different meaning from fANOVA fractions.
+
+                    #### How fANOVA pair interactions are determined
+
+                    An interaction is the additional joint effect of two parameters after their
+                    individual effects have been removed. Two parameters can have weak main
+                    effects and still interact strongly. With **Interaction order 2**, choose:
+
+                    - **Selected parameters:** calculate exact pair interactions among the
+                      selected two to four parameters.
+                    - **Screen all pairs:** rank every pair cheaply, refine promising or
+                      numerically uncertain candidates, then calculate selected pairs exactly.
+
+                    The screening follows these steps:
+
+                    1. **Reuse one fitted forest.** Screening and exact calculations use the same
+                       trees, parameter encoding, bounds and integration measure. Logarithmic
+                       parameters are integrated in their encoded space; categories use counting
+                       weights. Parameters are never excluded because of small main effects.
+                    2. **Separate the pure interaction in each tree.** For tree $t$, marginalize
+                       over all other parameters to obtain the joint surface $a_{jk,t}$, the
+                       individual surfaces $a_{j,t}$ and $a_{k,t}$, and the overall mean
+                       $f_{\emptyset,t}$:
+
+                       $$f_{jk,t}(a,b)=a_{jk,t}(a,b)-a_{j,t}(a)-a_{k,t}(b)+f_{\emptyset,t}.$$
+
+                       The constant and one-parameter marginal predictions are exact for the
+                       fitted tree. Approximation enters through the two-dimensional integration.
+                    3. **Screen every pair on an 8 × 8 grid.** Estimate the weighted mean square
+                       of this residual under the integration measure $Q_{jk}$ and divide by the
+                       tree's exact total variance $V_t$:
+
+                       $$I_{jk,t}\approx
+                       \frac{\mathbb{E}_{Q_{jk}}[f_{jk,t}(a,b)^2]}{V_t}.$$
+
+                       Average these fractions over trees with finite positive variance.
+                       Squaring happens before averaging across trees. The residual mean is not
+                       subtracted: mean square preserves the fANOVA definition even when a coarse
+                       grid leaves a numerical offset.
+                    4. **Refine and check the ranking.** Leading pairs, pairs near the selection
+                       boundary and pairs with a large offset are evaluated on a 16 × 16 grid.
+                       Up to two lower-ranked pairs are also checked with a shifted coarse grid;
+                       a substantial change promotes them to refinement. Newly promoted leaders
+                       and pairs near the updated boundary are refined as well.
+                    5. **Calculate selected pairs exactly.** **Exact top pairs** selects how many
+                       leading screening pairs to calculate exactly (default 5; 0 means screening
+                       only). Click a pair in the table or use **Additional exact pairs**, then
+                       click **Process**. Completed pairs disappear from the picker; their exact
+                       results remain in the table and plot.
+                       The forest and computed marginals are cached and reused. Exact means
+                       integration over the fitted trees' partitions, not exact knowledge of the
+                       underlying objective. Only main effects and exact pair results enter the
+                       bar plot; approximate scores remain in the screening table.
+
+                    ##### Reading the screening diagnostics
+
+                    - **Approx. importance:** the 16 × 16 estimate when available, otherwise the
+                      8 × 8 estimate. **Exact importance** is blank until that pair is calculated
+                      exactly; a blank cell does not mean zero importance.
+                    - **Offset:** the mean across trees of
+                      $(\mathbb{E}_{Q_{jk}}[f_{jk,t}])^2/V_t$. The residual mean should be zero
+                      under exact integration; a larger value indicates integration error.
+                    - **Resolution Δ:** the absolute difference between the 8 × 8 and 16 × 16
+                      scores. **Shifted-grid Δ** is the absolute difference from the coarse-grid
+                      audit. Blank diagnostics indicate that the corresponding check was not run.
+                    - **Exact:** an exact result for the fitted forest is available. This status
+                      takes precedence over the screening status, including **Refine recommended**.
+                      The grid estimates and their diagnostics remain visible for comparison.
+                    - **Stable:** the resolution difference is at most the larger of 0.002 and
+                      20% of the larger score, the normalized offset is at most 0.001, and the
+                      score is at most 1.002. Otherwise a refined pair is marked
+                      **Refine recommended**. **Coarse** and **Audited coarse** have not received
+                      the 16 × 16 check.
+
+                    Stability describes numerical sensitivity, not statistical confidence.
+                    Narrow interactions can fall between grid points, and closely ranked pairs
+                    can change order after exact calculation. Increasing **Exact top pairs** or
+                    checking additional pairs reduces reliance on the approximate shortlist.
+                    """),
+                mathjax=True,
+                className="mt-3",
+                style={"maxWidth": "1000px", "lineHeight": "1.6"},
+            ),
+        ],
+        id="importances-method-guide",
+        open=False,
+        className="mt-4 p-3 border rounded",
+    )
 
 
 def _serialize_global_importances(
@@ -94,11 +229,48 @@ class Importances(StaticPlugin):
     """
 
     id = "importances"
+    processing_version = 3
     name = "Importances"
     icon = "far fa-star"
     help = "plugins/importances.html"
     activate_run_selection = True
     main_objective_input = "objective_id1"
+    input_update_inputs = (
+        ("screening_cell", "importances-screening-output", "active_cell"),
+        ("screening_ready", "importances-screening_ready-output", "data"),
+    )
+
+    @interactive
+    def register_callbacks(self) -> None:
+        """Show method-specific fields immediately when the method or order changes."""
+        super().register_callbacks()
+        from deepcave import app
+
+        @app.callback(
+            [
+                Output("importances-trees-field", "style"),
+                Output("importances-quantile-field", "style"),
+                Output("importances-interactions-field", "style"),
+                Output("importances-interaction-hps-field", "style"),
+                Output("importances-interaction-mode-field", "style"),
+                Output("importances-screening-fields", "style"),
+            ],
+            [
+                Input(self.get_internal_input_id("method"), "value"),
+                Input(self.get_internal_input_id("interaction_order"), "value"),
+                Input(self.get_internal_input_id("interaction_mode"), "value"),
+            ],
+        )
+        def update_method_fields(method: str, order: Any, mode: str) -> List[Dict[str, str]]:
+            pairwise = method == "global" and order in (2, "2")
+            return [
+                {"display": "none"} if method == "ped_anova" else {},
+                {} if method == "ped_anova" else {"display": "none"},
+                {} if method == "global" else {"display": "none"},
+                {} if pairwise and mode == "selected" else {"display": "none"},
+                {} if pairwise else {"display": "none"},
+                {} if pairwise and mode == "screening" else {"display": "none"},
+            ]
 
     @staticmethod
     def get_input_layout(register: Callable) -> List[Any]:
@@ -117,23 +289,14 @@ class Importances(StaticPlugin):
             Layout for the input block.
         """
         return [
-            dbc.Row(
-                [
-                    dbc.Col(
-                        [
-                            dbc.Label("Comparison Objective"),
-                            dbc.Select(
-                                id=register(
-                                    "objective_id2",
-                                    ["value", "options", "disabled"],
-                                    type=int,
-                                ),
-                                placeholder="Select objective ...",
-                            ),
-                        ],
-                        md=6,
-                    ),
-                ],
+            dcc.Dropdown(
+                id=register("exact_pairs", ["value", "options"]),
+                multi=True,
+                style={"display": "none"},
+            ),
+            dbc.Select(
+                id=register("objective_id2", ["value", "options", "disabled"], type=int),
+                style={"display": "none"},
             ),
             dbc.Row(
                 [
@@ -148,9 +311,9 @@ class Importances(StaticPlugin):
                                 "PED-ANOVA: Quantify which parameters distinguish the selected "
                                 "top-performing region."
                             ),
-                            dbc.Select(
+                            dbc.RadioItems(
                                 id=register("method", ["value", "options"]),
-                                placeholder="Select ...",
+                                className="multi-metrics-segmented",
                             ),
                         ],
                         md=6,
@@ -169,6 +332,7 @@ class Importances(StaticPlugin):
                                 type="number",
                             ),
                         ],
+                        id="importances-trees-field",
                         md=6,
                     ),
                 ],
@@ -193,7 +357,9 @@ class Importances(StaticPlugin):
                         md=6,
                     ),
                 ],
+                id="importances-quantile-field",
                 className="mt-3",
+                style={"display": "none"},
             ),
             dbc.Row(
                 [
@@ -202,8 +368,8 @@ class Importances(StaticPlugin):
                             dbc.Label("Interaction order"),
                             help_button(
                                 "Order 1 calculates main effects only. Order 2 additionally "
-                                "calculates pairwise fANOVA interactions for the selected "
-                                "interaction hyperparameters. Pairwise marginalization can take "
+                                "screens all parameter pairs or calculates exact interactions "
+                                "for selected hyperparameters. Exact marginalization can take "
                                 "several minutes per budget."
                             ),
                             dbc.Select(
@@ -214,6 +380,23 @@ class Importances(StaticPlugin):
                                 ),
                             ),
                         ],
+                        md=6,
+                    ),
+                    dbc.Col(
+                        [
+                            dbc.Label("Interaction analysis"),
+                            dbc.RadioItems(
+                                id=register("interaction_mode", "value"),
+                                options=[
+                                    {"label": "Screen all pairs", "value": "screening"},
+                                    {"label": "Selected parameters", "value": "selected"},
+                                ],
+                                value="screening",
+                                className="multi-metrics-segmented",
+                            ),
+                        ],
+                        id="importances-interaction-mode-field",
+                        style={"display": "none"},
                         md=6,
                     ),
                     dbc.Col(
@@ -232,10 +415,57 @@ class Importances(StaticPlugin):
                                 placeholder="Select 2–4 hyperparameters ...",
                             ),
                         ],
+                        id="importances-interaction-hps-field",
+                        style={"display": "none"},
                         md=6,
                     ),
+                    dbc.Col(
+                        dbc.Row(
+                            [
+                                dbc.Col(
+                                    [
+                                        dbc.Label("Exact top pairs"),
+                                        help_button(
+                                            "Screen all pairs and refine promising or uncertain "
+                                            "pairs. Calculate the top pairs exactly; set 0 for "
+                                            "screening only."
+                                        ),
+                                        dbc.Input(
+                                            id=register("screen_top_k", "value", type=optional_int),
+                                            type="number",
+                                            min=0,
+                                            step=1,
+                                            value=5,
+                                        ),
+                                    ],
+                                    md=4,
+                                ),
+                                dbc.Col(
+                                    [
+                                        dbc.Label("Additional exact pairs"),
+                                        dcc.Dropdown(
+                                            id=register(
+                                                "pending_exact_pairs",
+                                                ["value", "options"],
+                                                filter=True,
+                                            ),
+                                            multi=True,
+                                            placeholder="Select pairs, then click Process ...",
+                                        ),
+                                    ],
+                                    md=8,
+                                ),
+                            ]
+                        ),
+                        id="importances-screening-fields",
+                        style={"display": "none"},
+                        className="mt-3",
+                        md=12,
+                    ),
                 ],
+                id="importances-interactions-field",
                 className="mt-3",
+                style={"display": "none"},
             ),
         ]
 
@@ -256,36 +486,24 @@ class Importances(StaticPlugin):
             Layout for the filter block.
         """
         return [
-            html.Div(
-                [
-                    dbc.Label("Hyperparameters"),
-                    dbc.Checklist(
-                        id=register("hyperparameter_names", ["value", "options"]), inline=True
-                    ),
-                ],
-                className="mb-3",
+            dbc.Checklist(
+                id=register("hyperparameter_names", ["value", "options"]),
+                style={"display": "none"},
             ),
             html.Div(
                 [
-                    dbc.Label("Limit Effects"),
+                    dbc.Label("Plot top N Importances"),
                     help_button(
-                        "Shows only the n most important main or interaction effects. If a "
-                        "hyperparameter was de-selected, its main effect and all interactions "
-                        "containing it are skipped."
+                        "Shows the n most important main or interaction effects, "
+                        "considering all hyperparameters."
                     ),
                     dbc.Input(id=register("n_hps", "value"), type="number"),
                 ],
                 className="mb-3",
             ),
-            html.Div(
-                [
-                    dbc.Label("Budgets"),
-                    help_button(
-                        "Budget refers to the multi-fidelity budget. "
-                        "The hyperparameters are sorted by the highest budget."
-                    ),
-                    dbc.Checklist(id=register("budget_ids", ["value", "options"]), inline=True),
-                ]
+            dbc.Checklist(
+                id=register("budget_ids", ["value", "options"]),
+                style={"display": "none"},
             ),
         ]
 
@@ -311,7 +529,7 @@ class Importances(StaticPlugin):
 
         return {
             "objective_id1": {"options": [], "value": None},
-            "objective_id2": {"options": [], "value": None, "disabled": False},
+            "objective_id2": {"options": [], "value": -1, "disabled": False},
             "method": {
                 "options": get_select_options(method_labels, method_values),
                 "value": "local",
@@ -326,12 +544,58 @@ class Importances(StaticPlugin):
                 "disabled": True,
             },
             "interaction_hp_names": {"options": [], "value": [], "disabled": True},
+            "interaction_mode": {"value": "screening"},
+            "screen_top_k": {"value": 5},
+            "exact_pairs": {"value": [], "options": []},
+            "pending_exact_pairs": {"value": [], "options": []},
             "hyperparameter_names": {"options": get_checklist_options(), "value": []},
             "n_hps": {"value": 0},
             "budget_ids": {"options": get_checklist_options(), "value": []},
         }
 
-    def load_dependency_inputs(self, run, _, inputs) -> Dict[str, Any]:  # type: ignore # noqa: E501
+    def _completed_pairs(self, run_id: Optional[str], inputs: Dict[str, Any]) -> set[str]:
+        """Find pairs calculated exactly at every budget for the current forest settings."""
+        output = (self.raw_outputs or {}).get(run_id) or {}
+        context = output.get("_screening_context", {})
+        if not context or any(
+            context.get(key) != inputs.get(key, {}).get("value")
+            for key in ("objective_id1", "n_trees")
+        ):
+            return set()
+        budgets = list(output.get("_screening", {}).values())
+        if not budgets:
+            return set()
+        exact_by_budget = [
+            {
+                json.dumps(row["members"])
+                for row in rows
+                if row.get("exact") is not None and np.isfinite(row["exact"])
+            }
+            for rows in budgets
+        ]
+        return set.intersection(*exact_by_budget)
+
+    def load_input_updates(self, events: Dict[str, Any]) -> Dict[str, Any]:
+        """Queue table selections without changing already completed calculation requests."""
+        requests = list(self.previous_inputs.get("exact_pairs", {}).get("value") or [])
+        cell = events.get("screening_cell")
+        if cell and cell.get("column_id") == "pair":
+            try:
+                _budget, first, second = json.loads(cell["row_id"])
+            except (KeyError, TypeError, ValueError):
+                return {}
+            pair = json.dumps([first, second])
+            run_id = self.previous_inputs.get("run", {}).get("value")
+            completed = self._completed_pairs(run_id, self.previous_inputs)
+            if pair not in completed and pair not in requests:
+                requests.append(pair)
+            return {"exact_pairs": {"value": requests}}
+        if events.get("screening_ready"):
+            # Consume the ready event in the native callback, which then refreshes the picker.
+            return {"exact_pairs": {"value": requests}}
+        return {}
+
+    def load_dependency_inputs(self, run, previous_inputs, inputs) -> Dict[str, Any]:  # type: ignore # noqa: E501
         """
         Works like 'load_inputs' but called after inputs have changed.
 
@@ -356,7 +620,7 @@ class Importances(StaticPlugin):
         objective_names = run.get_objective_names()
         objective_ids = run.get_objective_ids()
         objective_value1 = inputs["objective_id1"]["value"]
-        objective_value2 = inputs["objective_id2"]["value"]  # in the multi-objective case
+        objective_value2 = -1  # Only the main objective selected in the sidebar is used.
 
         # Pre-set values
         if objective_value1 is None:
@@ -378,7 +642,6 @@ class Importances(StaticPlugin):
 
         hp_names = list(run.configspace.keys())
         hp_options = get_checklist_options(hp_names)
-        hp_value = inputs["hyperparameter_names"]["value"]
         n_hps = inputs["n_hps"]["value"]
 
         # Pairwise interactions are deliberately restricted to global, single-objective fANOVA.
@@ -423,14 +686,24 @@ class Importances(StaticPlugin):
                 for name in eligible_interaction_hp_names
             ],
         )
+        pair_options = [
+            {"label": " × ".join(pair), "value": json.dumps(pair)}
+            for pair in itertools.combinations(eligible_interaction_hp_names, 2)
+        ]
+        valid_pairs = {option["value"] for option in pair_options}
+        selected_pairs = inputs.get("exact_pairs", {}).get("value") or []
+        completed = self._completed_pairs(run.id, inputs)
+        pending = inputs.get("pending_exact_pairs", {}).get("value") or []
+        previous_pending = previous_inputs.get("pending_exact_pairs", {}).get("value") or []
+        if pending != previous_pending:
+            selected_pairs = [pair for pair in selected_pairs if pair in completed] + pending
+        selected_pairs = list(dict.fromkeys(pair for pair in selected_pairs if pair in valid_pairs))
 
         if n_hps == 0:
             n_hps = len(hp_names)
 
         # Pre-selection of the hyperparameters
         if run is not None:
-            if len(hp_value) == 0:
-                hp_value = hp_names
             if len(budget_value) == 0:
                 budget_value = [budget_ids[-1]]
 
@@ -449,7 +722,7 @@ class Importances(StaticPlugin):
             },
             "hyperparameter_names": {
                 "options": hp_options,
-                "value": hp_value,
+                "value": hp_names,
             },
             "budget_ids": {
                 "options": budget_options,
@@ -475,6 +748,14 @@ class Importances(StaticPlugin):
                 "options": interaction_options,
                 "value": selected_interaction_hp_names,
                 "disabled": not interactions_available or interaction_order != 2,
+            },
+            "exact_pairs": {
+                "options": pair_options,
+                "value": selected_pairs,
+            },
+            "pending_exact_pairs": {
+                "options": [option for option in pair_options if option["value"] not in completed],
+                "value": [pair for pair in selected_pairs if pair not in completed],
             },
         }
 
@@ -520,6 +801,10 @@ class Importances(StaticPlugin):
         target_quantile = inputs.get("target_quantile", 0.1)
         interaction_order = inputs.get("interaction_order", 1)
         interaction_hp_names = inputs.get("interaction_hp_names") or []
+        interaction_mode = inputs.get("interaction_mode", "selected")
+        screening = interaction_order == 2 and interaction_mode == "screening"
+        top_k = inputs.get("screen_top_k", 5)
+        top_k = 5 if top_k is None else top_k
 
         if method in ("local", "global") and n_trees is None:
             raise RuntimeError("Please specify the number of trees.")
@@ -540,12 +825,33 @@ class Importances(StaticPlugin):
                 raise RuntimeError(
                     "Pairwise interactions are only available for global single-objective fANOVA."
                 )
+            if interaction_mode not in ("selected", "screening"):
+                raise RuntimeError("Unknown interaction analysis mode.")
+            if screening and (not isinstance(top_k, int) or isinstance(top_k, bool) or top_k < 0):
+                raise RuntimeError("Exact top pairs must be a non-negative integer.")
             if not isinstance(interaction_hp_names, list):
                 raise RuntimeError("Interaction hyperparameters must be provided as a list.")
             if len(interaction_hp_names) != len(set(interaction_hp_names)):
                 raise RuntimeError("Interaction hyperparameters must be unique.")
-            if not 2 <= len(interaction_hp_names) <= MAX_INTERACTION_HYPERPARAMETERS:
+            if (
+                not screening
+                and not 2 <= len(interaction_hp_names) <= MAX_INTERACTION_HYPERPARAMETERS
+            ):
                 raise RuntimeError("Select between two and four interaction hyperparameters.")
+
+        # Filter before encoding can replace missing objectives with worst-value penalties.
+        selected_objectives = objective if isinstance(objective, list) else [objective]
+        objective_ids = [run.get_objective_id(selected) for selected in selected_objectives]
+        run = copy(run)
+        run.history = [
+            trial
+            for trial in run.history
+            if trial.status == Status.SUCCESS
+            and all(
+                trial.costs[index] is not None and np.isfinite(trial.costs[index])
+                for index in objective_ids
+            )
+        ]
 
         # Handle constant values in fANOVA: As the fANOVA implementation relies on pyrfr
         # and pyrfr cannot be applied to constant hyperparameters
@@ -557,6 +863,32 @@ class Importances(StaticPlugin):
         eligible_interaction_hp_names = {
             name for name, hp in hp_dict.items() if not isinstance(hp, Constant)
         }
+        additional_pairs = []
+        if screening:
+            if len(eligible_interaction_hp_names) < 2:
+                raise RuntimeError(
+                    "Interaction screening requires at least two non-constant parameters."
+                )
+            for encoded in inputs.get("exact_pairs") or []:
+                try:
+                    pair = json.loads(encoded)
+                except (TypeError, ValueError):
+                    raise RuntimeError("Invalid exact pair selection.")
+                if (
+                    not isinstance(pair, list)
+                    or len(pair) != 2
+                    or pair[0] == pair[1]
+                    or not all(
+                        isinstance(name, str) and name in eligible_interaction_hp_names
+                        for name in pair
+                    )
+                ):
+                    raise RuntimeError(
+                        "Exact pairs must contain two distinct non-constant parameters."
+                    )
+                additional_pairs.append(
+                    tuple(sorted(pair, key=lambda name: run.configspace.index_of[name]))
+                )
         if interaction_order == 2 and not set(interaction_hp_names).issubset(
             eligible_interaction_hp_names
         ):
@@ -599,6 +931,7 @@ class Importances(StaticPlugin):
 
         # Collect data
         data = {}
+        screening_results = {}
         importances: Union[
             str,
             list[dict[str, Any]],
@@ -607,7 +940,13 @@ class Importances(StaticPlugin):
         ]
         for budget_id, budget in enumerate(budgets):
             assert isinstance(budget, (int, float))
-            if method == "ped_anova":
+            model_path = None
+            if screening:
+                assert isinstance(objective, Objective)
+                evaluator, model_path = get_cached_fanova(
+                    run, objective, budget, n_trees, config.CACHE_DIR / "interaction_models"
+                )
+            elif method == "ped_anova":
                 assert isinstance(evaluator, PEDANOVA)
                 assert isinstance(objective, Objective)
                 evaluator.calculate(
@@ -632,7 +971,24 @@ class Importances(StaticPlugin):
 
                 records = _serialize_global_importances(global_importances, order=1)
                 if interaction_order == 2:
-                    pairwise_importances = evaluator.get_importances(interaction_hp_names, depth=2)
+                    if screening:
+                        ranked = evaluator.screen_interactions(hp_names, top_k=top_k)
+                        pairs = list(
+                            dict.fromkeys(
+                                [tuple(row["members"]) for row in ranked[:top_k]] + additional_pairs
+                            )
+                        )
+                        pairwise_importances = evaluator.get_pair_importances(
+                            pairs, include_cached=True
+                        )
+                        for row in ranked:
+                            exact = pairwise_importances.get(tuple(row["members"]))
+                            row["exact"] = float(exact[0]) if exact is not None else None
+                        screening_results[budget_id] = ranked
+                    else:
+                        pairwise_importances = evaluator.get_importances(
+                            interaction_hp_names, depth=2
+                        )
                     if any(
                         np.isnan(val) for value in pairwise_importances.values() for val in value
                     ):
@@ -650,11 +1006,20 @@ class Importances(StaticPlugin):
                 if any(np.isnan(val) for value in importances.values() for val in value):
                     logger.warning(f"Nan encountered in importance values for budget {budget}.")
             data[budget_id] = importances
+            if model_path is not None:
+                assert isinstance(evaluator, GlobalEvaluator)
+                save_cached_fanova(evaluator, model_path)
 
+        if screening:
+            data["_screening"] = screening_results
+            data["_screening_context"] = {
+                "objective_id1": inputs["objective_id1"],
+                "n_trees": n_trees,
+            }
         return data  # type: ignore
 
     @staticmethod
-    def get_output_layout(register: Callable) -> dcc.Graph:
+    def get_output_layout(register: Callable) -> html.Div:
         """
         Get the layout for the output block.
 
@@ -666,18 +1031,112 @@ class Importances(StaticPlugin):
 
         Returns
         -------
-        dcc.Graph
+        html.Div
             Layout for the output block.
         """
-        return dcc.Graph(
-            register("graph", "figure"),
-            responsive=True,
-            style={"width": "100%", "minHeight": "480px"},
-            config={"toImageButtonOptions": {"scale": config.FIGURE_DOWNLOAD_SCALE}},
+        number_format = Format(precision=5, scheme=Scheme.decimal_or_exponent)
+        return html.Div(
+            [
+                dcc.Store(id=register("screening_ready", "data")),
+                dcc.Graph(
+                    register("graph", "figure"),
+                    responsive="auto",
+                    style={"width": "100%"},
+                    config={
+                        "responsive": True,
+                        "toImageButtonOptions": {"scale": config.FIGURE_DOWNLOAD_SCALE},
+                    },
+                ),
+                html.Div(
+                    [
+                        html.H5("Interaction screening"),
+                        html.P(
+                            "All parameter pairs are screened. Promising and numerically uncertain "
+                            "pairs are refined from 8 × 8 to 16 × 16. Stability describes grid "
+                            "sensitivity, not statistical confidence. Click a pair to add it to "
+                            "Additional exact pairs, then click Process. Completed pairs disappear "
+                            "from the selection; their exact results remain available.",
+                            className="text-muted small",
+                        ),
+                        dash_table.DataTable(
+                            id=register("screening", "data"),
+                            columns=[
+                                {"name": "Budget", "id": "budget"},
+                                {"name": "Pair", "id": "pair"},
+                                *[
+                                    {
+                                        "name": label,
+                                        "id": key,
+                                        "type": "numeric",
+                                        "format": number_format,
+                                    }
+                                    for key, label in (
+                                        ("score", "Approx. importance"),
+                                        ("exact", "Exact importance"),
+                                        ("coarse", "8 × 8"),
+                                        ("medium", "16 × 16"),
+                                        ("offset", "Offset"),
+                                        ("stability", "Resolution Δ"),
+                                        ("audit_difference", "Shifted-grid Δ"),
+                                    )
+                                ],
+                                {"name": "Calculation status", "id": "status"},
+                            ],
+                            data=[],
+                            sort_action="native",
+                            page_size=15,
+                            style_table={"overflowX": "auto"},
+                            style_cell={"textAlign": "left", "padding": "8px", "fontSize": "12px"},
+                            style_header={"fontWeight": "600", "backgroundColor": "#f5f6fa"},
+                            style_data_conditional=[
+                                {
+                                    "if": {"column_id": "pair"},
+                                    "cursor": "pointer",
+                                    "color": "#4f46e5",
+                                }
+                            ],
+                        ),
+                    ],
+                    id=register("screening_panel", "style"),
+                    style={"display": "none"},
+                ),
+                _importance_method_guide(),
+            ]
         )
 
     @staticmethod
-    def load_outputs(run, inputs, outputs) -> go.Figure:  # type: ignore
+    def load_outputs(run, inputs, outputs) -> Dict[str, Any]:  # type: ignore
+        """Keep exact effects in the bar plot and approximate diagnostics in a separate table."""
+        selected_budgets = inputs["budget_ids"]
+        table = []
+        for budget_id, rows in outputs.get("_screening", {}).items():
+            if int(budget_id) not in selected_budgets:
+                continue
+            for row in rows:
+                exact = row.get("exact")
+                table.append(
+                    {
+                        **row,
+                        "id": json.dumps([int(budget_id), *row["members"]]),
+                        "status": (
+                            "Exact" if exact is not None and np.isfinite(exact) else row["status"]
+                        ),
+                        "budget": run.get_budget(int(budget_id), human=True),
+                        "pair": " × ".join(row["members"]),
+                    }
+                )
+        exact_outputs = {
+            key: value for key, value in outputs.items() if not str(key).startswith("_")
+        }
+        return {
+            "graph": {"figure": Importances._importance_figure(run, inputs, exact_outputs)},
+            "screening": {"data": table},
+            "screening_panel": {"style": {} if table else {"display": "none"}},
+            "screening_ready": {"data": {"run": run.id} if outputs.get("_screening") else None},
+        }
+
+    @staticmethod
+    def _importance_figure(run, inputs, outputs) -> go.Figure:  # type: ignore
         """
         Read in raw data and prepare for layout.
 
@@ -706,7 +1165,6 @@ class Importances(StaticPlugin):
             return Importances.load_ouputs_mo_fanova(run, inputs, outputs)
 
         # First selected, should always be shown first
-        selected_hp_names = inputs["hyperparameter_names"]
         selected_budget_ids = inputs["budget_ids"]
         n_hps = inputs["n_hps"]
 
@@ -715,7 +1173,7 @@ class Importances(StaticPlugin):
         else:
             n_hps = int(n_hps)
 
-        if len(selected_hp_names) == 0 or len(selected_budget_ids) == 0:
+        if len(selected_budget_ids) == 0:
             raise PreventUpdate()
 
         # Collect data. Effects are keyed by their members so values remain correctly aligned
@@ -731,8 +1189,6 @@ class Importances(StaticPlugin):
             if inputs["method"] == "global":
                 for record in importances:
                     members = tuple(record["members"])
-                    if not all(member in selected_hp_names for member in members):
-                        continue
                     effects[members] = (
                         " × ".join(members),
                         record["importance"],
@@ -740,8 +1196,6 @@ class Importances(StaticPlugin):
                     )
             else:
                 for hp_name, results in importances.items():
-                    if hp_name not in selected_hp_names:
-                        continue
                     effects[(hp_name,)] = (hp_name, results[0], results[1])
 
             data[budget_id] = effects
@@ -783,8 +1237,14 @@ class Importances(StaticPlugin):
             yaxis=dict(autorange="reversed"),
             font=dict(size=config.FIGURE_FONT_SIZE),
         )
-        style_analysis(figure, height=max(480, 180 + 30 * len(selected_effect_ids)))
-        figure.update_layout(showlegend=len(bar_data) > 1)
+        show_legend = len(bar_data) > 1
+        bottom = 130 if show_legend else 56
+        style_analysis(
+            figure,
+            height=max(280, 28 + bottom + 22 * len(selected_effect_ids)),
+            show_legend=show_legend,
+        )
+        figure.update_layout(margin=dict(t=28, b=bottom))
         save_image(figure, "importances.pdf")
 
         return figure
@@ -816,7 +1276,6 @@ class Importances(StaticPlugin):
         """
         # First selected, should always be shown first
         objective1 = run.get_objective(inputs["objective_id1"]).name
-        selected_hp_names = inputs["hyperparameter_names"]
         selected_budget_ids = inputs["budget_ids"]
         n_hps = inputs["n_hps"]
 
@@ -825,7 +1284,7 @@ class Importances(StaticPlugin):
         else:
             n_hps = int(n_hps)
 
-        if len(selected_hp_names) == 0 or len(selected_budget_ids) == 0:
+        if len(selected_budget_ids) == 0:
             raise PreventUpdate()
 
         # Collect data
@@ -837,9 +1296,6 @@ class Importances(StaticPlugin):
             if budget_id not in selected_budget_ids:
                 continue
 
-            df_importances = df_importances[
-                df_importances["hp_name"].isin(selected_hp_names)
-            ]  # only keep selected hps
             data[budget_id] = df_importances
 
         # Keep only n_hps most important hyperparameters according to max importance

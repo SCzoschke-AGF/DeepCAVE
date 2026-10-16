@@ -6,6 +6,7 @@ Displaying Data with Plugins
    :maxdepth: 2
 
    overview
+   run_overview
    configurations
    configuration_footprint
    cost_over_time
@@ -17,6 +18,7 @@ Displaying Data with Plugins
    ablation_paths
    one_dimensional_analysis
    two_dimensional_analysis
+   parameter_dependencies
    search_space_coverage
    near_optimal_configurations
    configuration_neighborhood

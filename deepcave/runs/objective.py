@@ -92,6 +92,15 @@ class Objective:
         self.lock_lower = lock_lower
         self.lock_upper = lock_upper
 
+    def normalize(self, value: float) -> float:
+        """Scale a value by the objective bounds, with smaller normalized values better."""
+        assert self.lower is not None
+        assert self.upper is not None
+        assert self.lower != np.inf
+        assert self.upper != -np.inf
+        normalized = (value - self.lower) / (self.upper - self.lower)
+        return 1 - normalized if self.optimize == "upper" else normalized
+
     def to_json(self) -> Dict[str, Any]:
         """
         Convert objectives attributes to a dictionary in a JSON friendly format.

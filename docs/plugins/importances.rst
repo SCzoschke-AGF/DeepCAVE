@@ -46,15 +46,50 @@ single-objective analysis. For details, see the paper
 `PED-ANOVA: Efficiently Quantifying Hyperparameter Importance in Arbitrary Subspaces
 <https://arxiv.org/abs/2304.10255>`_.
 
-For global single-objective fANOVA, the interaction order can be set to two. DeepCAVE then keeps
-all main effects and adds pairwise interactions between two to four explicitly selected
-hyperparameters. An interaction such as ``learning_rate × max_depth`` shows its individual
+For global single-objective fANOVA, the interaction order can be set to two. DeepCAVE keeps
+all main effects and offers either screening of all parameter pairs or exact interactions
+between two to four explicitly selected hyperparameters.
+An interaction such as ``learning_rate × max_depth`` shows its individual
 importance: the additional variance attributable to that pair after subtracting its main effects.
 The total importance, which includes those main effects, remains available in the raw data.
 
 Pairwise marginalization is substantially more expensive than calculating main effects. It is
 performed by the background worker and can take several minutes for four selected parameters or
 for runs with multiple budgets.
+
+Interaction screening
+---------------------
+
+``Screen all pairs`` first evaluates every pair on an 8 × 8 grid in the forest's encoded
+parameter space. It refines the leading pairs, pairs near the selection boundary, and pairs
+with a large numerical offset on a 16 × 16 grid. A deterministic shifted-grid audit of some
+lower-ranked pairs can also promote them to refinement. No main-effect threshold excludes
+parameters, so pairs with small individual effects remain eligible.
+
+The marginal predictions for the constant and individual terms are exact native forest
+marginals. The squared pure pair interaction is integrated numerically and divided by each
+tree's exact total variance before averaging over non-degenerate trees. Grid weights use the
+same encoded bounds and categorical counting measure as the exact calculation, including
+logarithmic parameter transformations.
+
+The table separates approximate importance from exact importance. Offset is the mean of the
+squared residual means divided by each tree's total variance. Resolution Δ compares the
+8 × 8 and 16 × 16 scores; Shifted-grid Δ records the audit difference. ``Stable`` means the
+resolution difference and offset meet the numerical tolerances. It is not statistical
+confidence or a guarantee that narrow interactions were detected.
+Once a finite exact result is available, the calculation status shows ``Exact`` instead of
+the screening status, including ``Refine recommended``. Grid estimates and diagnostics
+remain visible for comparison with the exact result.
+
+``Exact top pairs`` controls how many of the ranked pairs are calculated exactly (default 5).
+Set it to 0 for screening only. ``Additional exact pairs`` allows checking any other pairs;
+click a pair in the table or select it in the dropdown, then click Process. Pairs calculated
+exactly at every processed budget disappear from the picker. Their exact results remain in
+the table and bar plot, including on subsequent calculations with the same forest.
+The fitted forest, its exact marginal calculations, and grid
+estimates are cached using the actual training data, parameter space, and forest settings.
+Changing the pair selection reuses the original fitted trees. The bar plot contains main
+effects and calculated exact interactions only; approximate scores remain in the table.
 
 Multi-Objective Importance
 --------------------------
@@ -87,13 +122,19 @@ Options
   pairwise interactions (order 2). Order 2 is available only for global fANOVA with one objective.
 
 * **Interaction hyperparameters:** Choose between two and four non-constant hyperparameters whose
-  pairwise interactions should be calculated. This selection is part of the calculation cache key.
+  pairwise interactions should be calculated in Selected parameters mode.
+
+* **Interaction analysis:** Screen all parameter pairs or calculate interactions among explicitly
+  selected parameters. Shown only for global fANOVA with interaction order 2.
+
+* **Exact top pairs:** Number of top-ranked screening pairs to calculate exactly; 0 screens only.
+
+* **Additional exact pairs:** Other pairs to calculate exactly using the cached forest.
 
 To refine your analysis, you can apply various filters after calculation:
 
-* **Hyperparameters:** Display only the importance scores for specific hyperparameters of interest.
-
-* **Limit Effects**: Show only the top N main or interaction effects.
+* **Plot top N Importances**: Show only the top N main or interaction effects, considering all
+  hyperparameters.
 
 * **Budgets**: Filter the results to view importance scores specific to certain multi-fidelity budgets, allowing you to analyze how hyperparameter importance varies with budget changes.
 

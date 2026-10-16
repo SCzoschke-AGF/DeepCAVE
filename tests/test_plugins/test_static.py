@@ -292,6 +292,9 @@ def test_processing_key_ignores_transient_ui_metadata() -> None:
 
     assert _processing_inputs_key(plugin, first) == _processing_inputs_key(plugin, transient)
     assert _processing_inputs_key(plugin, first) != _processing_inputs_key(plugin, changed)
+    old_key = _processing_inputs_key(plugin, first)
+    plugin.processing_version = 1
+    assert _processing_inputs_key(plugin, first) != old_key
 
 
 def test_callback_blocking_is_released_after_prevent_update() -> None:

@@ -12,6 +12,7 @@ from deepcave.constants import COMBINED_COST_NAME
 from deepcave.evaluators.fanova import fANOVA
 from deepcave.evaluators.rashomon import select_near_optimal_indices
 from deepcave.runs import AbstractRun
+from deepcave.runs.objective import Objective
 
 # The only cost target in v1. Keep its field and label separate from objective handling.
 COST_METRIC = {"field": "duration", "label": "Trial duration", "unit": "s"}
@@ -111,7 +112,7 @@ def elite_summary(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def calculate_importances(
-    run: AbstractRun, rows: Sequence[Dict[str, Any]], n_trees: int = 16
+    run: AbstractRun, rows: Sequence[Dict[str, Any]], n_trees: int = 16, objective_id: int = 0
 ) -> Dict[str, Any]:
     """Reuse fANOVA on identical valid trial samples for duration and objective targets.
 
@@ -119,6 +120,8 @@ def calculate_importances(
     than configuration averages. Constants are represented as one-choice categoricals because
     pyrfr cannot marginalize numerical constants. This preserves conditions and forbiddens,
     changes neither the source run nor its configurations, and assigns constants zero importance.
+    Both targets use Objective.normalize before forest fitting. Objective bounds and direction
+    match the Importances analysis; duration uses the sample range and is always minimized.
     Undefined main effects (constant targets / zero forest variance) remain unavailable.
     """
     names = list(run.configspace.keys())
@@ -150,8 +153,21 @@ def calculate_importances(
         if np.ptp(values) == 0:
             result["errors"][target] = "Importance is undefined: the target has no variation."
             continue
+        objective = run.get_objective(objective_id) if target == "objective" else None
+        if (
+            objective is None
+            or objective.lower is None or objective.upper is None
+            or not np.isfinite(objective.lower) or not np.isfinite(objective.upper)
+            or objective.upper <= objective.lower
+        ):
+            objective = Objective(
+                field,
+                lower=float(values.min()),
+                upper=float(values.max()),
+                optimize=objective.optimize if objective is not None else "lower",
+            )
         frame = pd.DataFrame(matrix, columns=list(cs.keys()))
-        frame[COMBINED_COST_NAME] = values
+        frame[COMBINED_COST_NAME] = [objective.normalize(float(value)) for value in values]
         adapter = SimpleNamespace(
             configspace=cs,
             get_encoded_data=lambda *args, **kwargs: frame,

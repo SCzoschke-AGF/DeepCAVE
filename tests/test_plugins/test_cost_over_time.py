@@ -40,8 +40,8 @@ def test_all_controls_share_the_compact_input_toolbar():
     from deepcave.config import Config
 
     plugins = Config().PLUGINS
-    assert plugins["Summary"][0].name == "Run Overview"
-    assert plugins["Objective Analysis"][0].name == "Objective Overview"
+    assert plugins["Summary"][0].name == "Run Metadata"
+    assert plugins["Objective Analysis"][0].name == "Multi-Run Comparison"
     assert all(plugin.id != "performance_cost" for plugin in plugins["Objective Analysis"])
     registrations = []
 

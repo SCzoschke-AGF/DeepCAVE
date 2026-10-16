@@ -121,6 +121,43 @@ class fANOVA:
         self._model = FanovaForest(self.cs, n_trees=n_trees, seed=seed)
         self._model.train(X, Y)
 
+    def screen_interactions(
+        self, hp_names: Optional[List[str]] = None, top_k: int = 5
+    ) -> List[Dict[str, Any]]:
+        """Screen all requested pairs using two resolutions of this fitted forest."""
+        from deepcave.evaluators.interaction_screening import screen_interactions
+
+        names = self.hp_names if hp_names is None else hp_names
+        return screen_interactions(self._model, [self.cs.index_of[name] for name in names], top_k)
+
+    def get_pair_importances(
+        self, pairs: List[Tuple[str, str]], include_cached: bool = False
+    ) -> Dict[Tuple[str, str], Tuple[float, float, float, float]]:
+        """Calculate selected pairs, optionally retaining previously computed exact pairs."""
+        if include_cached:
+            names = list(self.cs.keys())
+            pairs = list(
+                dict.fromkeys(
+                    [
+                        *pairs,
+                        *[
+                            tuple(names[index] for index in ids)
+                            for ids in self._model.V_U_individual
+                            if len(ids) == 2
+                        ],
+                    ]
+                )
+            )
+        result = {}
+        for pair in pairs:
+            canonical = tuple(sorted(pair, key=lambda name: self.cs.index_of[name]))
+            if len(canonical) != 2 or canonical[0] == canonical[1]:
+                raise ValueError("Each interaction must contain two distinct hyperparameters.")
+            result[canonical] = self.get_importances(list(canonical), depth=2, sort=False)[
+                canonical
+            ]
+        return result
+
     def get_importances(
         self, hp_names: Optional[List[str]] = None, depth: int = 1, sort: bool = True
     ) -> Dict[Union[str, Tuple[str, ...]], Tuple[float, float, float, float]]:

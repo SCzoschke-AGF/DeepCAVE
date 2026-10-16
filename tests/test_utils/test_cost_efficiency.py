@@ -10,6 +10,7 @@ from ConfigSpace import ConfigurationSpace, Constant, EqualsCondition
 from deepcave.runs import Status
 from deepcave.runs.converters.deepcave import DeepCAVERun
 from deepcave.runs.objective import Objective
+from deepcave.plugins.hyperparameter.importances import Importances
 from deepcave.utils.cost_efficiency import (
     calculate_importances,
     duration_trend,
@@ -17,7 +18,7 @@ from deepcave.utils.cost_efficiency import (
     importance_comparison,
     select_elite_indices,
 )
-from deepcave.utils.performance_cost import extract_trial_duration
+from deepcave.utils.performance_cost import extract_trial_data, extract_trial_duration
 
 
 @pytest.mark.parametrize(
@@ -137,6 +138,36 @@ def test_fanova_adapter_preserves_constant_parent_conditions_and_source_run():
     assert run.configspace is cs
     assert cs.to_serialized_dict() == before
     assert run.history == []
+
+
+@pytest.mark.parametrize("objective_id", [0, 1])
+def test_normalized_targets_match_importances_for_objective_and_duration(objective_id):
+    run = DeepCAVERun(
+        "normalized",
+        configspace=ConfigurationSpace(space={"x": (0.0, 1.0), "y": (0.0, 1.0)}),
+        objectives=[
+            Objective("score", lower=0.0, upper=1.0, optimize="upper"),
+            Objective("loss", lower=0.0, upper=1000.0),
+            Objective("Time"),
+        ],
+    )
+    for index, (x, y) in enumerate(np.random.RandomState(0).uniform(size=(30, 2))):
+        run.add(
+            config={"x": x, "y": y},
+            costs=[0.58 + 0.001 * (0.7 * x + 0.3 * y), 100 + 30 * x * y, (index + 1) * 10],
+            start_time=0, end_time=(index + 1) * 10, budget=0, seed=0,
+        )
+    rows = extract_trial_data(run, objective_id)
+    for row in rows:
+        row["configuration"] = dict(run.get_config(row["config_id"]))
+    result = calculate_importances(run, rows, n_trees=4, objective_id=objective_id)
+    assert result["errors"] == {}
+    for target, selected_id in (("objective", objective_id), ("cost", 2)):
+        native = Importances.process(
+            run, {"objective_id1": selected_id, "objective_id2": -1, "method": "global", "n_trees": 4}
+        )
+        expected = {record["members"][0]: record["importance"] for record in native[0]}
+        assert result[target] == pytest.approx(expected, abs=1e-12)
 
 
 def test_importance_insufficient_data_and_constant_targets():

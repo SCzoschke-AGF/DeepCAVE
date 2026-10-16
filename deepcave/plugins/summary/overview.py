@@ -51,7 +51,7 @@ class Overview(DynamicPlugin):
     """Visualize an overall overview of the selected run."""
 
     id = "overview"
-    name = "Run Overview"
+    name = "Run Metadata"
     icon = "fas fa-search"
     help = "plugins/overview.html"
     use_cache = False

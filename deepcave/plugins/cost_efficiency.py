@@ -305,6 +305,7 @@ class CostEfficiency(StaticPlugin):
     """Connect fANOVA main effects to observed duration and configuration efficiency."""
 
     id = "cost_efficiency"
+    processing_version = 1
     name = "Compuational Cost"
     description = (
         "Understand which hyperparameters drive computational cost, where cost can be reduced, "
@@ -423,7 +424,7 @@ class CostEfficiency(StaticPlugin):
         sources = run.runs if isinstance(run, Group) else [run]
         for row in rows:
             row["configuration"] = dict(sources[row["source_index"]].get_config(row["config_id"]))
-        importance = calculate_importances(run, rows)
+        importance = calculate_importances(run, rows, objective_id=objective_id)
         return {
             **prepare_plot_data(rows, maximize=objective.optimize == "upper"),
             "maximize": objective.optimize == "upper",

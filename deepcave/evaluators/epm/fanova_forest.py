@@ -102,6 +102,31 @@ class FanovaForest(RandomForest):
 
         self.cutoffs = cutoffs
 
+    def __getstate__(self) -> Dict[str, Any]:
+        """Serialize the native forest through pyrfr's supported representation."""
+        state = self.__dict__.copy()
+        state["_model"] = self._model.ascii_string_representation()
+        return state
+
+    def __setstate__(self, state: Dict[str, Any]) -> None:
+        """Restore native marginal predictions as well as cached Python calculations."""
+        state = state.copy()
+        representation = state.pop("_model")
+        self.__dict__.update(state)
+        self._model = regression.fanova_forest()
+        # pyrfr serializes the trees but omits the private integration domain (pcs).
+        # A one-point initialization installs that domain; loading then replaces every tree
+        # and option with the original fitted forest, without refitting the training data.
+        point = np.asarray(
+            [[0.0 if np.isnan(upper) else lower for lower, upper in self.bounds]], dtype=float
+        )
+        data = self._get_data_container(point, np.asarray([0.0]))
+        self._model.options.num_trees = 1
+        self._model.options.num_data_points_per_tree = 1
+        self._model.fit(data, regression.default_random_engine(0))
+        self._model.load_from_ascii_string(representation)
+        self._model.set_cutoffs(*self.cutoffs)
+
     def _get_model(self) -> regression.base_tree:
         """
         Return the internal model.
@@ -167,6 +192,7 @@ class FanovaForest(RandomForest):
         # reset all the variance fractions computed
         self.trees_variance_fractions: dict = {}
         self.V_U_total: Dict[Tuple[int, ...], List[Any]] = {}
+        self._interaction_screening_cache: Dict[str, Any] = {"pairs": {}, "lower": {}}
         self.V_U_individual: Dict[Tuple[int, ...], List[Any]] = {}
 
         # Set cut-off
