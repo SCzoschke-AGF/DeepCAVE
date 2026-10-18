@@ -54,26 +54,62 @@ def _discrete_cuts(axis: CoverageAxis, levels: int) -> np.ndarray:
     return np.asarray(cuts, dtype=int)
 
 
-def discretize_combinatorial(data: CoverageData, resolution: int) -> Tuple[np.ndarray, List[int]]:
-    """Encode theoretical levels; categories/ordinals retain their original values."""
-    columns, sizes = [], []
+def _discretization(data: CoverageData, resolution: int, definitions: bool = False) -> tuple:
+    """Encode levels and optionally retain their exact definitions for later drilldowns."""
+    columns, sizes, level_definitions = [], [], {}
     for index, axis in enumerate(data.axes):
         if axis.size == 1:
             continue
         if axis.kind in ("categorical", "ordinal"):
             size = len(axis.choices)
             codes = axis.ranks([value[axis.name] for value in data.values])
+            if definitions:
+                ranges = [str(value) for value in axis.choices]
         elif axis.size is not None:
             size = min(resolution, axis.size)
             cuts = _discrete_cuts(axis, size)
             ranks = axis.ranks([value[axis.name] for value in data.values])
             codes = np.searchsorted(cuts, ranks, side="right")
+            if definitions:
+                edges = np.r_[0, cuts, axis.size]
+                lower = axis.values_at(edges[:-1])
+                upper = axis.values_at(edges[1:] - 1)
+                ranges = [f"[{lo}, {hi}]" for lo, hi in zip(lower, upper)]
         else:
             size = resolution
             codes = np.minimum(size - 1, (data.points[:, index] * size).astype(int))
+            if definitions:
+                # Invert precisely the sampling CDF used by CoverageAxis.encode.
+                quantiles = np.linspace(0, 1, size + 1)
+                rv = getattr(axis.hp._vector_dist, "rv", None)
+                vectors = rv.ppf(quantiles) if rv is not None else quantiles
+                edges = np.asarray(axis.hp.to_value(vectors), dtype=float)
+                edges[0], edges[-1] = axis.hp.lower, axis.hp.upper
+                ranges = [
+                    f"[{edges[i]:.12g}, {edges[i + 1]:.12g}{']' if i == size - 1 else ')'}"
+                    for i in range(size)
+                ]
+        if definitions:
+            if axis.kind in ("categorical", "ordinal"):
+                labels = ranges
+            elif size == 2:
+                labels = ["Low", "High"]
+            elif size == 3:
+                labels = ["Low", "Medium", "High"]
+            else:
+                labels = [f"L{i + 1}" for i in range(size)]
+            level_definitions[axis.name] = [
+                {"label": label, "range": bounds} for label, bounds in zip(labels, ranges)
+            ]
         columns.append(codes)
         sizes.append(int(size))
     points = np.column_stack(columns) if columns else np.empty((data.count, 0), dtype=int)
+    return points, sizes, level_definitions
+
+
+def discretize_combinatorial(data: CoverageData, resolution: int) -> Tuple[np.ndarray, List[int]]:
+    """Encode theoretical levels; categories/ordinals retain their original values."""
+    points, sizes, _ = _discretization(data, resolution)
     return points, sizes
 
 
@@ -123,7 +159,7 @@ def compute_combinatorial_coverage(
     names = [axis.name for axis in axes]
     rows = []
     for resolution in RESOLUTIONS:
-        points, sizes = discretize_combinatorial(data, resolution)
+        points, sizes, definitions = _discretization(data, resolution, definitions=details)
         required, upper_bound = 1, 0
         for size in sorted(sizes, reverse=True):
             required *= size
@@ -165,6 +201,9 @@ def compute_combinatorial_coverage(
                     fully_covered_rate=float(complete.mean()),
                 )
                 if details:
+                    # All counts, in combinations() order, rather than only the top 20.
+                    # Missing tuples are intentionally not materialized here.
+                    cell["group_covered"] = counts.tolist()
                     worst = sorted(
                         np.flatnonzero(~complete),
                         key=lambda index: (
@@ -202,6 +241,16 @@ def compute_combinatorial_coverage(
                 ),
                 "trial_bound": upper_bound,
                 "cells": cells,
+                **(
+                    {
+                        "discretization": {
+                            "points": points.tolist(),
+                            "definitions": definitions,
+                        }
+                    }
+                    if details
+                    else {}
+                ),
             }
         )
     return {

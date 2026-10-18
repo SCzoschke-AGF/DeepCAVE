@@ -6,6 +6,7 @@ from math import ceil, floor
 
 from dash import dcc, html
 
+from deepcave.plugins.hyperparameter.combinatorial_groups import group_diagnostics
 from deepcave.plugins.hyperparameter.coverage_views import _id, _table
 
 
@@ -190,7 +191,7 @@ def combinatorial_view(result: Optional[Dict], baseline: Optional[Dict] = None) 
     shared_axis = (
         (min(lower for lower, _ in ranges), max(upper for _, upper in ranges)) if ranges else None
     )
-    options, matrix_rows = [], []
+    options = []
     for row in result["rows"]:
         strength = row["observed_strength"]
         cell = _next_cell(row)
@@ -249,18 +250,6 @@ def combinatorial_view(result: Optional[Dict], baseline: Optional[Dict] = None) 
                 ),
             }
         )
-        matrix_cells = [html.Th(str(row["resolution"]), scope="row")]
-        cells_by_strength = {cell["strength"]: cell for cell in row["cells"]}
-        for strength in range(1, result["max_strength"] + 1):
-            current = cells_by_strength.get(strength, {"status": "not_computed"})
-            label, color, title = _cell_label(current, result["trials"])
-            matrix_cells.append(
-                html.Td(
-                    html.Span(label, className=f"coverage-ccm-cell coverage-ccm-{color}"),
-                    title=title,
-                )
-            )
-        matrix_rows.append(html.Tr(matrix_cells))
     return html.Div(
         [
             html.Div(
@@ -291,58 +280,28 @@ def combinatorial_view(result: Optional[Dict], baseline: Optional[Dict] = None) 
             ),
             html.Details(
                 [
-                    html.Summary("Advanced Details"),
-                    html.H4("Coverage by resolution and interaction strength"),
-                    html.Div(
-                        html.Table(
-                            [
-                                html.Thead(
-                                    html.Tr(
-                                        [html.Th("Levels", scope="col")]
-                                        + [
-                                            html.Th(f"t={strength}", scope="col")
-                                            for strength in range(1, result["max_strength"] + 1)
-                                        ]
-                                    )
-                                ),
-                                html.Tbody(matrix_rows),
-                            ],
-                            className="coverage-ccm-matrix",
-                        ),
-                        style={"overflowX": "auto"},
+                    html.Summary("Method & level definitions"),
+                    html.P(
+                        "Coverage is the sum of observed combinations divided by all combinations "
+                        "across every group of t parameters. Strength is the highest verified t "
+                        "with every group complete; all lower strengths are then complete as well. "
+                        "An exact strength of 0 means single-parameter coverage is incomplete. "
+                        "Strengths are examined up to the first incomplete interaction or "
+                        "the trial-count or computation limit. The trial-count bound is necessary, "
+                        "not sufficient: a covering array is not guaranteed to exist."
                     ),
                     html.P(
-                        "Measured trial data. Green: every combination of every group is covered. "
-                        "—: full coverage is impossible at this trial count. "
-                        "…: computational limit; ≥ marks a verified lower bound on strength."
+                        "Continuous levels divide the theoretical sampling CDF, including log scales. "
+                        "Ordered discrete values are grouped near theoretical quantiles without "
+                        "splitting a value. Categories and ordinals retain their original values. "
+                        "Constants are excluded. All recorded trials, including failures and "
+                        "repetitions, contribute. Conditions and forbidden combinations are unsupported."
                     ),
-                    html.Details(
+                    _table(
                         [
-                            html.Summary("Method & level definitions"),
-                            html.P(
-                                "Coverage is the sum of observed combinations divided by all combinations "
-                                "across every group of t parameters. Strength is the highest verified t "
-                                "with every group complete; all lower strengths are then complete as well. "
-                                "An exact strength of 0 means single-parameter coverage is incomplete. "
-                                "Strengths are examined up to the first incomplete interaction or "
-                                "the trial-count or computation limit. The trial-count bound is necessary, "
-                                "not sufficient: a covering array is not guaranteed to exist."
-                            ),
-                            html.P(
-                                "Continuous levels divide the theoretical sampling CDF, including log scales. "
-                                "Ordered discrete values are grouped near theoretical quantiles without "
-                                "splitting a value. Categories and ordinals retain their original values. "
-                                "Constants are excluded. All recorded trials, including failures and "
-                                "repetitions, contribute. Conditions and forbidden combinations are unsupported."
-                            ),
-                            _table(
-                                [
-                                    {"levels": row["resolution"], **row["levels"]}
-                                    for row in result["rows"]
-                                ]
-                            ),
-                        ],
-                        className="coverage-details",
+                            {"levels": row["resolution"], **row["levels"]}
+                            for row in result["rows"]
+                        ]
                     ),
                 ],
                 className="coverage-details",
@@ -467,30 +426,7 @@ def combinatorial_resolution_detail(result: Optional[Dict], resolution: Any) -> 
         )
     diagnosis = None
     if cell and cell["status"] == "computed" and cell["missing"]:
-        groups = sorted(
-            cell.get("deficits", []), key=lambda group: (-group["missing"], group["coverage"])
-        )
-        diagnosis = html.Div(
-            [
-                html.H5(f"Groups preventing strength {cell['strength']}"),
-                html.P(
-                    f"{cell['missing']:,} missing combinations · {cell['complete_groups']:,} of "
-                    f"{cell['groups']:,} groups fully covered. Up to 20 groups, ordered by missing combinations."
-                ),
-                _table(
-                    [
-                        {
-                            "parameters": " × ".join(group["parameters"]),
-                            "missing": group["missing"],
-                            "covered": group["covered"],
-                            "total": group["total"],
-                            "coverage": _percent(group["coverage"]),
-                        }
-                        for group in groups
-                    ]
-                ),
-            ]
-        )
+        diagnosis = group_diagnostics(result, row, cell)
     return html.Section(
         [
             html.H4(f"{row['resolution']} Levels — Detail"),

@@ -135,6 +135,32 @@ def test_levels_follow_definition_including_log_steps_and_endpoints():
         "step": 5,
         "weighted": 4,
     }
+    result = ccm.compute_combinatorial_coverage(data)
+    definitions = result["rows"][0]["discretization"]["definitions"]
+    assert definitions["log"][0]["range"] == "[0.001, 0.0316227766017)"
+    assert definitions["integer"] == [
+        {"label": "Low", "range": "[0, 1]"},
+        {"label": "High", "range": "[2, 4]"},
+    ]
+    assert definitions["step"] == [
+        {"label": "Low", "range": "[0, 2]"},
+        {"label": "High", "range": "[4, 8]"},
+    ]
+    assert definitions["weighted"][0]["range"] == "[0, 0]"
+    measured_points = np.asarray(result["rows"][0]["discretization"]["points"])
+    np.testing.assert_array_equal(measured_points, points)
+
+
+def test_saved_diagnostics_do_not_change_any_coverage_or_strength_result():
+    data = binary_data([(0, 0, 0), (0, 1, 1), (1, 0, 1), (1, 1, 0)] * 2)
+    with_details = ccm.compute_combinatorial_coverage(data)
+    without_details = ccm.compute_combinatorial_coverage(data, details=False)
+    for row in with_details["rows"]:
+        row.pop("discretization")
+        for cell in row["cells"]:
+            cell.pop("group_covered", None)
+            cell.pop("deficits", None)
+    assert with_details == without_details
 
 
 def test_exact_counts_match_cartesian_reference():

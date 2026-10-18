@@ -14,8 +14,8 @@ Diagnostic workspace
 
 Five internal tabs keep each question in its own view:
 
-* **Overview** shows trial counts, parameter types, the recorded sampler, and a
-  live status list. The search-space definition is collapsed initially. Samplers
+* **Overview** shows trial counts, parameter types, and the recorded sampler.
+  The search-space definition is collapsed initially. Samplers
   are read from run metadata; missing sampler metadata is labelled as not recorded.
 * **Univariate** shows compact parameter rows with plots and KPIs, with grouping,
   sorting, and a problem filter. Type groups remain visible. Switch between
@@ -48,17 +48,29 @@ Five internal tabs keep each question in its own view:
   strength and coverage at the next strength, so near-complete interactions remain
   visible even when the strict strength is low. Every combination of every group
   must be covered to reach a strength; all lower strengths are then complete too.
-  Select a resolution to see its coverage strip, missing fraction and groups
-  preventing the next strength, sorted by missing combinations (up to twenty).
+  Select a resolution to see its coverage strip and groups preventing the next
+  strength. Compact KPIs count analyzed groups, fully covered groups and the largest
+  missing count. The two-column group table combines missing counts and coverage;
+  neutral parameter tags wrap even for long names. Groups are sorted by missing
+  count across the complete result, with deterministic ties. Initially five groups
+  are visible; show ten, twenty or all. An AND parameter filter updates the table,
+  KPIs and discrete missing-count distribution, including fully covered groups.
+  Click a group to load its actually missing level tuples, paginated in sets of
+  twenty. Cells show the actual value ranges saved by the original discretization
+  instead of abstract level labels; categorical values remain directly readable.
+  Collapsed level definitions retain the mapping. Filtering, changing the display limit and tuple
+  pagination reuse saved results without starting coverage or reference jobs.
+  The distribution shows observed groups only: the global random baseline does not
+  provide group-specific calibration. Older cached results remain visible and ask
+  for a manual refresh before the new group diagnostics are available.
   Click the same row again to close its details; selecting another row switches
   the diagnosis to that resolution.
   Strength is shown relative to the number of varying parameters (for example,
   ``t = 4/6``). Beneath it, **max. feasible strength** shows the upper bound imposed
   by the trial count. This bound is necessary, not sufficient, for a covering array
-  to exist. **Advanced Details** contains the full
-  resolution/strength matrix and method definitions. Each resolution is evaluated
+  to exist. **Method & level definitions** provides the calculation details. Each resolution is evaluated
   up to its first incomplete strength, the parameter count, or the trial/work limit;
-  there is no fixed cap at strength 6. Uncomputed matrix cells are marked explicitly.
+  there is no fixed cap at strength 6. Uncomputed strengths are marked explicitly.
   An exact strength of zero means marginal coverage is incomplete. There is no
   additional parameter-group selector or duplicate pairwise drill-down.
   A dash means full coverage requires more trials; an ellipsis means exact

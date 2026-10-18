@@ -149,7 +149,9 @@ def test_combinatorial_profile_and_random_reference_are_view_only(callbacks, run
     assert "t = 1" in visible_text(selector.options[0]["label"])
     assert "Coverage at next strength" in text
     assert "Trial-count" not in text
-    assert "Measured trial data" in text
+    assert "Coverage by resolution and interaction strength" not in text
+    assert "Measured trial data" not in text
+    assert "Method & level definitions" in text
     assert "Random comparison" not in text
     assert view[1] == "2 Parameters · 2 Trials"
     assert view[2] == "Random baseline · 2 samples"
@@ -182,6 +184,7 @@ def test_strength_profile_explains_next_strength_and_ranks_missing_groups(callba
         "missing": 2,
         "complete_groups": 13,
         "groups": 15,
+        "group_covered": [15 if i == 0 else 14 if i == 9 else 16 for i in range(15)],
         "deficits": [
             {
                 "parameters": ["a", "b"],
@@ -211,6 +214,7 @@ def test_strength_profile_explains_next_strength_and_ranks_missing_groups(callba
                 "trial_bound": 3,
                 "levels": dict.fromkeys("abcdef", 4),
                 "cells": [cell],
+                "discretization": {"points": [], "definitions": {}},
             }
         ],
     }
@@ -232,7 +236,8 @@ def test_strength_profile_explains_next_strength_and_ranks_missing_groups(callba
     assert "Random reference:" not in label
     advanced = profile.children[1]
     assert isinstance(advanced, html.Details)
-    assert advanced.children[0].children == "Advanced Details"
+    assert advanced.children[0].children == "Method & level definitions"
+    assert "Advanced Details" not in visible_text(profile)
     assert not getattr(advanced, "open", False)
     registered, queue, _ = callbacks
     detail = next(c for c in registered if c.__name__ == "combinatorial_detail")
@@ -243,8 +248,14 @@ def test_strength_profile_explains_next_strength_and_ranks_missing_groups(callba
     assert "99.2% of combinations are covered." in text
     assert "are missing." not in text
     assert "Trial-count limit: t ≤ 3" in text
-    table = diagnosis.children[-1].children[-1]
-    assert [row["parameters"] for row in table.data] == ["c × d", "a × b"]
+    overview = diagnosis.children[-1].children[2].children
+    table = overview.children[3]
+    rows = table.children[1].children
+    assert visible_text(rows[0].children[0]) == "c d"
+    assert visible_text(rows[1].children[0]) == "a b"
+    assert len(rows) == 5
+    assert "2 / 16 — 87.5% covered" in " ".join(visible_text(rows[0]).split())
+    assert "×" not in visible_text(table)
     assert "Select a resolution" in visible_text(detail([8], {"run_id": run.id}, entry)[0])
     assert not queue.calls
 
@@ -282,6 +293,54 @@ def test_coverage_array_rows_toggle_close_and_switch_without_starting_jobs(callb
     assert not queue.calls
 
 
+def test_combinatorial_group_interactions_only_use_saved_results(callbacks, run, monkeypatch):
+    from deepcave.evaluators import combinatorial as ccm
+
+    space = ConfigurationSpace(space={name: (0.0, 1.0) for name in "abc"})
+    data = normalize_configurations(space, [{"a": 0, "b": 0, "c": 0}, {"a": 1, "b": 1, "c": 1}] * 4)
+    result = ccm.compute_combinatorial_coverage(data)
+    entry = {"run_id": run.id, "result": {"observed": result}}
+    context = {"run_id": run.id}
+    resolution = {"run_id": run.id, "resolution": 2}
+    registered, queue, event = callbacks
+    filters = next(c for c in registered if c.__name__ == "combinatorial_groups")
+    detail = next(c for c in registered if c.__name__ == "combinatorial_group_detail")
+    paginate = next(c for c in registered if c.__name__ == "combinatorial_group_page")
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("View-only interactions must reuse saved results")
+
+    monkeypatch.setattr(ccm, "compute_combinatorial_coverage", unexpected)
+    monkeypatch.setattr(ccm, "compute_combinatorial_baseline", unexpected)
+    monkeypatch.setattr(suite, "_prepared", unexpected)
+    monkeypatch.setattr(suite, "missing_tuple_page", unexpected)
+    overview = filters(["a", "b"], "all", resolution, context, entry)
+    assert "Groups analyzed 1" in visible_text(overview)
+    assert "Random" not in visible_text(overview)
+    event.triggered_id = {"type": suite._id("group-open"), "resolution": 2, "group": 0}
+    opened, selected = detail([1], ["a", "b"], "all", None, resolution, context, entry)
+    assert "4 possible · 2 observed · 2 missing" in visible_text(opened)
+    assert selected == {"run_id": run.id, "resolution": 2, "group": 0}
+    assert detail([2], [], 5, selected, resolution, context, entry) == ([], None)
+    event.triggered_id = suite._id("group-filter")
+    assert detail([1], ["c"], 5, selected, resolution, context, entry) == ([], None)
+    event.triggered_id = suite._id("group-limit")
+    assert detail([1], [], 10, selected, resolution, context, entry) == ([], None)
+    # The empty-click event emitted when rows are inserted must never load tuples.
+    event.triggered_id = {"type": suite._id("group-open"), "resolution": 2, "group": 0}
+    with pytest.raises(PreventUpdate):
+        detail([0], [], 5, None, resolution, context, entry)
+    from deepcave.plugins.hyperparameter.combinatorial_groups import missing_tuple_page
+
+    monkeypatch.setattr(suite, "missing_tuple_page", missing_tuple_page)
+    page, tooltips = paginate(0, selected, context, entry)
+    assert page == [{"a": "[0, 0.5)", "b": "[0.5, 1]"}, {"a": "[0.5, 1]", "b": "[0, 0.5)"}]
+    assert tooltips[0]["b"]["value"] == "[0.5, 1]"
+    with pytest.raises(PreventUpdate):
+        paginate(0, selected, {"run_id": "other"}, entry)
+    assert not queue.calls
+
+
 def test_shared_coverage_refresh_updates_measurement_and_baseline_in_one_job(
     callbacks, tmp_path, run
 ):
@@ -313,7 +372,8 @@ def test_shared_coverage_refresh_updates_measurement_and_baseline_in_one_job(
     result, counts, label = render(context, completed[0])
     assert counts == "2 Parameters · 2 Trials"
     assert label == "Random baseline · 2 samples"
-    assert "Measured trial data" in visible_text(result)
+    assert "Coverage by resolution and interaction strength" not in visible_text(result)
+    assert "Method & level definitions" in visible_text(result)
     assert len(queue.calls) == 1
 
 
@@ -539,6 +599,47 @@ def test_callback_rejects_stale_run_context(callbacks, run):
         next(c for c in registered if c.__name__ == "update")(
             1, 0, 1, {"run_id": run.id}, 2, 32, 0, None, "other-run"
         )
+    assert not queue.calls
+
+
+def test_coverage_age_updates_do_not_replace_results_or_collapse_details(
+    callbacks, tmp_path, run, monkeypatch
+):
+    registered, queue, event = callbacks
+    data = prepare_coverage(run)
+    result = suite.SearchSpaceCoverage.process(
+        run, {"analysis": "combinatorial_baseline", "designs": 2}
+    )
+    jobs = suite.CoverageJobs(tmp_path, queue)
+    entry = {
+        "result": result,
+        "fingerprint": data.fingerprint,
+        "version": suite.VERSION,
+        "trial_count": data.count,
+        "options": {"designs": 2, "seed": 0},
+        "computed_at": 120,
+    }
+    jobs._write(run.id, "combinatorial_baseline", entry)
+    update = dict(zip(suite.UI_ANALYSES, [c for c in registered if c.__name__ == "update"]))[
+        "combinatorial_baseline"
+    ]
+    context = {"run_id": run.id}
+    event.triggered_id = suite._id("tick")
+    monkeypatch.setattr(suite, "time", lambda: 179)
+    first = update(0, 0, 1, context, 2, 32, 0, None, run.id)
+    assert first[0]["result"] == result
+    assert first[6] == "Updated just now"
+    monkeypatch.setattr(suite, "time", lambda: 181)
+    aged = update(0, 0, 2, context, 2, 32, 0, first[4], run.id, first[0])
+    assert aged[6] == "Updated 1 min ago"
+    assert aged[0] is suite.no_update
+    # An unchanged tick emits nothing, and genuinely new results still propagate.
+    with pytest.raises(PreventUpdate):
+        update(0, 0, 3, context, 2, 32, 0, aged[4], run.id, first[0])
+    jobs._write(run.id, "combinatorial_baseline", {**entry, "computed_at": 181})
+    refreshed = update(0, 0, 4, context, 2, 32, 0, aged[4], run.id, first[0])
+    assert refreshed[0]["computed_at"] == 181
+    assert refreshed[0] is not suite.no_update
     assert not queue.calls
 
 
@@ -1665,7 +1766,9 @@ def test_dash_registers_callbacks_and_layout_contains_no_global_process(monkeypa
     settings = next(c for c in components if getattr(c, "id", None) == suite._id("settings"))
     assert settings.is_open is False
     assert all(suite._id(f"{analysis}-cancel") in ids for analysis in suite.UI_ANALYSES)
-    assert len(app.callback_map) == 19
+    assert "Coverage status" not in labels
+    assert suite._id("coverage-status") not in ids
+    assert len(app.callback_map) == 21
     assert {callback["callback"].__name__ for callback in app.callback_map.values()} == {
         "automatic",
         "selectors",
@@ -1673,13 +1776,15 @@ def test_dash_registers_callbacks_and_layout_contains_no_global_process(monkeypa
         "scatter",
         "update",
         "settings",
-        "coverage_status",
         "matrix",
         "global_detail",
         "show_detail",
         "global_results",
         "combinatorial_results",
         "combinatorial_detail",
+        "combinatorial_groups",
+        "combinatorial_group_detail",
+        "combinatorial_group_page",
         "region_detail",
         "growth",
     }

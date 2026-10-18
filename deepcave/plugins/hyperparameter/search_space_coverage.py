@@ -14,7 +14,7 @@ import dash_bootstrap_components as dbc
 import numpy as np
 import pandas as pd
 from dash import ctx, dcc, html, no_update
-from dash.dependencies import Input, Output, State
+from dash.dependencies import ALL, Input, Output, State
 from dash.exceptions import PreventUpdate
 
 from deepcave import interactive
@@ -32,6 +32,13 @@ from deepcave.plugins import Plugin
 from deepcave.plugins.hyperparameter.analysis_utils import (
     _add_trial_statistics,
     _get_objectives_without_time,
+)
+from deepcave.plugins.hyperparameter.combinatorial_groups import (
+    diagnostic_row,
+    group_drilldown,
+    group_overview,
+    group_records,
+    missing_tuple_page,
 )
 from deepcave.plugins.hyperparameter.combinatorial_views import (
     combinatorial_resolution_detail,
@@ -583,7 +590,6 @@ class SearchSpaceCoverage(Plugin):
         """Build five question-focused tabs, retaining every module's explicit controls."""
         overview = [
             html.Div(id=_id("overview")),
-            _card("Coverage status", [html.Div(id=_id("coverage-status"))]),
             html.Div(id=_id("definition")),
         ]
         univariate = html.Section(
@@ -1102,6 +1108,96 @@ class SearchSpaceCoverage(Plugin):
             )
 
         @app.callback(  # type: ignore[untyped-decorator]
+            Output(_id("group-overview"), "children"),
+            Input(_id("group-filter"), "value"),
+            Input(_id("group-limit"), "value"),
+            State(_id("combinatorial-resolution-selection"), "data"),
+            State(_id("context"), "data"),
+            State(_id("combinatorial_baseline-data"), "data"),
+        )
+        def combinatorial_groups(
+            parameters: Any, limit: Any, selection: Any, context: Any, random: Any
+        ) -> Any:
+            result, _ = coverage_array_snapshot(context, random)
+            row = diagnostic_row(result, (selection or {}).get("resolution"))
+            if not row:
+                raise PreventUpdate
+            return group_overview(result, row, parameters, limit)
+
+        @app.callback(  # type: ignore[untyped-decorator]
+            Output(_id("group-drilldown"), "children"),
+            Output(_id("group-selection"), "data"),
+            Input({"type": _id("group-open"), "resolution": ALL, "group": ALL}, "n_clicks"),
+            Input(_id("group-filter"), "value"),
+            Input(_id("group-limit"), "value"),
+            State(_id("group-selection"), "data"),
+            State(_id("combinatorial-resolution-selection"), "data"),
+            State(_id("context"), "data"),
+            State(_id("combinatorial_baseline-data"), "data"),
+            prevent_initial_call=True,
+        )
+        def combinatorial_group_detail(
+            clicks: Any,
+            parameters: Any,
+            limit: Any,
+            previous: Any,
+            selection: Any,
+            context: Any,
+            random: Any,
+        ) -> Any:
+            trigger = ctx.triggered_id
+            if trigger in (_id("group-filter"), _id("group-limit")):
+                return [], None
+            if not isinstance(trigger, dict) or not any(clicks or []):
+                raise PreventUpdate
+            result, _ = coverage_array_snapshot(context, random)
+            resolution = (selection or {}).get("resolution")
+            row = diagnostic_row(result, resolution)
+            if not row or trigger.get("resolution") != resolution:
+                return [], None
+            selected = {
+                "group": trigger["group"],
+                "resolution": resolution,
+                "run_id": (context or {}).get("run_id"),
+            }
+            if selected == previous:
+                return [], None
+            groups = group_records(result, row, parameters)
+            shown = groups if limit == "all" else groups[: int(limit or 5)]
+            group = next((group for group in shown if group["index"] == trigger["group"]), None)
+            if group is None:
+                return [], None
+            return group_drilldown(result, row, group), selected
+
+        @app.callback(  # type: ignore[untyped-decorator]
+            Output(_id("group-tuples"), "data"),
+            Output(_id("group-tuples"), "tooltip_data"),
+            Input(_id("group-tuples"), "page_current"),
+            State(_id("group-selection"), "data"),
+            State(_id("context"), "data"),
+            State(_id("combinatorial_baseline-data"), "data"),
+            prevent_initial_call=True,
+        )
+        def combinatorial_group_page(page: Any, selected: Any, context: Any, random: Any) -> Any:
+            if not selected or selected.get("run_id") != (context or {}).get("run_id"):
+                raise PreventUpdate
+            result, _ = coverage_array_snapshot(context, random)
+            row = diagnostic_row(result, selected["resolution"])
+            if not row:
+                raise PreventUpdate
+            group = next(
+                (
+                    group
+                    for group in group_records(result, row)
+                    if group["index"] == selected["group"]
+                ),
+                None,
+            )
+            if group is None:
+                raise PreventUpdate
+            return missing_tuple_page(result, row, group, page)
+
+        @app.callback(  # type: ignore[untyped-decorator]
             Output(_id("overview"), "children"),
             Output(_id("definition"), "children"),
             Output(_id("context"), "data"),
@@ -1253,30 +1349,6 @@ class SearchSpaceCoverage(Plugin):
             return not is_open if n_clicks else is_open
 
         @app.callback(  # type: ignore[untyped-decorator]
-            Output(_id("coverage-status"), "children"),
-            Input(_id("context"), "data"),
-            *[Input(_id(f"{analysis}-data"), "data") for analysis in UI_ANALYSES],
-        )
-        def coverage_status(context: Any, *entries: Any) -> Any:
-            if not context:
-                return []
-            rows = [html.Div([html.Dt("Marginal coverage"), html.Dd("Available automatically")])]
-            for analysis, raw in zip(UI_ANALYSES, entries):
-                entry = _current(raw, context)
-                status = entry.get("status", "not_run")
-                if status == "completed" and entry.get("fingerprint") != context["fingerprint"]:
-                    status = "stale"
-                labels = {
-                    "not_run": "Not computed",
-                    "running": "● Computing…",
-                    "completed": "✓ Computed",
-                    "stale": "⚠ Outdated",
-                    "failed": "Failed",
-                }
-                rows.append(html.Div([html.Dt(ANALYSES[analysis][0]), html.Dd(labels[status])]))
-            return html.Dl(rows, className="coverage-definition-list coverage-status-list")
-
-        @app.callback(  # type: ignore[untyped-decorator]
             Output(_id("pair-matrix"), "figure"),
             Output(_id("pair-ranking"), "data"),
             Output(_id("pairwise-note"), "children"),
@@ -1401,6 +1473,7 @@ class SearchSpaceCoverage(Plugin):
             Input(_id("seed"), "value"),
             State(_id(f"{analysis}-view"), "data"),
             State("global-run-selector", "value"),
+            State(_id(f"{analysis}-data"), "data"),
         )
         def update(
             n_clicks: int,
@@ -1412,6 +1485,7 @@ class SearchSpaceCoverage(Plugin):
             seed: Any,
             previous: Any,
             active_run: str,
+            current: Any = None,
         ) -> Any:
             if not context or context["run_id"] != active_run:
                 raise PreventUpdate
@@ -1511,7 +1585,9 @@ class SearchSpaceCoverage(Plugin):
                 elif status == "completed":
                     button = "Refresh"
             outputs = [
-                payload,
+                # Updating the age label must not rebuild result views and reset
+                # expanded details, filters or pagination when their data is unchanged.
+                no_update if payload == current else payload,
                 label,
                 button,
                 status == "running" or bool(error) or data.count == 0,
