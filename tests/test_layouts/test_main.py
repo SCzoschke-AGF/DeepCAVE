@@ -1,4 +1,6 @@
 import importlib
+import json
+import re
 from types import SimpleNamespace
 
 from dash import Patch, html, no_update
@@ -19,6 +21,7 @@ for _name in _temporary_globals:
 class _FakeApp:
     def __init__(self):
         self.callbacks = []
+        self.clientside_callbacks = []
 
     def callback(self, *_args, **_kwargs):
         def decorator(callback):
@@ -27,8 +30,8 @@ class _FakeApp:
 
         return decorator
 
-    def clientside_callback(self, *_args, **_kwargs):
-        return None
+    def clientside_callback(self, *args, **_kwargs):
+        self.clientside_callbacks.append(args)
 
 
 class _Plugin:
@@ -130,6 +133,49 @@ def test_coverage_mounts_without_workers_and_keeps_a_warm_page(monkeypatch):
         no_update,
     )
     assert plugin.calls == 1
+
+
+def test_coverage_overview_round_trip_uses_the_same_persistent_routes_in_browser(monkeypatch):
+    fake_app = _FakeApp()
+    run = SimpleNamespace(id="run-a", latest_change=1, history=[1], get_objectives=lambda: [])
+    coverage = _Plugin("search_space_coverage")
+    overview = _Plugin("run_overview")
+    monkeypatch.setattr(main_module, "app", fake_app)
+    monkeypatch.setattr(main_module, "queue", SimpleNamespace(ready=lambda: True))
+    monkeypatch.setattr(
+        main_module,
+        "run_handler",
+        SimpleNamespace(
+            set_active_run_id=lambda _: None,
+            get_run=lambda _: run,
+        ),
+    )
+    layout = object.__new__(main_module.MainLayout)
+    layout.plugins = {"search_space_coverage": coverage, "run_overview": overview}
+    layout.register_callbacks()
+    mount = next(c for c in fake_app.callbacks if c.__name__ == "mount_persistent_analysis")
+    display = next(c for c in fake_app.callbacks if c.__name__ == "display_page")
+
+    _, state = mount("/plugins/search_space_coverage", 0, 0, [], 0, 0, run.id, _state())
+    assert display("/plugins/run_overview", 0, run.id)[0].children == "run_overview"
+    assert mount("/plugins/search_space_coverage", 0, 0, [], 0, 0, run.id, state) == (
+        no_update,
+        no_update,
+    )
+    assert display("/plugins/search_space_coverage", 0, run.id) is no_update
+    assert coverage.calls == overview.calls == 1
+
+    visibility = next(
+        args[0]
+        for args in fake_app.clientside_callbacks
+        if isinstance(args[0], str) and "const persistentIds" in args[0]
+    )
+    match = re.search(r"const persistentIds = new Set\((\[[^]]*\])\);", visibility)
+    assert match is not None
+    routes = json.loads(match.group(1))
+    assert routes == list(main_module.PERSISTENT_ANALYSIS_IDS)
+    assert "search_space_coverage" in routes
+    assert "run_overview" not in routes
 
 
 def test_same_run_data_invalidation_replaces_warm_analysis_context(monkeypatch):

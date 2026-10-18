@@ -16,11 +16,11 @@ from deepcave.plugins.hyperparameter import one_dimensional_analysis as analysis
 from deepcave.runs.objective import Objective
 
 
-def test_plugin_is_registered_directly_after_ablation_paths():
+def test_plugin_is_first_hyperparameter_analysis_without_ablation_paths():
     plugin_ids = [plugin.id for plugin in config.PLUGINS["Hyperparameter Analysis"]]
 
-    ablation_index = plugin_ids.index("ablation_paths")
-    assert plugin_ids[ablation_index + 1] == "one_dimensional_analysis"
+    assert plugin_ids[0] == "one_dimensional_analysis"
+    assert "ablation_paths" not in plugin_ids
 
 
 def test_toolbar_does_not_require_an_apply_button():

@@ -86,7 +86,7 @@ class RunOverview(CostOverTime):
                     ),
                     dbc.InputGroup(
                         [
-                            dbc.InputGroupText("Elite trial (Top N %)"),
+                            dbc.InputGroupText("Elite trials (top N %)"),
                             dbc.Input(
                                 id=register("top_percent", "value", filter=True),
                                 type="number",

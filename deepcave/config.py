@@ -109,7 +109,6 @@ class Config:
     def PLUGINS(self) -> Dict[str, List[Any]]:
         """A list of available plugins per category."""
         from deepcave.plugins.cost_efficiency import CostEfficiency
-        from deepcave.plugins.hyperparameter.ablation_paths import AblationPaths
         from deepcave.plugins.hyperparameter.configuration_neighborhood import (
             ConfigurationNeighborhood,
         )
@@ -148,7 +147,6 @@ class Config:
                 HPOPlanning(),
                 CostEfficiency(),
                 Importances(),
-                AblationPaths(),
                 PartialDependencies(),
             ],
             "Configuration Analyses": [

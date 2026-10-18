@@ -26,6 +26,7 @@ Also registers and handles the callbacks.
 
 from typing import Any, Dict, List, Optional
 
+import json
 from urllib.parse import urlparse
 
 from dash import ALL, ClientsideFunction, Patch, dcc, html, no_update
@@ -378,11 +379,7 @@ class MainLayout(Layout):
                 const pluginId = parts.length >= 2 && parts[0] === "plugins"
                     ? parts[1]
                     : null;
-                const persistentIds = new Set([
-                    "hpo_planning",
-                    "one_dimensional_analysis",
-                    "two_dimensional_analysis",
-                ]);
+                const persistentIds = new Set(__PERSISTENT_ANALYSIS_IDS__);
                 const styles = (pageIds || []).map(function(pageId) {
                     return {display: pageId.plugin === pluginId ? "block" : "none"};
                 });
@@ -403,7 +400,7 @@ class MainLayout(Layout):
                     {display: !isPersistentRoute && !isGeneral ? "block" : "none"},
                 ];
             }
-            """,
+            """.replace("__PERSISTENT_ANALYSIS_IDS__", json.dumps(PERSISTENT_ANALYSIS_IDS)),
             [
                 Output({"type": PERSISTENT_ANALYSIS_PAGE_TYPE, "plugin": ALL}, "style"),
                 Output(PERSISTENT_ANALYSIS_LOADING_ID, "style"),

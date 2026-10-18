@@ -88,30 +88,6 @@ class PartialDependencies(StaticPlugin):
                 [
                     dbc.Col(
                         [
-                            dbc.Label("Budget"),
-                            help_button(
-                                "Budget refers to the multi-fidelity budget. "
-                                "Combined budget means that the trial on the highest"
-                                " evaluated budget is used.  \n "
-                                "Note: Selecting combined budget might be misleading if"
-                                " a time objective is used. Often, higher budget take "
-                                " longer to evaluate, which might negatively influence "
-                                " the results."
-                            ),
-                            dbc.Select(
-                                id=register("budget_id", ["value", "options"], type=int),
-                                placeholder="Select budget ...",
-                            ),
-                        ],
-                        md=12,
-                    ),
-                ],
-                className="mb-3",
-            ),
-            dbc.Row(
-                [
-                    dbc.Col(
-                        [
                             dbc.Label("Hyperparameter #1"),
                             dbc.Select(
                                 id=register("hyperparameter_name_1", ["value", "options"]),
@@ -157,20 +133,6 @@ class PartialDependencies(StaticPlugin):
                         [
                             html.Div(
                                 [
-                                    dbc.Label("Show confidence"),
-                                    help_button("Displays the confidence bands."),
-                                    dbc.Select(
-                                        id=register("show_confidence", ["value", "options"])
-                                    ),
-                                ]
-                            )
-                        ],
-                        md=6,
-                    ),
-                    dbc.Col(
-                        [
-                            html.Div(
-                                [
                                     dbc.Label("Show ICE curves"),
                                     help_button(
                                         "Displays the ICE curves from which the PDP curve is "
@@ -200,7 +162,6 @@ class PartialDependencies(StaticPlugin):
             Content to be filled.
         """
         return {
-            "show_confidence": {"options": get_select_options(binary=True), "value": "false"},
             "show_ice": {"options": get_select_options(binary=True), "value": "true"},
         }
 
@@ -232,25 +193,18 @@ class PartialDependencies(StaticPlugin):
         objective_ids = run.get_objective_ids()
         objective_options = get_select_options(objective_names, objective_ids)
 
-        budgets = run.get_budgets(human=True)
-        budget_ids = run.get_budget_ids()
-        budget_options = get_checklist_options(budgets, budget_ids)
-
         hp_names = list(run.configspace.keys())
 
         # Get selected values
         objective_value = inputs["objective_id"]["value"]
-        budget_value = inputs["budget_id"]["value"]
         hp1_value = inputs["hyperparameter_name_1"]["value"]
 
         if objective_value is None:
             objective_value = objective_ids[0]
-            budget_value = budget_ids[-1]
             hp1_value = hp_names[0]
 
         return {
             "objective_id": {"options": objective_options, "value": objective_value},
-            "budget_id": {"options": budget_options, "value": budget_value},
             "hyperparameter_name_1": {
                 "options": get_checklist_options(hp_names),
                 "value": hp1_value,
@@ -295,7 +249,7 @@ class PartialDependencies(StaticPlugin):
         # Surrogate
         hp_names = list(run.configspace.keys())
         objective = run.get_objective(inputs["objective_id"])
-        budget = run.get_budget(inputs["budget_id"])
+        budget = run.get_budgets()[-1]
         hp1 = inputs["hyperparameter_name_1"]
         hp2 = inputs["hyperparameter_name_2"]
 
@@ -554,8 +508,8 @@ class PartialDependencies(StaticPlugin):
         go.Figure
             The figure of the Partial Dependency Plot (PDP).
         """
-        show_confidence = inputs["show_confidence"]
         show_ice = inputs["show_ice"]
+        show_confidence = not show_ice
 
         figure = PartialDependencies.get_pdp_figure(run, inputs, outputs, show_confidence, show_ice)
 

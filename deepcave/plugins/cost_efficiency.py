@@ -201,6 +201,7 @@ def parameter_figure(
                 go.Scatter(
                     x=trend["x"] + trend["x"][::-1],
                     y=trend["upper"] + trend["lower"][::-1],
+                    mode="lines",
                     fill="toself",
                     fillcolor="rgba(148,163,184,0.2)",
                     line_width=0,
@@ -306,6 +307,7 @@ class CostEfficiency(StaticPlugin):
 
     id = "cost_efficiency"
     processing_version = 1
+    auto_process = True
     name = "Compuational Cost"
     description = (
         "Understand which hyperparameters drive computational cost, where cost can be reduced, "
@@ -326,12 +328,8 @@ class CostEfficiency(StaticPlugin):
 
     @staticmethod
     def get_input_layout(register: Callable) -> List[Component]:  # type: ignore[override]
-        """Reuse native trial/budget selection without an additional objective selector."""
-        return [
-            analysis_toolbar_item(
-                "Trials", dbc.Select(id=register("trials", ["value", "options"])), "14rem"
-            )
-        ]
+        """Use all trials without an additional selection control."""
+        return []
 
     @staticmethod
     def get_filter_layout(register: Callable) -> List[Component]:

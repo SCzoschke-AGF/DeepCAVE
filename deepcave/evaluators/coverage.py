@@ -33,6 +33,10 @@ DEFAULT_REFERENCES = 2048
 PAIR_REFERENCES = 512
 PAIR_MMD_MAX_TRIALS = 1024
 PAIR_KERNEL_SCALE = 0.2
+MIXED_MMD_VERSION = 1
+MIXED_MMD_MAX_TRIALS = 1024
+MIXED_MMD_REFERENCES = 512
+MIXED_MMD_KERNEL_SCALE = 0.2
 
 
 def _python(value: Any) -> Any:
@@ -452,6 +456,96 @@ def compute_global_discrepancy(
     }
 
 
+def _mixed_coordinates(data: CoverageData) -> tuple:
+    """Retain inactive states and encode categories by identity, independent of weights."""
+    columns = [i for i, axis in enumerate(data.axes) if axis.kind != "constant"]
+    axes = [data.axes[i] for i in columns]
+    points = data.points[:, columns].copy()
+    for j, axis in enumerate(axes):
+        if axis.kind == "categorical":
+            active = np.flatnonzero(np.isfinite(points[:, j]))
+            points[active, j] = axis.ranks([data.values[i][axis.name] for i in active])
+    return points, axes
+
+
+def _mixed_kernel(left: np.ndarray, right: np.ndarray, axes: List[CoverageAxis]) -> np.ndarray:
+    """Product kernel with a separate inactive state and no category ordering."""
+    kernel = np.ones((len(left), len(right)))
+    for j, axis in enumerate(axes):
+        lhs, rhs = left[:, j, None], right[None, :, j]
+        active_left, active_right = np.isfinite(lhs), np.isfinite(rhs)
+        similarity = (
+            (lhs == rhs).astype(float)
+            if axis.kind == "categorical"
+            else np.exp(-0.5 * ((lhs - rhs) / MIXED_MMD_KERNEL_SCALE) ** 2)
+        )
+        kernel *= np.where(active_left & active_right, similarity, ~(active_left | active_right))
+    return kernel
+
+
+def _mixed_reference(references: CoverageData) -> tuple:
+    """Prepare one bounded reference sample shared by observed and random designs."""
+    if not references.count:
+        raise ValueError("Sampling distribution requires reference configurations.")
+    points, axes = _mixed_coordinates(references)
+    if len(points) > MIXED_MMD_REFERENCES:
+        indices = np.random.default_rng(1).choice(len(points), MIXED_MMD_REFERENCES, replace=False)
+        points = points[indices]
+    return points, axes, float(_mixed_kernel(points, points, axes).mean())
+
+
+def _sampling_uniformity(data: CoverageData, reference: tuple) -> Dict[str, Any]:
+    """Extend continuous discrepancy with a joint mixed-space empirical MMD."""
+    points, axes = _mixed_coordinates(data)
+    reference_points, reference_axes, reference_mean = reference
+    if [a.name for a in axes] != [a.name for a in reference_axes]:
+        raise ValueError("Sampling references must use the same parameter axes in the same order.")
+    reason = (
+        "No sampled trials." if not data.count else "No varying parameters." if not axes else None
+    )
+    rows = compute_discrepancy_trajectory(data)
+    # For ordinary runs, reuse both kernel matrices for all nested prefixes.
+    # Larger histories use the same bounded, reproducible subsampling rule for
+    # the observed history and every random design at each checkpoint.
+    kernel = cross = None
+    if not reason and data.count <= MIXED_MMD_MAX_TRIALS:
+        kernel = _mixed_kernel(points, points, axes)
+        cross = _mixed_kernel(points, reference_points, axes)
+    for row in rows:
+        count = row["trials"]
+        used = min(count, MIXED_MMD_MAX_TRIALS)
+        value = None
+        if not reason:
+            if kernel is not None and cross is not None:
+                self_mean = float(kernel[:count, :count].mean())
+                cross_mean = float(cross[:count].mean())
+            else:
+                indices = np.random.default_rng(0).choice(count, used, replace=False)
+                selected = points[indices]
+                self_mean = float(_mixed_kernel(selected, selected, axes).mean())
+                cross_mean = float(_mixed_kernel(selected, reference_points, axes).mean())
+            value = float(np.sqrt(max(0.0, self_mean + reference_mean - 2 * cross_mean)))
+        row.update(mixed_mmd=value, mixed_trials=used)
+    return {
+        **compute_global_discrepancy(data),
+        "mixed_mmd": rows[-1]["mixed_mmd"] if rows else None,
+        "mixed_parameters": [axis.name for axis in axes],
+        "mixed_parameter_types": {axis.name: axis.kind for axis in axes},
+        "mixed_conditional_parameters": [axis.name for axis in axes if axis.conditional],
+        "mixed_reason": reason,
+        "mixed_trials": min(data.count, MIXED_MMD_MAX_TRIALS),
+        "mixed_reference_samples": len(reference_points),
+        "mixed_kernel_scale": MIXED_MMD_KERNEL_SCALE,
+        "mixed_version": MIXED_MMD_VERSION,
+        "checkpoints": rows,
+    }
+
+
+def compute_sampling_uniformity(data: CoverageData, references: CoverageData) -> Dict[str, Any]:
+    """Compare the complete legal mixed search space with reference configurations."""
+    return _sampling_uniformity(data, _mixed_reference(references))
+
+
 def _pair_projection(data: CoverageData, columns: List[int], active: np.ndarray) -> CoverageData:
     """Use valid support coordinates for ordered values and identities for categories."""
     values = [data.values[i] for i in np.flatnonzero(active)]
@@ -765,21 +859,51 @@ def compute_random_baseline(
         raise ValueError("Random baseline requires sampled trials.")
     references = sample_reference_design(configspace, reference_samples, seed)
     observed = _metrics(data, references)
+    mixed_reference = _mixed_reference(references)
+    uniformity = _sampling_uniformity(data, mixed_reference)
+    trajectory = uniformity["checkpoints"]
+    discrepancy_keys = ("centered", "l2_star", "wrap_around", "mixed_mmd")
+    observed.update({key: trajectory[-1].get(key) for key in discrepancy_keys[1:]})
+    trajectory_samples: List[Dict[str, List[float]]] = [
+        {key: [] for key in discrepancy_keys} for _ in trajectory
+    ]
     samples: Dict[str, List[float]] = {key: [] for key in observed}
     for i in range(designs):
         random = sample_reference_design(configspace, data.count, seed + i + 1)
         metrics = _metrics(random, references)
+        random_trajectory = _sampling_uniformity(random, mixed_reference)["checkpoints"]
+        metrics.update({key: random_trajectory[-1].get(key) for key in discrepancy_keys[1:]})
+        for checkpoint, row in zip(trajectory_samples, random_trajectory):
+            for key in discrepancy_keys:
+                if row.get(key) is not None:
+                    checkpoint[key].append(row[key])
         for key, value in metrics.items():
             if value is not None:
                 samples[key].append(value)
+    summaries = {key: summarize_baseline(value, samples[key]) for key, value in observed.items()}
+    for key, summary in summaries.items():
+        summary["median"] = float(np.median(samples[key])) if samples[key] else None
     return {
         "designs": designs,
         "seed": seed,
         "reference_samples": reference_samples,
-        "metrics": {
-            key: summarize_baseline(value, samples[key]) for key, value in observed.items()
-        },
+        "metrics": summaries,
+        "discrepancy_checkpoints": trajectory,
+        "discrepancy_bands": [
+            {
+                "trials": row["trials"],
+                **{
+                    key: {
+                        **summarize_baseline(row.get(key), checkpoint[key]),
+                        "median": float(np.median(checkpoint[key])) if checkpoint[key] else None,
+                    }
+                    for key in discrepancy_keys
+                },
+            }
+            for row, checkpoint in zip(trajectory, trajectory_samples)
+        ],
         "discrepancy_parameters": _projection(data)[1],
+        **{key: value for key, value in uniformity.items() if key.startswith("mixed_")},
     }
 
 
@@ -794,6 +918,14 @@ def _prefix(data: CoverageData, count: int) -> CoverageData:
     return CoverageData(
         data.axes, data.values[:count], data.points[:count], data.fingerprint, {}, data.constrained
     )
+
+
+def compute_discrepancy_trajectory(data: CoverageData) -> List[Dict[str, Any]]:
+    """Evaluate all discrepancy definitions on the same nested trial prefixes."""
+    return [
+        {"trials": int(count), **compute_global_discrepancy(_prefix(data, int(count)))}
+        for count in growth_checkpoints(data.count)
+    ]
 
 
 def compute_coverage_growth(
@@ -869,13 +1001,29 @@ def run_coverage_analysis(
     analysis: str, data: CoverageData, configspace: ConfigurationSpace, options: Dict[str, int]
 ) -> Dict[str, Any]:
     """Dispatch exactly one explicitly requested worker job."""
+    if analysis in ("combinatorial", "combinatorial_baseline"):
+        from deepcave.evaluators.combinatorial import (
+            compute_combinatorial_baseline,
+            compute_combinatorial_coverage,
+        )
+
+        if analysis == "combinatorial":
+            return compute_combinatorial_coverage(data)
+        return compute_combinatorial_baseline(data, configspace, **options)
     if analysis == "pairwise":
         references = sample_reference_design(
             configspace, options.get("reference_samples", PAIR_REFERENCES), options.get("seed", 0)
         )
         return compute_pairwise_coverage(data, references=references)
     if analysis == "discrepancy":
-        return compute_global_discrepancy(data)
+        return compute_sampling_uniformity(
+            data,
+            sample_reference_design(
+                configspace,
+                options.get("reference_samples", DEFAULT_REFERENCES),
+                options.get("seed", 0),
+            ),
+        )
     if analysis == "radius":
         return compute_coverage_radius(
             data,

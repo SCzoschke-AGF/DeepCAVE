@@ -84,11 +84,11 @@ def test_page_registration_structure_and_global_objective_only():
         "HPO Planner",
         "Compuational Cost",
         "Importances",
-        "Ablation Paths",
         "Partial Dependencies",
     ]
     assert "Cost & Efficiency" not in Config().PLUGINS
     inputs = plugin.get_input_layout(plugin.register_input)
+    assert inputs == []
     filters = plugin.get_filter_layout(lambda a, b: plugin.register_input(a, b, filter=True))
     components = [child for control in inputs + filters for child in _walk(control)]
     assert [child.label for child in components if isinstance(child, dbc.Checkbox)] == [
@@ -164,6 +164,93 @@ def test_dependency_selects_parameter_and_keeps_valid_previous_selection():
     assert len(result["trials"]["options"]) == 3
     result = plugin.load_dependency_inputs(run, {}, {"parameter": {"value": "missing"}})
     assert result["parameter"]["value"] in run.configspace
+
+
+def test_automatic_page_hides_process_control(monkeypatch):
+    from deepcave.plugins import Plugin
+
+    render_buttons = []
+    monkeypatch.setattr(
+        Plugin, "__call__", lambda self, render_button: render_buttons.append(render_button) or []
+    )
+    plugin = CostEfficiency()
+    plugin.__call__.__wrapped__(plugin)
+    assert render_buttons == [False]
+
+
+def test_first_visit_queues_once_and_revisits_use_cached_results(monkeypatch):
+    import deepcave
+    from dash.exceptions import PreventUpdate
+    from deepcave.plugins import static
+
+    plugin, run = CostEfficiency(), _run()
+    callbacks, submitted, finished = [], [], []
+    last_inputs, cached = {}, {}
+
+    def callback(*_args, **_kwargs):
+        def register(function):
+            callbacks.append(function)
+            return function
+        return register
+
+    monkeypatch.setattr(deepcave, "app", SimpleNamespace(callback=callback), raising=False)
+    monkeypatch.setattr(
+        deepcave, "c", SimpleNamespace(
+            get=lambda *_: last_inputs.get("value"),
+            set=lambda *_, value: last_inputs.update(value=value),
+        ), raising=False,
+    )
+    monkeypatch.setattr(
+        deepcave, "rc", SimpleNamespace(
+            get=lambda run, plugin_id, key: cached.get(key),
+            set=lambda run, plugin_id, key, value: cached.update({key: value}),
+        ), raising=False,
+    )
+    monkeypatch.setattr(
+        deepcave, "run_handler", SimpleNamespace(get_run=lambda _: run), raising=False
+    )
+    monkeypatch.setattr(
+        deepcave, "queue", SimpleNamespace(
+            enqueue=lambda *args, **kwargs: submitted.append(kwargs),
+            is_processed=lambda _: False,
+            is_running=lambda _: False,
+            is_pending=lambda _: False,
+            has_failed=lambda _: False,
+            get_finished_jobs=lambda: list(finished),
+            delete_job=lambda _: finished.clear(),
+        ), raising=False,
+    )
+    context = SimpleNamespace(triggered_id=None)
+    monkeypatch.setattr(static, "ctx", context)
+    monkeypatch.setattr(plugin, "_process_raw_outputs", lambda *_: [None] * len(plugin.outputs))
+    monkeypatch.setattr(deepcave, "_api_mode", False)
+    plugin._callback_inputs_changed.__wrapped__(plugin)
+    inputs = plugin.load_inputs()
+    values = [inputs[name].get(attribute) for name, attribute, *_ in plugin.inputs]
+
+    def visit(page):
+        return callbacks[0](None, 0, run.id, *values, None, None, page)
+
+    with pytest.raises(PreventUpdate):
+        visit("first")
+    assert len(submitted) == 1
+    assert plugin._state == static.PluginState.PROCESSING
+
+    context.triggered_id = plugin.get_internal_id("update-interval-output")
+    with pytest.raises(PreventUpdate):
+        visit("first")
+    plugin._setup()
+    with pytest.raises(PreventUpdate):
+        visit("reopened-while-running")
+    assert len(submitted) == 1
+
+    job = submitted[0]
+    finished.append(SimpleNamespace(id=job["job_id"], meta=job["meta"], result={"ready": True}))
+    assert len(visit("first")) == len(plugin.outputs) + 1
+    assert plugin._state == static.PluginState.READY
+    plugin._setup()
+    assert len(visit("reopened")) == len(plugin.outputs) + 1
+    assert len(submitted) == 1
 
 
 def test_process_serializes_and_elite_plot_contains_no_nonelite_trials():

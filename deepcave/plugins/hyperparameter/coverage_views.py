@@ -14,6 +14,12 @@ from plotly.colors import sample_colorscale, unlabel_rgb
 from deepcave.evaluators.coverage import DEFAULT_BINS, CoverageData, _pair_grid
 
 PREFIX = "search_space_coverage"
+DISCREPANCY_METRICS = {
+    "mixed_mmd": "Full search space",
+    "centered": "Centered",
+    "l2_star": "L2-star",
+    "wrap_around": "Wrap-around",
+}
 GROWTH_METRICS = {
     "p95_radius": "p95 coverage radius",
     "max_radius": "Max coverage radius",
@@ -1101,56 +1107,440 @@ def _empty_figure(message: str) -> go.Figure:
     return figure
 
 
-def _module_summary(analysis: str, result: Optional[Dict]) -> Any:
+def _global_comparison(
+    baseline: Optional[Dict], key: str, uniformity: bool = False, trials: Optional[int] = None
+) -> Any:
+    """Keep each random reference beside the metric it actually evaluates."""
+    metric = (baseline or {}).get("metrics", {}).get(key, {})
+    percentile = metric.get("percentile")
+    if not baseline or percentile is None:
+        return html.Small(
+            "Run or recompute random comparisons for matching trials and reference settings."
+        )
+    coverage = 100 - percentile
+    if uniformity:
+        usual = 5 <= coverage <= 95
+        status = "Consistent with random sampling" if usual else "Outside the usual random range"
+        size = f"of {trials:,} trials" if trials is not None else "of the same size"
+        explanation = (
+            "The observed uniformity is within the usual range for "
+            + (
+                f"{trials:,} random trials."
+                if trials is not None
+                else "random designs of the same size."
+            )
+            if usual
+            else ("More" if coverage > 95 else "Less")
+            + f" uniform than typical random designs {size}."
+        )
+        if key == "mixed_mmd":
+            explanation = (
+                "The observed distribution is within the usual range for "
+                + (
+                    f"{trials:,} random trials."
+                    if trials is not None
+                    else "random designs of the same size."
+                )
+                if usual
+                else ("Closer to" if coverage > 95 else "Further from")
+                + f" the reference distribution than typical random designs {size}."
+            )
+        return html.Div(
+            [
+                html.Strong(status, className="coverage-uniformity-status"),
+                html.P(explanation),
+            ],
+            className="coverage-uniformity-comparison",
+            title=(
+                "The usual random range spans the 5th to 95th percentiles. "
+                "Each random design has the same trial count. Ties count half. "
+                "Values outside this range can also occur by chance in random sampling. "
+                "This comparison describes the sampling distribution, not optimization performance."
+            ),
+        )
+    rank = int(round(coverage))
+    suffix = "th" if 10 <= rank % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(rank % 10, "th")
+    interpretation = (
+        "Unusually good coverage"
+        if coverage > 95
+        else "Unusually poor coverage" if coverage < 5 else "Within usual random range"
+    )
+    return html.Div(
+        [
+            html.Strong(f"{rank}{suffix} percentile vs random"),
+            html.Small(interpretation),
+        ],
+        className="coverage-global-comparison",
+        title=(
+            f"Coverage percentile: higher is better. Better coverage than about {coverage:.0f}% "
+            f"of {baseline['designs']:,} random designs of the same trial count; ties count half. "
+            f"Random median: {_number(metric.get('median'))}. "
+            f"Random 5–95%: {_number(metric.get('lower'))} – {_number(metric.get('upper'))}. "
+            "The 5–95% range is an orientation, not a universal quality threshold."
+        ),
+    )
+
+
+def _uniformity_scope(result: Dict, metric: str = "centered") -> Any:
+    """Expose the included parameters by mouse, keyboard, or touch."""
+    mixed = metric == "mixed_mmd"
+    parameters = result.get("mixed_parameters" if mixed else "parameters")
+    label = "Search-space parameters" if mixed else "Continuous parameters"
+    if parameters is not None:
+        label = (
+            f"{len(parameters)} "
+            + ("parameter" if mixed else "continuous parameter")
+            + ("s" if len(parameters) != 1 else "")
+            if parameters
+            else "No varying parameters" if mixed else "No eligible continuous parameters"
+        )
+    explanation = result.get("mixed_reason" if mixed else "reason") or (
+        "Only unconditional continuous parameters are included: " + ", ".join(parameters)
+        if parameters
+        else "Parameter scope is unavailable in this stored result."
+    )
+    if mixed and parameters:
+        kinds = result.get("mixed_parameter_types", {})
+        conditional = result.get("mixed_conditional_parameters", [])
+        explanation = (
+            "All varying parameters are included: "
+            + ", ".join(
+                name
+                + " ("
+                + kinds.get(name, "parameter")
+                + (", conditional" if name in conditional else "")
+                + ")"
+                for name in parameters
+            )
+            + ". Constants do not affect the comparison."
+        )
+    return html.Details(
+        [
+            html.Summary([label, html.Span(" ⓘ", **{"aria-hidden": "true"})], title=explanation),
+            html.Div(explanation),
+        ],
+        className="coverage-uniformity-scope",
+    )
+
+
+def _module_summary(
+    analysis: str,
+    result: Optional[Dict],
+    baseline: Optional[Dict] = None,
+    metric: str = "centered",
+) -> Any:
     if result is None:
         return html.Small("Results appear after an explicit start.")
     if analysis == "discrepancy":
+        rows = result.get("checkpoints", [])
+        reference = []
+        if rows:
+            count = rows[-1]["trials"]
+            used = result.get("mixed_trials", count) if metric == "mixed_mmd" else count
+            reference.append(
+                f"{used:,} of {count:,} trials used" if used < count else f"{count:,} trials"
+            )
+        if baseline:
+            reference.append(f"{baseline['designs']:,} random reference designs")
         return html.Div(
             [
-                _metric("Centered", _number(result["centered"])),
-                _metric("L2-star", _number(result.get("l2_star"))),
-            ]
+                _uniformity_scope(result, metric),
+                (
+                    _global_comparison(
+                        baseline,
+                        "centered_discrepancy" if metric == "centered" else metric,
+                        uniformity=True,
+                        trials=rows[-1]["trials"] if rows else None,
+                    )
+                    if result.get(metric) is not None
+                    else html.Small(
+                        result.get("mixed_reason" if metric == "mixed_mmd" else "reason")
+                        or "Recalculate sampling uniformity to evaluate this method."
+                    )
+                ),
+                (
+                    dcc.Graph(
+                        figure=_relative_discrepancy_figure(result, baseline, metric),
+                        responsive=True,
+                        style={"height": "170px"},
+                        config={"displayModeBar": False},
+                    )
+                    if baseline and result.get(metric) is not None
+                    else None
+                ),
+                (
+                    html.Small(" · ".join(reference), className="coverage-uniformity-reference")
+                    if reference
+                    else None
+                ),
+            ],
+            className="coverage-discrepancy-summary",
         )
     if analysis == "radius":
         return html.Div(
-            [_metric("p95", _number(result["p95"])), _metric("Max", _number(result["max"]))]
-        )
-    if analysis == "baseline":
-        metric = result["metrics"].get("centered_discrepancy", {})
-        label = "Discrepancy percentile"
-        if metric.get("percentile") is None:
-            metric = result["metrics"].get("p95_radius", {})
-            label = "p95 radius percentile"
-        return _metric(
-            label,
-            (
-                f"{metric['percentile']:.0f}%"
-                if metric.get("percentile") is not None
-                else "Unavailable"
-            ),
+            [
+                html.Div(
+                    [
+                        _metric(label, _number(result[key]), "Lower is better"),
+                        _global_comparison(baseline, baseline_key),
+                    ]
+                )
+                for key, label, baseline_key in (
+                    ("p95", "p95 distance", "p95_radius"),
+                    ("max", "Maximum sampled distance", "max_radius"),
+                )
+            ]
         )
     return None
 
 
-def _discrepancy_details(result: Optional[Dict]) -> Any:
+def _relative_discrepancy_figure(result: Dict, baseline: Dict, metric: str) -> go.Figure:
+    """Show coverage ranks on a fixed scale, independently of absolute discrepancy."""
+    rows = result.get("checkpoints", [])
+    bands = baseline.get("discrepancy_bands", [])
+    if not rows or [row["trials"] for row in rows] != [row["trials"] for row in bands]:
+        figure = _empty_figure("Recompute discrepancy and random comparisons for matching trials.")
+        figure.update_layout(height=170, margin=dict(l=35, r=15, t=20, b=35))
+        return figure
+    ranks = [
+        (
+            100 - row[metric]["percentile"]
+            if row.get(metric, {}).get("percentile") is not None
+            else None
+        )
+        for row in bands
+    ]
+    figure = go.Figure(
+        go.Scatter(
+            x=[row["trials"] for row in rows],
+            y=ranks,
+            mode="lines+markers",
+            line=dict(color="#315cd6", width=2),
+            marker=dict(size=[4] * (len(rows) - 1) + [7]),
+            name="Relative distribution" if metric == "mixed_mmd" else "Relative uniformity",
+            customdata=[
+                (
+                    (
+                        "Outside the usual random range"
+                        if rank < 5 or rank > 95
+                        else "Within the usual random range"
+                    )
+                    if rank is not None
+                    else "Reference unavailable"
+                )
+                for rank in ranks
+            ],
+            hovertemplate="%{x} trials<br>%{customdata}<extra></extra>",
+        )
+    )
+    figure.update_layout(
+        template="plotly_white",
+        height=170,
+        margin=dict(l=95, r=15, t=25, b=35),
+        title=dict(
+            text=(
+                "Distribution relative to random"
+                if metric == "mixed_mmd"
+                else "Uniformity relative to random"
+            ),
+            font=dict(size=12),
+            x=0,
+        ),
+        showlegend=False,
+    )
+    figure.update_xaxes(title_text="Trials", title_font=dict(size=11), nticks=5, showgrid=False)
+    figure.update_yaxes(
+        range=[0, 100],
+        tickvals=[0, 50, 100],
+        ticktext=(
+            ["Further from reference", "Random median", "Closer to reference"]
+            if metric == "mixed_mmd"
+            else ["Less uniform", "Random median", "More uniform"]
+        ),
+        tickfont=dict(size=10),
+        fixedrange=True,
+        showgrid=False,
+        zeroline=False,
+    )
+    if metric == "mixed_mmd":
+        figure.update_layout(margin=dict(l=130))
+    for boundary in (5, 95):
+        figure.add_hline(y=boundary, line_color="#e2e8f0", line_dash="dot", line_width=1)
+    figure.add_hline(y=50, line_color="#94a3b8", line_dash="dash", line_width=1)
+    return figure
+
+
+def _discrepancy_figure(result: Dict, baseline: Optional[Dict], metric: str) -> go.Figure:
+    rows = result.get("checkpoints", [])
+    if not rows:
+        return _empty_figure("Recompute discrepancy to see its trajectory.")
+    if not any(row.get(metric) is not None for row in rows):
+        return _empty_figure(
+            result.get("mixed_reason" if metric == "mixed_mmd" else "reason")
+            or "Unavailable for this search space."
+        )
+    figure = go.Figure()
+    bands = (baseline or {}).get("discrepancy_bands", [])
+    if bands and [row["trials"] for row in rows] == [row["trials"] for row in bands]:
+        if any(row.get(metric, {}).get("median") is not None for row in bands):
+            x = [row["trials"] for row in bands]
+            figure.add_trace(
+                go.Scatter(
+                    x=x,
+                    y=[row[metric]["upper"] for row in bands],
+                    mode="lines",
+                    line=dict(width=0),
+                    showlegend=False,
+                    hoverinfo="skip",
+                )
+            )
+            figure.add_trace(
+                go.Scatter(
+                    x=x,
+                    y=[row[metric]["lower"] for row in bands],
+                    mode="lines",
+                    line=dict(width=0),
+                    fill="tonexty",
+                    fillcolor="rgba(100,116,139,0.18)",
+                    name="Random 5–95%",
+                    hoverinfo="skip",
+                )
+            )
+            figure.add_trace(
+                go.Scatter(
+                    x=x,
+                    y=[row[metric]["median"] for row in bands],
+                    mode="lines",
+                    line=dict(color="#64748b", dash="dash"),
+                    name="Random median",
+                    hovertemplate="%{x} trials<br>Random median: %{y:.5g}<extra></extra>",
+                )
+            )
+    figure.add_trace(
+        go.Scatter(
+            x=[row["trials"] for row in rows],
+            y=[row.get(metric) for row in rows],
+            mode="lines+markers",
+            line=dict(color="#315cd6"),
+            name="Observed",
+            hovertemplate="%{x} trials<br>Observed: %{y:.5g}<extra></extra>",
+        )
+    )
+    _figure(
+        figure,
+        "Trials",
+        (
+            "MMD distance to reference distribution"
+            if metric == "mixed_mmd"
+            else DISCREPANCY_METRICS[metric] + " discrepancy (lower is better)"
+        ),
+    )
+    figure.update_yaxes(type="linear" if metric == "mixed_mmd" else "log")
+    return figure
+
+
+def _discrepancy_details(
+    result: Optional[Dict], baseline: Optional[Dict] = None, metric: str = "centered"
+) -> Any:
     if not result:
         return html.P("Run the discrepancy module to see its details.")
+    mixed = metric == "mixed_mmd"
+    parameters = result.get("mixed_parameters" if mixed else "parameters")
+    comparison = (
+        (baseline or {})
+        .get("metrics", {})
+        .get("centered_discrepancy" if metric == "centered" else metric, {})
+    )
+    values = [
+        _metric(
+            "MMD distance" if mixed else DISCREPANCY_METRICS[metric] + " discrepancy",
+            _number(result.get(metric)),
+            (
+                "Smaller values indicate a closer match to the reference distribution."
+                if mixed
+                else "Smaller values indicate a more uniform distribution."
+            ),
+        )
+    ]
+    if comparison.get("median") is not None:
+        values.extend(
+            [
+                _metric("Random median", _number(comparison["median"])),
+                _metric(
+                    "Random 5–95%",
+                    _number(comparison["lower"]) + " – " + _number(comparison["upper"]),
+                ),
+            ]
+        )
+    definition = {
+        "mixed_mmd": "MMD compares the joint distribution of all varying parameters with valid "
+        "reference configurations. Ordered sampling coordinates use Gaussian kernels; "
+        "categories use equality. Two inactive values match, while an active and an inactive "
+        "value do not. Conditions, forbidden combinations, and configured sampling weights "
+        "are respected when drawing the references.",
+        "centered": "Centered uses a uniformity measure symmetric about the centre "
+        "of the normalized space.",
+        "l2_star": "L2-star aggregates squared differences between the trial fraction "
+        "in origin-anchored boxes and each box's volume, then takes the square root.",
+        "wrap_around": "Wrap-around evaluates uniformity with a periodic treatment "
+        "of the normalized boundaries.",
+    }[metric]
     return html.Div(
         [
-            html.H3("Global Discrepancy"),
-            html.Div(
-                [
-                    _metric(label, _number(result.get(key)))
-                    for key, label in (
-                        ("centered", "Centered"),
-                        ("l2_star", "L2-star"),
-                        ("wrap_around", "Wrap-around"),
+            html.H3("Method & raw values"),
+            html.Div(values, className="coverage-metric-grid"),
+            html.P(definition),
+            (
+                html.P(
+                    (
+                        "Closer to the reference distribution than about "
+                        if mixed
+                        else "More uniform than about "
                     )
-                ],
-                className="coverage-metric-grid",
+                    + f"{100 - comparison['percentile']:.0f}% "
+                    f"of {baseline['designs']:,} random designs of the same trial count. "
+                    "Ties count half; this rank is descriptive, not an optimization score."
+                )
+                if baseline and comparison.get("percentile") is not None
+                else None
+            ),
+            dcc.Graph(
+                figure=_discrepancy_figure(result, baseline, metric),
+                responsive=True,
+                config={"displaylogo": False},
             ),
             html.P(
-                result.get("reason") or "Continuous projection: " + ", ".join(result["parameters"])
+                result.get("mixed_reason" if mixed else "reason")
+                or (
+                    ("Included parameters: " if mixed else "Unconditional continuous parameters: ")
+                    + ", ".join(parameters)
+                    if parameters
+                    else "Parameter scope is unavailable in this stored result."
+                )
+            ),
+            html.P(
+                f"The comparison uses {result.get('mixed_trials', 0):,} sampled trials and "
+                f"{result.get('mixed_reference_samples', 0):,} shared reference configurations. "
+                f"The Gaussian kernel width is {result.get('mixed_kernel_scale', 0.2):g}. "
+                "Reference work is bounded; larger histories use reproducible subsets at each "
+                "checkpoint, with the same rule applied to observed and random designs. "
+                "The vertical axis is linear so an exact match at zero remains visible."
+                if mixed
+                else "Coordinates follow the configured sampling distributions, including log scales. "
+                "The vertical axis is logarithmic. Discrepancy can rise when adding trials. "
+                "It measures uniformity, not objective quality."
+            ),
+            html.Small(
+                "The band contains the central 90% of random designs at each trial count."
+                if (baseline or {}).get("discrepancy_bands")
+                else "Run random comparisons to add a median and 5–95% band for this metric."
+            ),
+            html.P(
+                "Agreement with the reference distribution does not prove that the search space "
+                "is sufficiently explored or that optimization is successful. "
+                "The relative chart compares designs separately at each trial count. "
+                "A falling relative position can coincide with decreasing absolute discrepancy. "
+                "Dotted guides mark the 5th and 95th percentiles; the dashed line marks the random median."
             ),
         ]
     )
@@ -1162,6 +1552,11 @@ def _radius_details(result: Optional[Dict]) -> Any:
     return html.Div(
         [
             html.H3("Coverage Radius"),
+            html.P(
+                "At 95% of reference points, the nearest trial is within the p95 distance. "
+                "The maximum is the largest distance found among sampled reference points. "
+                "Distances are normalized; they are not percentages of covered volume."
+            ),
             html.Div(
                 [
                     _metric(

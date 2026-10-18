@@ -27,6 +27,14 @@ from deepcave.runs.status import Status
 from deepcave.utils.run_caches import RunCaches
 
 
+def visible_text(component):
+    if isinstance(component, str):
+        return component
+    if isinstance(component, (list, tuple)):
+        return " ".join(visible_text(child) for child in component)
+    return visible_text(getattr(component, "children", []))
+
+
 class FakeQueue:
     def __init__(self):
         self.jobs = {}
@@ -77,6 +85,261 @@ def test_api_defaults_only_compute_cheap_analyses(monkeypatch, run):
     result = suite.SearchSpaceCoverage.process(run, {})
     assert result["overview"]["trials"] == 2
     assert len(result["parameters"]) == 2
+
+
+def test_combinatorial_settings_only_validate_consumed_controls():
+    assert suite.analysis_options("combinatorial", None, None, None) == {}
+    assert suite.analysis_options("combinatorial_baseline", 2, None, 7) == {"designs": 2, "seed": 7}
+    with pytest.raises(ValueError, match="Reference designs"):
+        suite.analysis_options("combinatorial_baseline", 0, None, 7)
+
+
+def test_saved_baselines_without_medians_request_refresh_without_starting_jobs(
+    callbacks, tmp_path, run
+):
+    registered, queue, event = callbacks
+    data = prepare_coverage(run)
+    result = suite.SearchSpaceCoverage.process(
+        run, {"analysis": "combinatorial_baseline", "designs": 2}
+    )
+    result.pop("baseline_version")
+    suite.CoverageJobs(tmp_path, queue)._write(
+        run.id,
+        "combinatorial_baseline",
+        {
+            "status": "completed",
+            "result": result,
+            "fingerprint": data.fingerprint,
+            "version": suite.VERSION,
+            "trial_count": data.count,
+            "options": {"designs": 2, "seed": 0},
+        },
+    )
+    updates = [callback for callback in registered if callback.__name__ == "update"]
+    callback = dict(zip(suite.UI_ANALYSES, updates))["combinatorial_baseline"]
+    event.triggered_id = suite._id("tick")
+    output = callback(0, 0, 1, {"run_id": run.id}, 2, 32, 0, None, run.id)
+    assert output[0]["status"] == "stale"
+    assert output[1] == "Refresh to use the updated strength calculation"
+    assert output[2] == "Recompute"
+    assert not queue.calls
+
+
+def test_combinatorial_profile_and_random_reference_are_view_only(callbacks, run):
+    registered, queue, _ = callbacks
+    callback = next(c for c in registered if c.__name__ == "combinatorial_results")
+    data = prepare_coverage(run)
+    context = {"run_id": run.id}
+    observed = {
+        "run_id": run.id,
+        "fingerprint": data.fingerprint,
+        "version": suite.VERSION,
+        "trial_count": data.count,
+        "result": suite.SearchSpaceCoverage.process(run, {"analysis": "combinatorial"}),
+    }
+    baseline = {
+        **observed,
+        "result": suite.SearchSpaceCoverage.process(
+            run, {"analysis": "combinatorial_baseline", "designs": 2}
+        ),
+    }
+    view = callback(context, baseline)
+    text = visible_text(view)
+    selector = view[0].children[0].children[1]
+    assert "t = 1" in visible_text(selector.options[0]["label"])
+    assert "Coverage at next strength" in text
+    assert "Trial-count" not in text
+    assert "Measured trial data" in text
+    assert "Random comparison" not in text
+    assert view[1] == "2 Parameters · 2 Trials"
+    assert view[2] == "Random baseline · 2 samples"
+    strength = selector.options[0]["label"].children[1].children[0]
+    assert "Random strength:" in strength.title
+    assert "Random strength:" not in visible_text(selector.options[0]["label"])
+    assert "Selected parameter group" not in text
+    assert "Random strength distribution" not in text
+    _, mismatch = suite._combinatorial_snapshot(
+        context, observed, {**baseline, "fingerprint": "older"}
+    )
+    assert mismatch is None
+    other = callback({"run_id": "other"}, baseline)
+    assert "Run combinatorial coverage" in visible_text(other)
+    detail = next(c for c in registered if c.__name__ == "combinatorial_detail")
+    assert "Select a resolution" in visible_text(detail([], context, baseline)[0])
+    assert "Trial-count limit: t ≤ 1" in visible_text(detail([2], context, baseline)[0])
+    assert not queue.calls
+
+
+def test_strength_profile_explains_next_strength_and_ranks_missing_groups(callbacks, run):
+    from deepcave.plugins.hyperparameter.combinatorial_views import combinatorial_view
+
+    cell = {
+        "strength": 2,
+        "status": "computed",
+        "coverage": 238 / 240,
+        "covered": 238,
+        "total": 240,
+        "missing": 2,
+        "complete_groups": 13,
+        "groups": 15,
+        "deficits": [
+            {
+                "parameters": ["a", "b"],
+                "missing": 1,
+                "covered": 15,
+                "total": 16,
+                "coverage": 15 / 16,
+            },
+            {
+                "parameters": ["c", "d"],
+                "missing": 2,
+                "covered": 14,
+                "total": 16,
+                "coverage": 14 / 16,
+            },
+        ],
+    }
+    result = {
+        "parameters": list("abcdef"),
+        "trials": 80,
+        "max_strength": 2,
+        "rows": [
+            {
+                "resolution": 4,
+                "observed_strength": 1,
+                "strength_is_lower_bound": False,
+                "trial_bound": 3,
+                "levels": dict.fromkeys("abcdef", 4),
+                "cells": [cell],
+            }
+        ],
+    }
+    profile = combinatorial_view(result)
+    selector = profile.children[0].children[1]
+    assert isinstance(selector, dcc.Checklist)
+    assert selector.value == []
+    label = visible_text(selector.options[0]["label"])
+    assert all(
+        text in label
+        for text in ["4 levels", "t = 1 /6", "max. feasible strength = 3", "t = 2", "99.2%"]
+    )
+    value = selector.options[0]["label"].children[1].children[0]
+    assert value.children[0].children == "t = 1"
+    assert value.children[0].className == "coverage-strength-badge"
+    assert value.children[1].children == "/6"
+    assert value.children[1].className == "coverage-strength-total"
+    assert "necessary, not sufficient" in selector.options[0]["label"].children[1].children[1].title
+    assert "Random reference:" not in label
+    advanced = profile.children[1]
+    assert isinstance(advanced, html.Details)
+    assert advanced.children[0].children == "Advanced Details"
+    assert not getattr(advanced, "open", False)
+    registered, queue, _ = callbacks
+    detail = next(c for c in registered if c.__name__ == "combinatorial_detail")
+    entry = {"run_id": run.id, "result": {"observed": result}}
+    diagnosis = detail([4], {"run_id": run.id}, entry)[0]
+    text = visible_text(diagnosis)
+    assert "All combinations up to strength 1 are covered." in text
+    assert "99.2% of combinations are covered." in text
+    assert "are missing." not in text
+    assert "Trial-count limit: t ≤ 3" in text
+    table = diagnosis.children[-1].children[-1]
+    assert [row["parameters"] for row in table.data] == ["c × d", "a × b"]
+    assert "Select a resolution" in visible_text(detail([8], {"run_id": run.id}, entry)[0])
+    assert not queue.calls
+
+
+def test_coverage_array_rows_toggle_close_and_switch_without_starting_jobs(callbacks, run):
+    registered, queue, _ = callbacks
+    callback = next(c for c in registered if c.__name__ == "combinatorial_detail")
+    context = {"run_id": run.id}
+    entry = {
+        "run_id": run.id,
+        "result": {
+            "observed": suite.SearchSpaceCoverage.process(run, {"analysis": "combinatorial"})
+        },
+    }
+    opened, values, previous = callback([2], context, entry)
+    assert "2 Levels — Detail" in visible_text(opened)
+    assert values == [2]
+    switched, values, previous = callback([2, 4], context, entry, previous)
+    assert "4 Levels — Detail" in visible_text(switched)
+    assert values == [4]
+    # Normalizing the selected row and refreshing results keep the same detail open.
+    refreshed, values, previous = callback(values, context, entry, previous)
+    assert "4 Levels — Detail" in visible_text(refreshed)
+    assert values == [4]
+    closed, values, previous = callback([], context, entry, previous)
+    assert "Select a resolution" in visible_text(closed)
+    assert values == []
+    reopened, values, previous = callback([4], context, entry, previous)
+    assert "4 Levels — Detail" in visible_text(reopened)
+    other_run, values, _ = callback(
+        values, {"run_id": "other"}, {**entry, "run_id": "other"}, previous
+    )
+    assert "Select a resolution" in visible_text(other_run)
+    assert values == []
+    assert not queue.calls
+
+
+def test_shared_coverage_refresh_updates_measurement_and_baseline_in_one_job(
+    callbacks, tmp_path, run
+):
+    registered, queue, event = callbacks
+    jobs = suite.CoverageJobs(tmp_path, queue)
+    history = run.history
+    run.history = history[:1]
+    old_result = suite.SearchSpaceCoverage.process(run, {"analysis": "combinatorial"})
+    run.history = history
+    jobs._write(run.id, "combinatorial", {"result": old_result})
+    context = {"run_id": run.id}
+    render = next(c for c in registered if c.__name__ == "combinatorial_results")
+    assert render(context, None)[1] == "2 Parameters · 1 Trials"
+    updates = [c for c in registered if c.__name__ == "update"]
+    refresh = dict(zip(suite.UI_ANALYSES, updates))["combinatorial_baseline"]
+    event.triggered_id = suite._id("combinatorial_baseline-run")
+    started = refresh(1, 0, 1, context, 2, 32, 0, None, run.id)
+    assert started[3] is True
+    assert len(queue.calls) == 1
+    assert queue.calls[0]["analysis"] == "combinatorial_baseline"
+    assert render(context, started[0])[1] == "2 Parameters · 1 Trials"
+    queue.finish(started[4]["job"]["id"])
+    event.triggered_id = suite._id("tick")
+    completed = refresh(1, 0, 2, context, 2, 32, 0, started[4], run.id)
+    assert completed[3] is False
+    assert completed[2] == "Refresh"
+    assert completed[0]["result"]["observed"]["trials"] == 2
+    assert completed[0]["result"]["designs"] == 2
+    result, counts, label = render(context, completed[0])
+    assert counts == "2 Parameters · 2 Trials"
+    assert label == "Random baseline · 2 samples"
+    assert "Measured trial data" in visible_text(result)
+    assert len(queue.calls) == 1
+
+
+def test_strength_profile_distinguishes_complete_uncomputed_and_trial_limits(run):
+    from deepcave.plugins.hyperparameter.combinatorial_views import (
+        combinatorial_resolution_detail,
+        combinatorial_view,
+    )
+
+    result = suite.SearchSpaceCoverage.process(run, {"analysis": "combinatorial"})
+    result["rows"] = [result["rows"][0]]
+    text = visible_text(combinatorial_resolution_detail(result, 2))
+    assert "Full coverage at strength 2 requires more trials." in text
+    row = result["rows"][0]
+    row["cells"][1]["status"] = "work_limit"
+    row["strength_is_lower_bound"] = True
+    view = combinatorial_view(result)
+    label = visible_text(view.children[0].children[1].options[0]["label"])
+    assert "t ≥ 1" in label and "…" in label
+    assert "Coverage at strength 2 has not been computed." in visible_text(
+        combinatorial_resolution_detail(result, 2)
+    )
+    row["observed_strength"] = 2
+    row["strength_is_lower_bound"] = False
+    label = visible_text(combinatorial_view(result).children[0].children[1].options[0]["label"])
+    assert "All strengths covered" in label
 
 
 def test_normalized_data_and_marginals_are_reused(monkeypatch, run):
@@ -172,7 +435,10 @@ def test_missing_worker_does_not_hide_existing_results(tmp_path, run):
 
 def test_controls_invalidate_only_the_modules_that_use_them():
     assert suite.analysis_options("pairwise", None, 32, 7) == {"reference_samples": 32, "seed": 7}
-    assert suite.analysis_options("discrepancy", None, None, None) == {}
+    assert suite.analysis_options("discrepancy", None, 32, 7) == {
+        "reference_samples": 32,
+        "seed": 7,
+    }
     assert suite.analysis_options("radius", None, 32, 7) == {"reference_samples": 32, "seed": 7}
     assert suite.analysis_options("growth", 500, 32, 7) == suite.analysis_options(
         "growth", 1000, 32, 7
@@ -240,8 +506,8 @@ def test_each_button_is_the_only_start_trigger(callbacks, run):
     registered, queue, event = callbacks
     context = {"run_id": run.id, "fingerprint": prepare_coverage(run).fingerprint, "revision": 0}
     analysis_callbacks = [callback for callback in registered if callback.__name__ == "update"]
-    assert len(analysis_callbacks) == len(suite.ANALYSES)
-    for analysis, callback in zip(suite.ANALYSES, analysis_callbacks):
+    assert len(analysis_callbacks) == len(suite.UI_ANALYSES)
+    for analysis, callback in zip(suite.UI_ANALYSES, analysis_callbacks):
         for trigger in (
             None,
             suite._id("tick"),
@@ -254,9 +520,11 @@ def test_each_button_is_the_only_start_trigger(callbacks, run):
         ):
             event.triggered_id = trigger
             output = callback(12, 0, 1, context, 2, 32, 0, None, run.id)
-            assert output[1] == ("" if analysis == "pairwise" else "Not computed")
+            assert output[1] == (
+                "" if analysis in ("pairwise", "combinatorial_baseline") else "Not computed"
+            )
             assert not queue.calls
-    for index, (analysis, callback) in enumerate(zip(suite.ANALYSES, analysis_callbacks)):
+    for index, (analysis, callback) in enumerate(zip(suite.UI_ANALYSES, analysis_callbacks)):
         event.triggered_id = suite._id(f"{analysis}-run")
         output = callback(1, 0, 1, context, 2, 32, 0, None, run.id)
         assert output[3] is True
@@ -268,7 +536,9 @@ def test_callback_rejects_stale_run_context(callbacks, run):
     registered, queue, event = callbacks
     event.triggered_id = suite._id("pairwise-run")
     with pytest.raises(PreventUpdate):
-        registered[4](1, 0, 1, {"run_id": run.id}, 2, 32, 0, None, "other-run")
+        next(c for c in registered if c.__name__ == "update")(
+            1, 0, 1, {"run_id": run.id}, 2, 32, 0, None, "other-run"
+        )
     assert not queue.calls
 
 
@@ -276,7 +546,8 @@ def test_ranking_selection_uses_row_identity_after_sorting(callbacks, run):
     registered, _, event = callbacks
     event.triggered_id = suite._id("pair-ranking")
     rows = [{"id": "x × y", "x": "x", "y": "y"}, {"id": "y × x", "x": "y", "y": "x"}]
-    outputs = registered[1]({"run_id": run.id}, {"row": 0, "row_id": "y × x"}, None, rows, "x", "y")
+    selectors = next(c for c in registered if c.__name__ == "selectors")
+    outputs = selectors({"run_id": run.id}, {"row": 0, "row_id": "y × x"}, None, rows, "x", "y")
     assert outputs[1] == "y" and outputs[3] == "x"
     assert outputs[4] is None
 
@@ -284,7 +555,7 @@ def test_ranking_selection_uses_row_identity_after_sorting(callbacks, run):
 def test_matrix_selection_updates_pair_but_ignores_diagonal_and_missing_metrics(callbacks, run):
     registered, queue, event = callbacks
     event.triggered_id = suite._id("pair-matrix")
-    selectors = registered[1]
+    selectors = next(c for c in registered if c.__name__ == "selectors")
     context = {"run_id": run.id}
     changed = selectors(context, None, {"points": [{"x": "y", "y": "x", "z": 0.5}]}, [], "x", "y")
     assert changed[1] == "y" and changed[3] == "x"
@@ -533,17 +804,307 @@ def test_global_details_and_settings_are_view_only(callbacks, run):
     registered, queue, event = callbacks
     by_name = {c.__name__: c for c in registered}
     event.triggered_id = suite._id("radius-details")
-    selected = by_name["global_detail"](0, 1, 0, {"run_id": run.id}, None)
+    selected = by_name["global_detail"](1, {"run_id": run.id}, None)
     assert selected["analysis"] == "radius"
-    assert by_name["show_detail"](selected) == [{"display": "none"}, {}, {"display": "none"}]
+    assert by_name["show_detail"](selected) == {}
     assert by_name["settings"](1, False) is True
     assert by_name["settings"](2, True) is False
     assert not queue.calls
 
 
+@pytest.mark.parametrize(
+    "metric,percentile", [("mixed_mmd", 31), ("centered", 31), ("l2_star", 70), ("wrap_around", 4)]
+)
+def test_legacy_distribution_views_render_comparisons_and_bands(callbacks, run, metric, percentile):
+    registered, queue, _ = callbacks
+    data = prepare_coverage(run)
+    context = {"run_id": run.id, "fingerprint": data.fingerprint}
+    options = {"designs": 3, "reference_samples": 32, "seed": 7}
+    snapshot = {
+        "run_id": run.id,
+        "fingerprint": data.fingerprint,
+        "version": suite.VERSION,
+        "trial_count": data.count,
+    }
+    discrepancy = {
+        **snapshot,
+        "options": {"reference_samples": 32, "seed": 7},
+        "result": suite.run_coverage_analysis("discrepancy", data, run.configspace, options),
+    }
+    radius = {
+        **snapshot,
+        "options": {"reference_samples": 32, "seed": 7},
+        "result": suite.run_coverage_analysis("radius", data, run.configspace, options),
+    }
+    baseline = {
+        **snapshot,
+        "options": options,
+        "result": suite.run_coverage_analysis("baseline", data, run.configspace, options),
+    }
+    key = "centered_discrepancy" if metric == "centered" else metric
+    baseline["result"]["metrics"][key]["percentile"] = percentile
+    baseline["result"]["discrepancy_bands"][-1][metric]["percentile"] = percentile
+    baseline["result"]["metrics"]["p95_radius"]["percentile"] = 20
+    baseline["result"]["metrics"]["max_radius"]["percentile"] = 90
+    callback = next(c for c in registered if c.__name__ == "global_results")
+    detail = views._discrepancy_details(discrepancy["result"], baseline["result"], metric)
+    summary = views._module_summary(
+        "discrepancy", discrepancy["result"], baseline["result"], metric
+    )
+    radius_summary = views._module_summary("radius", radius["result"], baseline["result"])
+    radius_detail, observed_radius_summary, regions = callback(context, radius)
+    assert visible_text(radius_detail) == visible_text(views._radius_details(radius["result"]))
+    assert "percentile vs random" not in visible_text(observed_radius_summary)
+    assert summary.children[0].children[0].children[0] == (
+        "2 parameters" if metric == "mixed_mmd" else "2 continuous parameters"
+    )
+    assert "x" in summary.children[0].children[1].children
+    assert "y" in summary.children[0].children[1].children
+    assert summary.children[1].children[1].children == (
+        ("The observed distribution" if metric == "mixed_mmd" else "The observed uniformity")
+        + " is within the usual range for 2 random trials."
+        if 5 <= percentile <= 95
+        else "More uniform than typical random designs of 2 trials."
+    )
+    text = visible_text(summary)
+    assert "better" not in text.lower()
+    assert views._number(discrepancy["result"][metric]) not in text
+    assert "percentile" not in text.lower()
+    assert "More uniform than about" not in text
+    assert (
+        "Closer to the reference distribution than about "
+        if metric == "mixed_mmd"
+        else "More uniform than about "
+    ) + f"{100 - percentile}%" in visible_text(detail)
+    assert summary.children[3].children == "2 trials · 3 random reference designs"
+    assert radius_summary.children[0].children[1].children[0].children == (
+        "80th percentile vs random"
+    )
+    assert radius_summary.children[1].children[1].children[0].children == (
+        "10th percentile vs random"
+    )
+    relative = summary.children[2].figure
+    assert relative.layout.height == 170
+    assert list(relative.layout.yaxis.range) == [0, 100]
+    assert relative.data[0].y[-1] == 100 - percentile
+    assert list(relative.data[0].y) == [
+        100 - row[metric]["percentile"] for row in baseline["result"]["discrepancy_bands"]
+    ]
+    assert any(shape.y0 == shape.y1 == 50 for shape in relative.layout.shapes)
+    assert {shape.y0 for shape in relative.layout.shapes} == {5, 50, 95}
+    assert all(shape.type == "line" for shape in relative.layout.shapes)
+    assert not relative.layout.annotations
+    assert list(relative.layout.yaxis.ticktext) == (
+        ["Further from reference", "Random median", "Closer to reference"]
+        if metric == "mixed_mmd"
+        else ["Less uniform", "Random median", "More uniform"]
+    )
+    assert "better" not in relative.layout.title.text
+    raw = detail.children[1].children
+    assert raw[0].children[0].children == (
+        "MMD distance"
+        if metric == "mixed_mmd"
+        else views.DISCREPANCY_METRICS[metric] + " discrepancy"
+    )
+    assert raw[0].children[1].children == views._number(discrepancy["result"][metric])
+    assert raw[1].children[1].children == views._number(
+        baseline["result"]["metrics"][key]["median"]
+    )
+    figure = next(child.figure for child in detail.children if isinstance(child, dcc.Graph))
+    assert len(figure.data) == 4
+    assert list(figure.data[2].y) == [
+        row[metric]["median"] for row in baseline["result"]["discrepancy_bands"]
+    ]
+    assert figure.data[2].name == "Random median"
+    assert figure.data[2].line.dash == "dash"
+    assert figure.data[-1].y[-1] == discrepancy["result"][metric]
+    assert figure.layout.yaxis.type == ("linear" if metric == "mixed_mmd" else "log")
+    assert regions and not queue.calls
+    other_run = callback({"run_id": "other"}, radius)
+    assert other_run[-1] == []
+
+
+@pytest.mark.parametrize(
+    "percentile,status",
+    [
+        (0, "Outside the usual random range"),
+        (4, "Outside the usual random range"),
+        (5, "Consistent with random sampling"),
+        (31, "Consistent with random sampling"),
+        (50, "Consistent with random sampling"),
+        (95, "Consistent with random sampling"),
+        (96, "Outside the usual random range"),
+        (100, "Outside the usual random range"),
+    ],
+)
+def test_uniformity_comparison_leads_with_status_and_avoids_quality_judgements(percentile, status):
+    comparison = views._global_comparison(
+        {
+            "designs": 500,
+            "metrics": {
+                "centered_discrepancy": {
+                    "percentile": percentile,
+                    "median": 0.0121,
+                    "lower": 0.005,
+                    "upper": 0.02,
+                }
+            },
+        },
+        "centered_discrepancy",
+        uniformity=True,
+        trials=80,
+    )
+    assert [child.children for child in comparison.children] == [
+        status,
+        (
+            "The observed uniformity is within the usual range for 80 random trials."
+            if 5 <= percentile <= 95
+            else ("More" if percentile < 5 else "Less")
+            + " uniform than typical random designs of 80 trials."
+        ),
+    ]
+    assert "better" not in comparison.title
+    assert "Ties count half" in comparison.title
+    assert "Metric percentile" not in comparison.title
+
+
+@pytest.mark.parametrize(
+    "parameters,label",
+    [
+        (["learning_rate"], "1 continuous parameter"),
+        ([], "No eligible continuous parameters"),
+        (None, "Continuous parameters"),
+    ],
+)
+def test_uniformity_scope_is_accessible_without_inventing_legacy_parameter_counts(
+    parameters, label
+):
+    result = {"parameters": parameters} if parameters is not None else {}
+    scope = views._uniformity_scope(result)
+    assert isinstance(scope, html.Details)
+    assert isinstance(scope.children[0], html.Summary)
+    assert scope.children[0].children[0] == label
+    if parameters:
+        assert parameters[0] in scope.children[1].children
+    details = views._discrepancy_details({**result, "centered": 0.01})
+    assert "0.01" in visible_text(details)
+    unavailable = views._module_summary(
+        "discrepancy", {**result, "reason": "No continuous projection."}
+    )
+    assert unavailable.children[1].children == "No continuous projection."
+    assert unavailable.children[2] is None
+
+
+def test_relative_discrepancy_preserves_missing_ranks_and_rejects_mismatched_prefixes():
+    result = {"checkpoints": [{"trials": 1}, {"trials": 2}]}
+    baseline = {
+        "discrepancy_bands": [
+            {"trials": 1, "centered": {"percentile": None}},
+            {"trials": 2, "centered": {"percentile": 31}},
+        ]
+    }
+    figure = views._relative_discrepancy_figure(result, baseline, "centered")
+    assert list(figure.data[0].y) == [None, 69]
+    assert list(figure.data[0].customdata) == [
+        "Reference unavailable",
+        "Within the usual random range",
+    ]
+    baseline["discrepancy_bands"][1]["trials"] = 3
+    mismatch = views._relative_discrepancy_figure(result, baseline, "centered")
+    assert not mismatch.data
+    assert "Recompute" in mismatch.layout.annotations[0].text
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"run_id": "other"},
+        {"fingerprint": "new"},
+        {"version": -1},
+        {"trial_count": 9},
+        {"options": {"reference_samples": 64, "seed": 7}},
+        {"options": {"reference_samples": 32, "seed": 8}},
+    ],
+)
+def test_global_comparisons_require_matching_snapshots_and_radius_references(changed):
+    entry = {
+        "run_id": "run",
+        "fingerprint": "snapshot",
+        "version": suite.VERSION,
+        "trial_count": 2,
+        "options": {"reference_samples": 32, "seed": 7},
+        "result": {"p95": 0.2},
+    }
+    baseline = {**entry, "result": {"discrepancy_bands": []}, **changed}
+    assert suite._matching_global_baseline(entry, baseline, radius=True) is None
+    if "options" in changed:
+        assert suite._matching_global_baseline(entry, baseline) == baseline["result"]
+    else:
+        assert suite._matching_global_baseline(entry, baseline) is None
+
+
+def test_full_space_comparison_requires_identical_reference_settings_and_current_metric():
+    entry = {
+        "run_id": "run",
+        "fingerprint": "same",
+        "version": suite.VERSION,
+        "trial_count": 80,
+        "options": {"reference_samples": 32, "seed": 7},
+        "result": {"mixed_mmd": 0.1, "mixed_version": suite.MIXED_MMD_VERSION},
+    }
+    baseline = {
+        **entry,
+        "result": {
+            "discrepancy_bands": [],
+            "mixed_version": suite.MIXED_MMD_VERSION,
+        },
+    }
+    assert suite._matching_global_baseline(entry, baseline, mixed=True) == baseline["result"]
+    for changed in (
+        {"options": {"reference_samples": 64, "seed": 7}},
+        {"options": {"reference_samples": 32, "seed": 8}},
+        {"result": {"discrepancy_bands": []}},
+    ):
+        assert suite._matching_global_baseline(entry, {**baseline, **changed}, mixed=True) is None
+
+
+def test_full_space_card_and_details_work_without_continuous_parameters():
+    space = ConfigurationSpace(space={"choice": ["a", "b"], "integer": (0, 1)})
+    data = normalize_configurations(space, [{"choice": "a", "integer": 0}] * 4)
+    options = {"reference_samples": 32, "seed": 7, "designs": 3}
+    result = suite.run_coverage_analysis("discrepancy", data, space, options)
+    baseline = suite.run_coverage_analysis("baseline", data, space, options)
+    baseline["metrics"]["mixed_mmd"]["percentile"] = 50
+    summary = views._module_summary("discrepancy", result, baseline, "mixed_mmd")
+    assert summary.children[0].children[0].children[0] == "2 parameters"
+    assert "Consistent with random sampling" in visible_text(summary)
+    assert "No unconditional continuous parameters" not in visible_text(summary)
+    assert "categorical" in visible_text(summary.children[0])
+    assert "integer" in visible_text(summary.children[0])
+    detail = views._discrepancy_details(result, baseline, "mixed_mmd")
+    assert "MMD distance" in visible_text(detail)
+    assert "Included parameters: choice, integer" in visible_text(detail)
+
+
+def test_global_discrepancy_without_references_shows_only_observed_trajectory():
+    result = {"checkpoints": [{"trials": 1, "centered": 0.1}, {"trials": 2, "centered": 0.2}]}
+    summary = views._module_summary("discrepancy", {**result, "centered": 0.2})
+    assert summary.children[2] is None
+    assert "Run or recompute random comparisons" in summary.children[1].children
+    figure = views._discrepancy_figure(result, None, "centered")
+    assert len(figure.data) == 1
+    assert list(figure.data[0].y) == [
+        0.1,
+        0.2,
+    ]  # Preserve increases rather than smoothing them away.
+    legacy = views._discrepancy_figure({}, None, "centered")
+    assert "Recompute" in legacy.layout.annotations[0].text
+
+
 def test_cancel_still_works_when_settings_are_invalid(callbacks, run):
     registered, queue, event = callbacks
-    callback = registered[6]  # Coverage radius job.
+    updates = [c for c in registered if c.__name__ == "update"]
+    callback = dict(zip(suite.UI_ANALYSES, updates))["radius"]
     context = {"run_id": run.id, "fingerprint": prepare_coverage(run).fingerprint}
     event.triggered_id = suite._id("radius-run")
     started = callback(1, 0, 1, context, 2, 32, 0, None, run.id)
@@ -1000,22 +1561,26 @@ def test_dash_registers_callbacks_and_layout_contains_no_global_process(monkeypa
     ids = []
     labels = []
     components = []
+    tab_ids = {}
 
-    def visit(component):
+    def visit(component, tab_id=None):
         if isinstance(component, (list, tuple)):
             for child in component:
-                visit(child)
+                visit(child, tab_id)
         elif hasattr(component, "to_plotly_json"):
+            tab_id = getattr(component, "tab_id", tab_id)
             components.append(component)
             if getattr(component, "id", None):
                 ids.append(component.id)
-            visit(getattr(component, "children", None))
+                if tab_id:
+                    tab_ids.setdefault(tab_id, set()).add(component.id)
+            visit(getattr(component, "children", None), tab_id)
         elif isinstance(component, str):
             labels.append(component)
 
     visit(layout)
     assert len(ids) == len(set(ids))
-    assert sum(label == "Run analysis" for label in labels) == 6
+    assert sum(label == "Run analysis" for label in labels) == len(suite.UI_ANALYSES)
     assert not any("update-button" in name for name in ids)
     tabs = next(c for c in components if getattr(c, "id", None) == suite._id("tabs"))
     assert [tab.label for tab in tabs.children] == [
@@ -1026,6 +1591,46 @@ def test_dash_registers_callbacks_and_layout_contains_no_global_process(monkeypa
         "Growth",
     ]
     assert tabs.active_tab == "overview"
+    assert suite._id("combinatorial-run") not in ids
+    assert suite._id("combinatorial_baseline-run") in tab_ids["global"]
+    refresh = next(
+        c for c in components if getattr(c, "id", None) == suite._id("combinatorial_baseline-run")
+    )
+    assert refresh.title == "Refresh coverage and random baseline"
+    assert ids.index(suite._id("combinatorial_baseline-run")) < ids.index(
+        suite._id("combinatorial-result")
+    )
+    assert suite._id("combinatorial-baseline-result") not in ids
+    assert "CCM random comparison" not in labels
+    assert "Coverage Array" in labels
+    assert "Strength Profile" not in labels
+    assert "Selected parameter group" not in labels
+    radius_ids = {
+        suite._id(name)
+        for name in ("radius-run", "radius-summary", "radius-section", "regions", "region-detail")
+    }
+    assert radius_ids.isdisjoint(tab_ids["global"])
+    assert radius_ids <= tab_ids["growth"]
+    removed_ids = {
+        suite._id(name)
+        for name in (
+            "discrepancy-run",
+            "baseline-run",
+            "discrepancy-metric",
+            "discrepancy-section",
+            "discrepancy-result",
+            "baseline-data",
+            "discrepancy-data",
+        )
+    }
+    assert removed_ids.isdisjoint(ids)
+    assert "Sampling distribution" not in labels
+    assert "Random comparisons" not in labels
+    assert all(
+        item["id"] not in removed_ids
+        for callback in app.callback_map.values()
+        for item in callback["inputs"]
+    )
     pairwise = next(
         c for c in components if getattr(c, "className", None) == "coverage-pair-diagnostic"
     )
@@ -1059,8 +1664,8 @@ def test_dash_registers_callbacks_and_layout_contains_no_global_process(monkeypa
     assert [option["value"] for option in elite_proportion.options] == [0.2, 0.1, 0.05, 0.02, 0.01]
     settings = next(c for c in components if getattr(c, "id", None) == suite._id("settings"))
     assert settings.is_open is False
-    assert all(suite._id(f"{analysis}-cancel") in ids for analysis in suite.ANALYSES)
-    assert len(app.callback_map) == 18
+    assert all(suite._id(f"{analysis}-cancel") in ids for analysis in suite.UI_ANALYSES)
+    assert len(app.callback_map) == 19
     assert {callback["callback"].__name__ for callback in app.callback_map.values()} == {
         "automatic",
         "selectors",
@@ -1073,6 +1678,8 @@ def test_dash_registers_callbacks_and_layout_contains_no_global_process(monkeypa
         "global_detail",
         "show_detail",
         "global_results",
+        "combinatorial_results",
+        "combinatorial_detail",
         "region_detail",
         "growth",
     }

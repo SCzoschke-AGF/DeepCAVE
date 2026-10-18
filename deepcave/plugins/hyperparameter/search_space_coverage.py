@@ -18,8 +18,10 @@ from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
 from deepcave import interactive
+from deepcave.evaluators.combinatorial import BASELINE_VERSION
 from deepcave.evaluators.coverage import (
     DEFAULT_REFERENCES,
+    MIXED_MMD_VERSION,
     VERSION,
     CoverageData,
     compute_univariate_coverage,
@@ -31,14 +33,17 @@ from deepcave.plugins.hyperparameter.analysis_utils import (
     _add_trial_statistics,
     _get_objectives_without_time,
 )
+from deepcave.plugins.hyperparameter.combinatorial_views import (
+    combinatorial_resolution_detail,
+    combinatorial_view,
+)
 from deepcave.plugins.hyperparameter.coverage_views import (
+    DISCREPANCY_METRICS,
     GROWTH_METRICS,
     PAIR_METRICS,
     PAIR_PLOT_HEIGHT,
-    _baseline_details,
     _card,
     _compatible_growth,
-    _discrepancy_details,
     _empty_figure,
     _growth_figure,
     _id,
@@ -58,24 +63,37 @@ from deepcave.runs.status import Status
 
 PREFIX = "search_space_coverage"
 ANALYSES = {
+    "combinatorial": (
+        "Global Combinatorial Coverage",
+        "Measure coverage across resolutions and interaction strengths for independent parameters.",
+    ),
+    "combinatorial_baseline": (
+        "Coverage Array",
+        "Measure coverage and calibrate it using complete random studies of the same size.",
+    ),
     "pairwise": ("Pairwise Coverage", "Analyse all parameter pairs for gaps and uneven coverage."),
     "discrepancy": (
-        "Global Discrepancy",
-        "Evaluate discrepancy in the continuous sampling-space projection.",
+        "Sampling distribution",
+        "Compare sampled configurations with random designs from the complete search space.",
     ),
     "radius": (
         "Coverage Radius & Holes",
         "Measure nearest-trial distances and locate uncovered regions.",
     ),
     "baseline": (
-        "Random Baseline",
-        "Compare coverage against random designs of identical trial count.",
+        "Random comparisons",
+        "Add a separate random reference to each discrepancy and distance metric.",
     ),
     "growth": ("Coverage Growth", "Evaluate coverage as additional trials were sampled."),
     "growth_baseline": (
         "Random Coverage Growth",
         "Compare the realised trajectory against random expectation.",
     ),
+}
+UI_ANALYSES = {
+    key: value
+    for key, value in ANALYSES.items()
+    if key not in ("discrepancy", "baseline", "combinatorial")
 }
 _PREPARED: OrderedDict = OrderedDict()
 _LOCK = RLock()
@@ -101,13 +119,15 @@ def _prepared(run: Any) -> tuple:
 
 def analysis_options(analysis: str, designs: Any, references: Any, seed: Any) -> Dict[str, int]:
     """Validate only the controls consumed by the selected analysis."""
-    if analysis == "discrepancy":
-        return {}
     options = {}
+    if analysis == "combinatorial":
+        return options
     for name, value, lower, upper in (
         ("reference_samples", references, 32, 20000),
         ("seed", seed, 0, 2**32 - 2001),
     ):
+        if analysis == "combinatorial_baseline" and name == "reference_samples":
+            continue
         if (
             value is None
             or isinstance(value, bool)
@@ -119,7 +139,7 @@ def analysis_options(analysis: str, designs: Any, references: Any, seed: Any) ->
                 f"between {lower} and {upper}."
             )
         options[name] = int(value)
-    if analysis in ("baseline", "growth_baseline"):
+    if analysis in ("baseline", "growth_baseline", "combinatorial_baseline"):
         if (
             designs is None
             or isinstance(designs, bool)
@@ -297,23 +317,52 @@ def _analysis_panel(analysis: str, summary: bool = False) -> Any:
     title, description = ANALYSES[analysis]
     cost = (
         "Very high"
-        if analysis == "growth_baseline"
+        if analysis in ("growth_baseline", "combinatorial_baseline")
         else "High" if analysis in ("baseline", "growth", "radius", "discrepancy") else "Medium"
     )
+    heading: Any = (
+        html.H4(
+            "Realised coverage"
+            if analysis == "growth"
+            else "Random expectation" if analysis == "growth_baseline" else title
+        )
+        if analysis not in ("pairwise", "combinatorial", "combinatorial_baseline")
+        else None
+    )
+    if analysis == "discrepancy":
+        heading = html.Div(
+            [
+                heading,
+                html.Div(
+                    [
+                        dbc.Label(
+                            "Comparison method",
+                            html_for=_id("discrepancy-metric"),
+                            className="visually-hidden",
+                        ),
+                        dcc.Dropdown(
+                            id=_id("discrepancy-metric"),
+                            value="mixed_mmd",
+                            clearable=False,
+                            searchable=False,
+                            options=[
+                                {"label": label, "value": key}
+                                for key, label in DISCREPANCY_METRICS.items()
+                            ],
+                        ),
+                    ],
+                    className="coverage-uniformity-method",
+                ),
+            ],
+            className="coverage-uniformity-header",
+        )
     return html.Section(
         [
-            (
-                html.H4(
-                    "Realised coverage"
-                    if analysis == "growth"
-                    else "Random expectation" if analysis == "growth_baseline" else title
-                )
-                if analysis != "pairwise"
-                else None
-            ),
+            heading,
             (
                 html.Small(description, className="coverage-job-description")
-                if analysis != "pairwise"
+                if analysis
+                not in ("pairwise", "discrepancy", "combinatorial", "combinatorial_baseline")
                 else None
             ),
             html.Div(
@@ -322,7 +371,11 @@ def _analysis_panel(analysis: str, summary: bool = False) -> Any:
                 className="coverage-job-status",
             ),
             html.Div(
-                "" if analysis == "pairwise" else f"Estimated compute: {cost}",
+                (
+                    ""
+                    if analysis in ("pairwise", "combinatorial_baseline")
+                    else f"Estimated compute: {cost}"
+                ),
                 id=_id(f"{analysis}-metadata"),
                 className="coverage-job-metadata",
             ),
@@ -333,8 +386,13 @@ def _analysis_panel(analysis: str, summary: bool = False) -> Any:
                         "Run analysis",
                         id=_id(f"{analysis}-run"),
                         n_clicks=0,
-                        title=f"Run or recompute {title}",
-                        color="primary",
+                        title=(
+                            "Refresh coverage and random baseline"
+                            if analysis == "combinatorial_baseline"
+                            else f"Run or recompute {title}"
+                        ),
+                        color="secondary" if analysis == "discrepancy" else "primary",
+                        outline=analysis == "discrepancy",
                         size="sm",
                     ),
                     dbc.Button(
@@ -348,7 +406,7 @@ def _analysis_panel(analysis: str, summary: bool = False) -> Any:
                     ),
                     (
                         dbc.Button(
-                            "Details",
+                            "Method & raw values" if analysis == "discrepancy" else "Details",
                             id=_id(f"{analysis}-details"),
                             n_clicks=0,
                             color="link",
@@ -361,7 +419,23 @@ def _analysis_panel(analysis: str, summary: bool = False) -> Any:
                 className="coverage-job-actions",
             ),
         ],
-        className="coverage-job coverage-job--inline" if analysis == "pairwise" else "coverage-job",
+        className=(
+            "coverage-ccm-baseline-controls"
+            if analysis == "combinatorial_baseline"
+            else (
+                "coverage-job coverage-ccm-controls"
+                if analysis == "combinatorial"
+                else (
+                    "coverage-job coverage-job--inline"
+                    if analysis == "pairwise"
+                    else (
+                        "coverage-job coverage-uniformity"
+                        if analysis == "discrepancy"
+                        else "coverage-job"
+                    )
+                )
+            )
+        ),
     )
 
 
@@ -373,10 +447,52 @@ def _current(entry: Any, context: Any) -> Dict:
     )
 
 
+def _combinatorial_snapshot(context: Any, raw: Any, random: Any) -> tuple:
+    """Reuse the same measured snapshot in the profile and resolution diagnosis."""
+    observed, reference = _current(raw, context), _current(random, context)
+    result, baseline = observed.get("result"), reference.get("result")
+    if not result and baseline:
+        result = baseline["observed"]
+    elif baseline and (
+        not observed.get("fingerprint")
+        or any(
+            observed.get(key) != reference.get(key)
+            for key in ("fingerprint", "version", "trial_count")
+        )
+    ):
+        baseline = None
+    return result, baseline
+
+
 def _pair_result(entry: Any, context: Any) -> Any:
     """Require the current metric definitions before displaying pairwise results."""
     current = _current(entry, context)
     return current.get("result") if current.get("version") == VERSION else None
+
+
+def _matching_global_baseline(
+    entry: Dict, baseline: Dict, radius: bool = False, mixed: bool = False
+) -> Any:
+    """Compare only identical snapshots, and identical radius reference settings."""
+    result = baseline.get("result") or {}
+    if not entry.get("result") or "discrepancy_bands" not in result:
+        return None
+    if not entry.get("fingerprint") or any(
+        entry.get(key) != baseline.get(key)
+        for key in ("run_id", "fingerprint", "version", "trial_count")
+    ):
+        return None
+    if mixed and (
+        entry["result"].get("mixed_version") != MIXED_MMD_VERSION
+        or result.get("mixed_version") != MIXED_MMD_VERSION
+    ):
+        return None
+    if (radius or mixed) and any(
+        entry.get("options", {}).get(key) != baseline.get("options", {}).get(key)
+        for key in ("reference_samples", "seed")
+    ):
+        return None
+    return result
 
 
 def _status_label(status: str, entry: Dict, count: int) -> str:
@@ -394,32 +510,39 @@ def _status_label(status: str, entry: Dict, count: int) -> str:
 
 
 def _metadata(analysis: str, status: str, entry: Dict) -> str:
+    global_analysis = analysis in ("discrepancy", "radius", "baseline")
     options = (
         entry.get("job", {}).get("options", {}) if status == "running" else entry.get("options", {})
     )
     parts = []
-    if "designs" in options:
+    if "designs" in options and analysis != "combinatorial_baseline":
         parts.append(f"{options['designs']:,} reference designs")
     if "reference_samples" in options:
         parts.append(f"{options['reference_samples']:,} reference samples")
-    if entry.get("computed_at") and status != "running":
+    if entry.get("computed_at") and status != "running" and not global_analysis:
         elapsed = max(0, int(time() - entry["computed_at"]))
         age = (
             "just now"
             if elapsed < 60
             else f"{elapsed // 60} min ago" if elapsed < 3600 else f"{elapsed // 3600} h ago"
         )
-        parts.append(f"Last computed {age}")
+        parts.append(
+            f"Updated {age}" if analysis == "combinatorial_baseline" else f"Last computed {age}"
+        )
     if entry.get("cancelled") and entry.get("result") is not None:
         parts.append("Recomputation cancelled · Previous results retained")
     if entry.get("error") and status == "running":
         parts.append(entry["error"])
-    if not parts:
+    if (
+        not parts
+        and analysis != "combinatorial_baseline"
+        and not (global_analysis and entry.get("result") is not None)
+    ):
         parts.append(
             "Estimated compute: "
             + (
                 "Very high"
-                if analysis == "growth_baseline"
+                if analysis in ("growth_baseline", "combinatorial_baseline")
                 else "Medium" if analysis == "pairwise" else "High"
             )
         )
@@ -548,7 +671,8 @@ class SearchSpaceCoverage(Plugin):
                         html.Span("Observed", className="coverage-legend-observed"),
                         html.Span("Expected", className="coverage-legend-expected"),
                         html.Span(
-                            "Largest gap", className="coverage-legend-gap",
+                            "Largest gap",
+                            className="coverage-legend-gap",
                             title=(
                                 "Largest interval without observed trials in transformed "
                                 "search space, including edge gaps. Orange rug ticks mark "
@@ -727,49 +851,72 @@ class SearchSpaceCoverage(Plugin):
         )
         pairwise.className = "coverage-card coverage-pairwise"
         global_view = [
-            html.Div(
+            html.Section(
                 [
-                    _analysis_panel(analysis, summary=True)
-                    for analysis in ("discrepancy", "radius", "baseline")
-                ],
-                className="coverage-global-modules",
-            ),
-            dcc.Store(id=_id("global-detail")),
-            html.Section(
-                id=_id("discrepancy-section"),
-                style={"display": "none"},
-                children=html.Div(id=_id("discrepancy-result")),
-            ),
-            html.Section(
-                id=_id("radius-section"),
-                style={"display": "none"},
-                children=[
-                    html.Div(id=_id("radius-result")),
-                    html.H4("Largest uncovered regions"),
+                    dcc.Store(id=_id("combinatorial-resolution-selection")),
                     html.Div(
                         [
-                            _table(
-                                [],
-                                ["region", "distance"],
-                                id=_id("regions"),
-                                cell_selectable=True,
-                                page_size=5,
+                            html.Div(
+                                [
+                                    html.Span(
+                                        html.I(className="fas fa-chart-bar"),
+                                        className="coverage-profile-icon",
+                                        **{"aria-hidden": "true"},
+                                    ),
+                                    html.Div(
+                                        [
+                                            html.H3("Coverage Array"),
+                                            html.Div(id=_id("combinatorial-profile-counts")),
+                                        ]
+                                    ),
+                                ],
+                                className="coverage-profile-title",
                             ),
-                            html.Div(id=_id("region-detail")),
+                            html.Div(
+                                [
+                                    html.Span(
+                                        "Random baseline · awaiting values",
+                                        id=_id("combinatorial-baseline-label"),
+                                        className="coverage-profile-baseline-badge",
+                                    ),
+                                    _analysis_panel("combinatorial_baseline"),
+                                ],
+                                className="coverage-profile-benchmark-controls",
+                            ),
                         ],
-                        className="coverage-regions",
+                        className="coverage-profile-header",
                     ),
+                    html.Div(id=_id("combinatorial-result")),
                 ],
-            ),
-            html.Section(
-                id=_id("baseline-section"),
-                style={"display": "none"},
-                children=html.Div(id=_id("baseline-result")),
+                className="coverage-card coverage-profile-card",
             ),
         ]
         growth = _card(
             "Coverage Growth",
             [
+                dcc.Store(id=_id("global-detail")),
+                _analysis_panel("radius", summary=True),
+                html.Section(
+                    id=_id("radius-section"),
+                    style={"display": "none"},
+                    children=[
+                        html.Div(id=_id("radius-result")),
+                        html.H4("Largest uncovered regions"),
+                        html.Div(
+                            [
+                                _table(
+                                    [],
+                                    ["region", "distance"],
+                                    id=_id("regions"),
+                                    cell_selectable=True,
+                                    page_size=5,
+                                ),
+                                html.Div(id=_id("region-detail")),
+                            ],
+                            className="coverage-regions",
+                        ),
+                    ],
+                ),
                 html.Div(
                     [_analysis_panel("growth"), _analysis_panel("growth_baseline")],
                     className="coverage-growth-modules",
@@ -823,7 +970,7 @@ class SearchSpaceCoverage(Plugin):
                 ),
                 dbc.Label("Reference designs (random baselines)"),
                 dbc.Input(id=_id("designs"), type="number", value=500, min=1, max=2000, step=1),
-                dbc.Label("Reference samples (radius and growth)", className="mt-3"),
+                dbc.Label("Reference samples (pairwise, radius and growth)", className="mt-3"),
                 dbc.Input(
                     id=_id("references"),
                     type="number",
@@ -861,7 +1008,7 @@ class SearchSpaceCoverage(Plugin):
                     dcc.Store(id=_id("context")),
                     *[
                         dcc.Store(id=_id(f"{analysis}-{kind}"))
-                        for analysis in ANALYSES
+                        for analysis in UI_ANALYSES
                         for kind in ("data", "view")
                     ],
                     settings,
@@ -883,10 +1030,76 @@ class SearchSpaceCoverage(Plugin):
 
     @interactive
     def register_callbacks(self) -> None:
-        """Register view-only interactions and six independently started worker jobs."""
+        """Register view-only interactions and independently started worker jobs."""
         from deepcave import app, queue, rc, run_handler
 
         jobs = CoverageJobs(rc.cache_dir, queue)
+
+        def coverage_array_snapshot(context: Any, random: Any) -> tuple:
+            reference = _current(random, context)
+            measured = None
+            if context and not reference.get("result"):
+                measured = {
+                    "run_id": context["run_id"],
+                    **jobs.read(context["run_id"], "combinatorial"),
+                }
+            return _combinatorial_snapshot(context, measured, reference)
+
+        @app.callback(  # type: ignore[untyped-decorator]
+            Output(_id("combinatorial-result"), "children"),
+            Output(_id("combinatorial-profile-counts"), "children"),
+            Output(_id("combinatorial-baseline-label"), "children"),
+            Input(_id("context"), "data"),
+            Input(_id("combinatorial_baseline-data"), "data"),
+        )
+        def combinatorial_results(context: Any, random: Any) -> Any:
+            result, baseline = coverage_array_snapshot(context, random)
+            counts = (
+                f"{len(result['parameters'])} Parameters · {result['trials']:,} Trials"
+                if result
+                else ""
+            )
+            label = (
+                f"Random baseline · {baseline['designs']:,} samples"
+                if baseline
+                else "Random baseline · awaiting values"
+            )
+            return combinatorial_view(result, baseline), counts, label
+
+        @app.callback(  # type: ignore[untyped-decorator]
+            Output(_id("combinatorial-resolution-detail"), "children"),
+            Output(_id("combinatorial-resolution"), "value"),
+            Output(_id("combinatorial-resolution-selection"), "data"),
+            Input(_id("combinatorial-resolution"), "value"),
+            Input(_id("context"), "data"),
+            Input(_id("combinatorial_baseline-data"), "data"),
+            State(_id("combinatorial-resolution-selection"), "data"),
+        )
+        def combinatorial_detail(
+            selected: Any, context: Any, random: Any, previous: Any = None
+        ) -> Any:
+            result, _ = coverage_array_snapshot(context, random)
+            values = selected or []
+            run_id = (context or {}).get("run_id")
+            previous = previous or {}
+            if previous.get("run_id") not in (None, run_id):
+                resolution = None
+            else:
+                added = [value for value in values if value != previous.get("resolution")]
+                resolution = (
+                    added[-1]
+                    if added
+                    else (
+                        previous.get("resolution") if previous.get("resolution") in values else None
+                    )
+                )
+            if resolution not in [row["resolution"] for row in (result or {}).get("rows", [])]:
+                resolution = None
+            return (
+                combinatorial_resolution_detail(result, resolution),
+                [resolution] if resolution is not None else [],
+                {"run_id": run_id, "resolution": resolution},
+            )
 
         @app.callback(  # type: ignore[untyped-decorator]
             Output(_id("overview"), "children"),
@@ -1027,7 +1240,7 @@ class SearchSpaceCoverage(Plugin):
                 elite_label,
             )
 
-        for analysis in ANALYSES:
+        for analysis in UI_ANALYSES:
             self._register_analysis_callback(app, jobs, run_handler, analysis)
 
         @app.callback(  # type: ignore[untyped-decorator]
@@ -1042,13 +1255,13 @@ class SearchSpaceCoverage(Plugin):
         @app.callback(  # type: ignore[untyped-decorator]
             Output(_id("coverage-status"), "children"),
             Input(_id("context"), "data"),
-            *[Input(_id(f"{analysis}-data"), "data") for analysis in ANALYSES],
+            *[Input(_id(f"{analysis}-data"), "data") for analysis in UI_ANALYSES],
         )
         def coverage_status(context: Any, *entries: Any) -> Any:
             if not context:
                 return []
             rows = [html.Div([html.Dt("Marginal coverage"), html.Dd("Available automatically")])]
-            for analysis, raw in zip(ANALYSES, entries):
+            for analysis, raw in zip(UI_ANALYSES, entries):
                 entry = _current(raw, context)
                 status = entry.get("status", "not_run")
                 if status == "completed" and entry.get("fingerprint") != context["fingerprint"]:
@@ -1083,59 +1296,38 @@ class SearchSpaceCoverage(Plugin):
 
         @app.callback(  # type: ignore[untyped-decorator]
             Output(_id("global-detail"), "data"),
-            *[
-                Input(_id(f"{analysis}-details"), "n_clicks")
-                for analysis in ("discrepancy", "radius", "baseline")
-            ],
+            Input(_id("radius-details"), "n_clicks"),
             Input(_id("context"), "data"),
             State(_id("global-detail"), "data"),
         )
-        def global_detail(_: Any, __: Any, ___: Any, context: Any, previous: Any) -> Any:
+        def global_detail(_: Any, context: Any, previous: Any) -> Any:
             if not context:
                 return None
-            for analysis in ("discrepancy", "radius", "baseline"):
-                if ctx.triggered_id == _id(f"{analysis}-details"):
-                    return {"run_id": context["run_id"], "analysis": analysis}
+            if ctx.triggered_id == _id("radius-details"):
+                return {"run_id": context["run_id"], "analysis": "radius"}
             return previous if previous and previous.get("run_id") == context["run_id"] else None
 
         @app.callback(  # type: ignore[untyped-decorator]
-            *[
-                Output(_id(f"{analysis}-section"), "style")
-                for analysis in ("discrepancy", "radius", "baseline")
-            ],
+            Output(_id("radius-section"), "style"),
             Input(_id("global-detail"), "data"),
         )
         def show_detail(selected: Any) -> Any:
-            return [
-                {} if selected and selected.get("analysis") == analysis else {"display": "none"}
-                for analysis in ("discrepancy", "radius", "baseline")
-            ]
+            return {} if selected and selected.get("analysis") == "radius" else {"display": "none"}
 
         @app.callback(  # type: ignore[untyped-decorator]
-            Output(_id("discrepancy-result"), "children"),
             Output(_id("radius-result"), "children"),
-            Output(_id("baseline-result"), "children"),
+            Output(_id("radius-summary"), "children"),
             Output(_id("regions"), "data"),
             Input(_id("context"), "data"),
-            *[
-                Input(_id(f"{analysis}-data"), "data")
-                for analysis in ("discrepancy", "radius", "baseline")
-            ],
+            Input(_id("radius-data"), "data"),
         )
-        def global_results(context: Any, discrepancy: Any, radius: Any, baseline: Any) -> Any:
-            results = [
-                _current(entry, context).get("result") for entry in (discrepancy, radius, baseline)
-            ]
+        def global_results(context: Any, radius: Any) -> Any:
+            result = _current(radius, context).get("result")
             regions = [
-                {"id": i, "region": i + 1, "distance": r["distance"]}
-                for i, r in enumerate((results[1] or {}).get("regions", []))
+                {"id": i, "region": i + 1, "distance": region["distance"]}
+                for i, region in enumerate((result or {}).get("regions", []))
             ]
-            return (
-                _discrepancy_details(results[0]),
-                _radius_details(results[1]),
-                _baseline_details(results[2]),
-                regions,
-            )
+            return _radius_details(result), _module_summary("radius", result), regions
 
         @app.callback(  # type: ignore[untyped-decorator]
             Output(_id("region-detail"), "children"),
@@ -1200,11 +1392,6 @@ class SearchSpaceCoverage(Plugin):
             Output(_id(f"{analysis}-view"), "data"),
             Output(_id(f"{analysis}-cancel"), "style"),
             Output(_id(f"{analysis}-metadata"), "children"),
-            *(
-                [Output(_id(f"{analysis}-summary"), "children")]
-                if analysis in ("discrepancy", "radius", "baseline")
-                else []
-            ),
             Input(_id(f"{analysis}-run"), "n_clicks"),
             Input(_id(f"{analysis}-cancel"), "n_clicks"),
             Input(_id("tick"), "n_intervals"),
@@ -1241,6 +1428,24 @@ class SearchSpaceCoverage(Plugin):
             if not error and n_clicks and ctx.triggered_id == _id(f"{analysis}-run"):
                 entry = jobs.start(run, analysis, data, options)
             status = analysis_status(entry, data, options)
+            missing_global_details = (
+                analysis in ("discrepancy", "baseline")
+                and entry.get("result") is not None
+                and (
+                    ("checkpoints" if analysis == "discrepancy" else "discrepancy_bands")
+                    not in entry["result"]
+                    or entry["result"].get("mixed_version") != MIXED_MMD_VERSION
+                )
+            )
+            if status == "completed" and missing_global_details:
+                status = "stale"
+            missing_ccm_reference = (
+                analysis == "combinatorial_baseline"
+                and entry.get("result") is not None
+                and entry["result"].get("baseline_version") != BASELINE_VERSION
+            )
+            if status == "completed" and missing_ccm_reference:
+                status = "stale"
             view = {
                 "run": run.id,
                 "fingerprint": data.fingerprint,
@@ -1268,7 +1473,20 @@ class SearchSpaceCoverage(Plugin):
                 "computed_at": entry.get("computed_at"),
             }
             label = _status_label(status, entry, data.count)
+            if missing_global_details and status == "stale":
+                label = "⚠ Recalculate to compare the complete search space"
+            if missing_ccm_reference and status == "stale":
+                label = "Refresh to use the updated strength calculation"
             if analysis == "pairwise" and status in ("not_run", "completed") and not error:
+                label = ""
+            if analysis == "combinatorial_baseline" and status == "not_run" and not error:
+                label = ""
+            if (
+                analysis
+                in ("discrepancy", "radius", "baseline", "combinatorial", "combinatorial_baseline")
+                and status == "completed"
+                and not error
+            ):
                 label = ""
             if error:
                 label += " · " + error
@@ -1285,6 +1503,13 @@ class SearchSpaceCoverage(Plugin):
                     )
                 )
             )
+            if analysis == "discrepancy" and button in ("↻", "Recompute"):
+                button = "Recalculate"
+            if analysis == "combinatorial_baseline":
+                if status == "not_run":
+                    button = "Compute coverage"
+                elif status == "completed":
+                    button = "Refresh"
             outputs = [
                 payload,
                 label,
@@ -1294,6 +1519,4 @@ class SearchSpaceCoverage(Plugin):
                 {} if status == "running" else {"display": "none"},
                 "" if analysis == "pairwise" else _metadata(analysis, status, entry),
             ]
-            if analysis in ("discrepancy", "radius", "baseline"):
-                outputs.append(_module_summary(analysis, entry.get("result")))
             return outputs

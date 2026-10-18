@@ -43,13 +43,55 @@ Five internal tabs keep each question in its own view:
   are included. Elite selection spans the run; only jointly active trials appear
   in the selected scatter. Highlighting does not change coverage calculations or
   start worker jobs. Scatter tooltips remain disabled.
-* **Global** shows separate Discrepancy, Coverage Radius, and Random Baseline
-  cards. Each card has its own start and details controls. Only one detail section
-  is visible at a time. Uncovered regions use a five-row paginated list of region
-  numbers and distances; selecting a region displays its parameter values and
-  explicitly marks inactive parameters. Baselines show the observed point against
-  random intervals, with the axis direction indicating better/worse coverage.
-* **Growth** shows one metric at a time: p95 radius, maximum radius, centered
+* **Global** starts with **Combinatorial Coverage**: a measured resolution/strength
+  **Coverage Array** for 2, 3, 4, and 8 levels. Each resolution shows the achieved
+  strength and coverage at the next strength, so near-complete interactions remain
+  visible even when the strict strength is low. Every combination of every group
+  must be covered to reach a strength; all lower strengths are then complete too.
+  Select a resolution to see its coverage strip, missing fraction and groups
+  preventing the next strength, sorted by missing combinations (up to twenty).
+  Click the same row again to close its details; selecting another row switches
+  the diagnosis to that resolution.
+  Strength is shown relative to the number of varying parameters (for example,
+  ``t = 4/6``). Beneath it, **max. feasible strength** shows the upper bound imposed
+  by the trial count. This bound is necessary, not sufficient, for a covering array
+  to exist. **Advanced Details** contains the full
+  resolution/strength matrix and method definitions. Each resolution is evaluated
+  up to its first incomplete strength, the parameter count, or the trial/work limit;
+  there is no fixed cap at strength 6. Uncomputed matrix cells are marked explicitly.
+  An exact strength of zero means marginal coverage is incomplete. There is no
+  additional parameter-group selector or duplicate pairwise drill-down.
+  A dash means full coverage requires more trials; an ellipsis means exact
+  enumeration exceeds the work limit. Strength is shown as a lower bound when
+  higher feasible strengths remain uncomputed. Work is bounded to 100,000 groups
+  and 20 million trial/group projections per resolution; groups are never sampled.
+  Continuous levels follow the theoretical sampling CDF; ordered discrete values
+  are grouped near theoretical quantiles while keeping every level nonempty.
+  Categories and ordinals retain their original values, so mixed group sizes are
+  supported. Constants are excluded. This first version requires independent
+  parameters without conditions or forbidden combinations. All recorded trials
+  contribute, including failed trials and repeated configurations.
+  A single **Compute coverage** / **Refresh** button in the header updates both
+  observed coverage and the random baseline in one worker job. The header also
+  shows the reference count and update age. Each row displays observed next-strength
+  coverage as a point on a zoomed track, alongside the random 5–95% band and
+  dashed median. Its tooltip reports the percentile and whether coverage falls
+  below, within or above the usual random range. All rows share the smallest lower
+  and largest upper endpoint across their zoomed ranges, making the points and bands
+  directly comparable. Each row labels these shared endpoints.
+  The strength badge's tooltip includes the corresponding random strength
+  distribution. Constant reference distributions
+  have no percentile; censored strength estimates are labelled as lower bounds.
+  Calibration simulates complete studies of the same size, preserving dependence
+  between groups. Reference designs and seed apply; reference sample count does not.
+  Each simulated study is evaluated at least through the observed next strength,
+  even if the simulation encounters a gap earlier, so coverage comparisons always
+  use all reference studies at the same interaction strength.
+  Older references without medians or strength samples are marked for refresh;
+  their available coverage bands remain visible without inventing missing values.
+* **Growth** includes Coverage Radius and uncovered regions. Expanding radius details
+  shows distances and a selectable list of region parameters. It also shows one
+  growth metric at a time: p95 radius, maximum radius, centered
   discrepancy, pairwise occupancy, or marginal maximum gap. An optional random
   overlay is enabled only after its independent calculation and only when trial
   fingerprints and reference settings match the realised trajectory. The random
@@ -62,19 +104,31 @@ only change the view; they never submit calculations.
 Independent analyses
 --------------------
 
-Each module has its own **Run analysis** / **Recompute** button and runs through
-the existing DeepCAVE worker queue:
+Visible modules have their own **Run analysis** / **Recompute** button and run
+through the existing DeepCAVE worker queue. Legacy Sampling distribution and
+Random comparisons remain available through the Python API, outside the dashboard:
 
 * Pairwise Coverage: nominal grid occupancy, empty-cell fraction, MMD distance,
   and maximum nearest-trial coverage radius for every parameter type. Reference count
   and seed in Analysis settings control the legal reference configurations.
   Select a matrix or ranking-table cell to update the parameter-pair scatter.
-* Global Discrepancy: centered, L2-star, and wrap-around discrepancy.
+* Sampling distribution: mixed-space MMD and centered, L2-star, and wrap-around
+  discrepancy, including their trajectories over approximately twenty nested trial
+  prefixes. MMD uses a product of Gaussian ordered-coordinate kernels (width 0.2)
+  and category equality kernels, with inactive values as a separate state. The
+  nonnegative biased empirical MMD is compared with random designs of the same
+  trial count using a shared reference sample. To bound work, MMD uses up to 1,024
+  trials per checkpoint and 512 reference configurations; reproducible subsampling
+  follows the same rule for observed and random histories. Details disclose the
+  effective counts. Reference count and seed apply to this module.
 * Coverage Radius & Holes: nearest-trial distance distribution, median, p90,
   p95, p99, maximum, and up to twenty distinct worst-covered reference points
   decoded into parameter values.
-* Random Baseline: coverage relative to identically sized random designs,
-  reporting mean, 5–95% interval, midrank percentile, and standardized deviation.
+* Random comparisons: coverage relative to identically sized random designs,
+  reporting median, mean, 5–95% interval, midrank percentile, and standardized
+  deviation. Each discrepancy definition has its own comparison and trajectory
+  band. Discrepancy need not decrease with every added trial; it evaluates
+  uniformity rather than optimization performance.
 * Coverage Growth: approximately twenty logarithmically spaced trial prefixes,
   including the final trial, with all five growth metrics.
 * Random Coverage Growth: a separately started simulation with random mean and
@@ -83,6 +137,19 @@ the existing DeepCAVE worker queue:
 The two growth jobs are independent. The random-growth job can also be started
 directly and includes the realised trajectory for comparison. Starting realised
 growth does not start its random baseline.
+
+The full-space MMD is a candidate distribution diagnostic, not a validated
+guarantee of coverage. Synthetic validation found that its current product kernel
+loses sensitivity as the number of parameters grows, and can miss absent
+categories or combinations. See the :download:`kernel review and sensitivity study
+<../validation/coverage_mmd/README.md>` for the reproducible protocol, measured
+detection rates, and limitations. A result within the random range does not rule
+out a coverage problem.
+
+A separate :download:`randomized partitioning experiment
+<../validation/coverage_partitions/README.md>` compares unvisited cell mass
+against MMD on the same synthetic defects, including jointly calibrated selection
+and fixed-partition forecasts. It is not integrated into dashboard metrics.
 
 Reference designs defaults to 500; reference samples defaults to 2,048. Both
 baselines use the same fixed reference points for observed and random designs.
@@ -210,6 +277,7 @@ Python API
 
 ``SearchSpaceCoverage.process(run, {})`` returns only overview and univariate
 results. For a single explicit expensive analysis, pass ``analysis`` as one of
-``pairwise``, ``discrepancy``, ``radius``, ``baseline``, ``growth``, or
+``combinatorial``, ``combinatorial_baseline``, ``pairwise``, ``discrepancy``,
+``radius``, ``baseline``, ``growth``, or
 ``growth_baseline``. The evaluator also exports separate calculation functions
 for callers that want to reuse one normalized ``CoverageData`` snapshot.

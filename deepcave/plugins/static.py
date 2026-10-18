@@ -242,6 +242,8 @@ class StaticPlugin(Plugin, ABC):
         The caption for the button.
     """
 
+    auto_process: bool = False
+
     def __init__(self) -> None:
         super().__init__()
         self._setup()
@@ -336,13 +338,13 @@ class StaticPlugin(Plugin, ABC):
                 self, inputs
             ) != _applied_inputs_key(self, last_inputs)
 
-            if button_pressed:
-                self.logger.debug("Button pressed.")
+            def enqueue_processing(selected_runs: List[AbstractRun]) -> None:
+                """Submit requested calculations through the normal background queue."""
                 c.set("last_inputs", self.id, value=inputs)
                 self._expected_render_key = _render_inputs_key(self, inputs)
                 if page_id:
                     self._expected_render_keys[page_id] = self._expected_render_key
-                for run in runs:
+                for run in selected_runs:
                     job_id = self._get_job_id(run.id, inputs_key)
 
                     # Do not duplicate an active or not-yet-collected job. A cached result does
@@ -370,12 +372,19 @@ class StaticPlugin(Plugin, ABC):
 
                 self._refresh_required = True
                 self._state = PluginState.PROCESSING
+
+            if button_pressed:
+                self.logger.debug("Button pressed.")
+                enqueue_processing(runs)
                 raise PreventUpdate
+
+            if self.auto_process and inputs_changed:
+                c.set("last_inputs", self.id, value=inputs)
 
             # Controls can change without applying the analysis, and delayed callbacks can still
             # carry values from a page that has already been replaced. Neither may overwrite the
             # last explicitly applied result.
-            if last_inputs is not None and inputs_changed:
+            if not self.auto_process and last_inputs is not None and inputs_changed:
                 if self._state != PluginState.PROCESSING:
                     self._state = PluginState.NEEDS_PROCESSING
                 raise PreventUpdate
@@ -435,6 +444,10 @@ class StaticPlugin(Plugin, ABC):
             raw_outputs = {run.id: rc.get(run, self.id, inputs_key) for run in runs}
             raw_outputs_available = all(output is not None for output in raw_outputs.values())
             if not raw_outputs_available:
+                if self.auto_process:
+                    if self._state != PluginState.FAILED or inputs_changed:
+                        enqueue_processing([run for run in runs if raw_outputs[run.id] is None])
+                    raise PreventUpdate
                 self._state = PluginState.NEEDS_PROCESSING
                 raise PreventUpdate
 
@@ -668,6 +681,6 @@ class StaticPlugin(Plugin, ABC):
             dcc.Store(id=self.get_internal_id("rendered-inputs-key")),
             dcc.Store(id=self.get_internal_id("page-instance-id"), data=str(uuid4())),
         ]
-        components += super().__call__(True)
+        components += super().__call__(not self.auto_process)
 
         return components

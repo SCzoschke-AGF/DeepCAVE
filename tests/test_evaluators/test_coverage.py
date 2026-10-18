@@ -296,6 +296,92 @@ def test_discrepancy_matches_scipy_and_labels_the_projection():
     assert "forbidden" in coverage.compute_global_discrepancy(constrained)["reason"]
 
 
+def test_full_space_comparison_detects_joint_structure_in_discrete_parameters():
+    space = ConfigurationSpace(space={"category": ["a", "b"], "integer": (0, 1)})
+    configurations = [
+        {"category": category, "integer": integer} for category in ("a", "b") for integer in (0, 1)
+    ]
+    reference = coverage.normalize_configurations(space, configurations * 4)
+    matching = coverage.compute_sampling_uniformity(reference, reference)
+    dependent = coverage.normalize_configurations(space, [configurations[0], configurations[3]] * 8)
+    changed = coverage.compute_sampling_uniformity(dependent, reference)
+    assert matching["mixed_mmd"] == pytest.approx(0, abs=1e-8)
+    assert changed["mixed_mmd"] > 0.1
+    assert changed["mixed_parameters"] == ["category", "integer"]
+    assert changed["centered"] is None
+    assert changed["mixed_reason"] is None
+
+
+def test_full_space_comparison_is_independent_of_category_order():
+    values = [{"choice": "a"}] * 6 + [{"choice": "b"}] * 2
+    references = [{"choice": "a"}, {"choice": "b"}] * 8
+    results = []
+    for order in (["a", "b"], ["b", "a"]):
+        space = ConfigurationSpace(space={"choice": order})
+        results.append(
+            coverage.compute_sampling_uniformity(
+                coverage.normalize_configurations(space, values),
+                coverage.normalize_configurations(space, references),
+            )["mixed_mmd"]
+        )
+    assert results[0] == pytest.approx(results[1])
+    assert results[0] > 0
+
+
+def test_full_space_comparison_handles_conditions_and_forbidden_combinations():
+    space = ConfigurationSpace(space={"kind": ["a", "b"], "depth": (1, 3), "x": (0.0, 1.0)})
+    space.add(EqualsCondition(space["depth"], space["kind"], "b"))
+    space.add(
+        ForbiddenAndConjunction(
+            ForbiddenEqualsClause(space["kind"], "b"),
+            ForbiddenEqualsClause(space["depth"], 3),
+        )
+    )
+    references = coverage.sample_reference_design(space, 64, 3)
+    matching = coverage.compute_sampling_uniformity(references, references)
+    inactive = coverage.normalize_configurations(space, [{"kind": "a", "x": 0.5}] * 64)
+    shifted = coverage.compute_sampling_uniformity(inactive, references)
+    assert matching["mixed_mmd"] == pytest.approx(0, abs=1e-8)
+    assert shifted["mixed_mmd"] > matching["mixed_mmd"]
+    assert shifted["mixed_conditional_parameters"] == ["depth"]
+    assert shifted["mixed_reason"] is None
+    assert shifted["centered"] is None  # The classic projection remains unavailable.
+    points, axes = coverage._mixed_coordinates(references)
+    assert np.linalg.eigvalsh(coverage._mixed_kernel(points, points, axes)).min() >= -1e-10
+    json.dumps(shifted, allow_nan=False)
+
+
+def test_full_space_comparison_has_bounded_reproducible_work(monkeypatch):
+    monkeypatch.setattr(coverage, "MIXED_MMD_MAX_TRIALS", 8)
+    monkeypatch.setattr(coverage, "MIXED_MMD_REFERENCES", 6)
+    space = ConfigurationSpace(space={"x": (0.0, 1.0)})
+    observed = coverage.sample_reference_design(space, 20, 7)
+    references = coverage.sample_reference_design(space, 32, 9)
+    result = coverage.compute_sampling_uniformity(observed, references)
+    assert result == coverage.compute_sampling_uniformity(observed, references)
+    assert result["mixed_trials"] == 8
+    assert result["mixed_reference_samples"] == 6
+    assert all(row["mixed_trials"] <= 8 for row in result["checkpoints"])
+    left = observed.points[np.random.default_rng(0).choice(20, 8, replace=False), 0]
+    right = references.points[np.random.default_rng(1).choice(32, 6, replace=False), 0]
+
+    def mean_kernel(a, b):
+        return np.exp(-0.5 * ((a[:, None] - b[None, :]) / 0.2) ** 2).mean()
+
+    expected = np.sqrt(
+        max(0, mean_kernel(left, left) + mean_kernel(right, right) - 2 * mean_kernel(left, right))
+    )
+    assert result["mixed_mmd"] == pytest.approx(expected)
+
+
+def test_full_space_comparison_reports_no_varying_parameters():
+    space = ConfigurationSpace(space={"fixed": 42})
+    data = coverage.normalize_configurations(space, [{"fixed": 42}])
+    result = coverage.compute_sampling_uniformity(data, data)
+    assert result["mixed_mmd"] is None
+    assert result["mixed_reason"] == "No varying parameters."
+
+
 def test_pairwise_grid_occupancy_and_ranking():
     space = ConfigurationSpace(space={"x": (0.0, 1.0), "y": (0.0, 1.0), "z": (0.0, 1.0)})
     data = coverage.normalize_configurations(
@@ -584,6 +670,80 @@ def test_ties_and_zero_baseline_variance():
     assert row["percentile"] == 50
     assert row["standardized_deviation"] is None
     assert coverage.summarize_baseline(None, [0.5])["percentile"] is None
+
+
+def test_global_discrepancy_references_match_each_definition_and_trial_prefix():
+    space = ConfigurationSpace(space={"x": (0.0, 1.0), "y": (0.0, 1.0)})
+    data = coverage.normalize_configurations(
+        space, [{"x": 0.1, "y": 0.2}, {"x": 0.9, "y": 0.8}, {"x": 0.1, "y": 0.2}]
+    )
+    observed = coverage.run_coverage_analysis(
+        "discrepancy", data, space, {"reference_samples": 32, "seed": 7}
+    )
+    baseline = coverage.compute_random_baseline(
+        data, space, designs=3, reference_samples=32, seed=7
+    )
+    random_designs = [
+        coverage.sample_reference_design(space, data.count, seed) for seed in (8, 9, 10)
+    ]
+    assert [row["trials"] for row in observed["checkpoints"]] == [1, 2, 3]
+    assert baseline["discrepancy_checkpoints"] == observed["checkpoints"]
+    for key, method in (("centered", "CD"), ("l2_star", "L2-star"), ("wrap_around", "WD")):
+        final = baseline["metrics"]["centered_discrepancy" if key == "centered" else key]
+        assert final["observed"] == observed[key]
+        for row, band in zip(observed["checkpoints"], baseline["discrepancy_bands"]):
+            count = row["trials"]
+            samples = [
+                qmc.discrepancy(random.points[:count], method=method) for random in random_designs
+            ]
+            assert row[key] == qmc.discrepancy(data.points[:count], method=method)
+            assert band[key]["median"] == np.median(samples)
+            assert band[key]["lower"] == np.quantile(samples, 0.05)
+            assert band[key]["upper"] == np.quantile(samples, 0.95)
+            assert (
+                band[key]["percentile"]
+                == coverage.summarize_baseline(row[key], samples)["percentile"]
+            )
+        assert final["median"] == baseline["discrepancy_bands"][-1][key]["median"]
+
+
+def test_global_discrepancy_reference_handles_discrete_only_search_spaces():
+    space = ConfigurationSpace(space={"choice": ["a", "b"]})
+    data = coverage.normalize_configurations(space, [{"choice": "a"}])
+    baseline = coverage.compute_random_baseline(data, space, designs=2, reference_samples=32)
+    assert baseline["metrics"]["l2_star"]["percentile"] is None
+    assert baseline["metrics"]["wrap_around"]["median"] is None
+    assert baseline["discrepancy_bands"][0]["centered"]["median"] is None
+    json.dumps(baseline, allow_nan=False)
+    assert baseline["metrics"]["mixed_mmd"]["percentile"] is not None
+
+
+def test_full_space_random_baseline_uses_identical_reference_and_nested_prefixes():
+    space = ConfigurationSpace(space={"choice": ["a", "b"], "integer": (0, 1)})
+    data = coverage.normalize_configurations(space, [{"choice": "a", "integer": 0}] * 8)
+    references = coverage.sample_reference_design(space, 32, 7)
+    baseline = coverage.compute_random_baseline(
+        data, space, designs=3, reference_samples=32, seed=7
+    )
+    observed = coverage.compute_sampling_uniformity(data, references)
+    random = [
+        coverage.compute_sampling_uniformity(
+            coverage.sample_reference_design(space, data.count, seed), references
+        )
+        for seed in (8, 9, 10)
+    ]
+    assert baseline["discrepancy_checkpoints"] == observed["checkpoints"]
+    for index, band in enumerate(baseline["discrepancy_bands"]):
+        values = [result["checkpoints"][index]["mixed_mmd"] for result in random]
+        assert band["mixed_mmd"]["observed"] == observed["checkpoints"][index]["mixed_mmd"]
+        assert band["mixed_mmd"]["median"] == np.median(values)
+        assert (
+            band["mixed_mmd"]["percentile"]
+            == coverage.summarize_baseline(observed["checkpoints"][index]["mixed_mmd"], values)[
+                "percentile"
+            ]
+        )
+    assert baseline["metrics"]["mixed_mmd"] == baseline["discrepancy_bands"][-1]["mixed_mmd"]
 
 
 def test_fingerprints_capture_trial_and_definition_changes():
