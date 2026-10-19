@@ -28,6 +28,12 @@ from deepcave.evaluators.coverage import (
     prepare_coverage,
     run_coverage_analysis,
 )
+from deepcave.evaluators.coverage_forecast import FORECAST_VERSION, forecast_options
+from deepcave.evaluators.coverage_planning import (
+    PLANNING_VERSION,
+    planning_options,
+    planning_source_error,
+)
 from deepcave.plugins import Plugin
 from deepcave.plugins.hyperparameter.analysis_utils import (
     _add_trial_statistics,
@@ -43,6 +49,12 @@ from deepcave.plugins.hyperparameter.combinatorial_groups import (
 from deepcave.plugins.hyperparameter.combinatorial_views import (
     combinatorial_resolution_detail,
     combinatorial_view,
+)
+from deepcave.plugins.hyperparameter.coverage_planning_views import (
+    plan_trial_detail,
+    plan_view,
+    planning_coverage,
+    planning_panel,
 )
 from deepcave.plugins.hyperparameter.coverage_views import (
     DISCREPANCY_METRICS,
@@ -70,6 +82,8 @@ from deepcave.runs.status import Status
 
 PREFIX = "search_space_coverage"
 ANALYSES = {
+    "forecast": ("Trial forecast", "Forecast additional random trials to complete coverage."),
+    "planning": ("Improve Coverage", "Plan additional configurations to close coverage gaps."),
     "combinatorial": (
         "Global Combinatorial Coverage",
         "Measure coverage across resolutions and interaction strengths for independent parameters.",
@@ -100,7 +114,7 @@ ANALYSES = {
 UI_ANALYSES = {
     key: value
     for key, value in ANALYSES.items()
-    if key not in ("discrepancy", "baseline", "combinatorial")
+    if key not in ("discrepancy", "baseline", "combinatorial", "planning", "forecast")
 }
 _PREPARED: OrderedDict = OrderedDict()
 _LOCK = RLock()
@@ -258,11 +272,28 @@ class CoverageJobs:
                     raise RuntimeError(
                         "No analysis worker is available. Start a DeepCAVE worker, then retry."
                     )
-                if not data.count:
-                    raise ValueError("This analysis requires sampled trials.")
+                if not data.count and analysis not in ("planning", "forecast"):
+                    raise ValueError("This analysis requires successful trials.")
+                worker_args = [analysis, data, run.configspace, options]
+                if analysis == "forecast":
+                    snapshot = None
+                    for source in ("combinatorial_baseline", "combinatorial"):
+                        cached = self.read(run.id, source)
+                        if (
+                            cached.get("fingerprint") == data.fingerprint
+                            and cached.get("version") == VERSION
+                            and cached.get("result")
+                        ):
+                            snapshot = (
+                                cached["result"]["observed"]
+                                if source == "combinatorial_baseline"
+                                else cached["result"]
+                            )
+                            break
+                    worker_args.append(snapshot)
                 self.queue.enqueue(
                     run_coverage_analysis,
-                    args=[analysis, data, run.configspace, options],
+                    args=worker_args,
                     job_id=job_id,
                     meta={
                         "display_name": ANALYSES[analysis][0],
@@ -309,7 +340,7 @@ def _elite_trials(run: Any, proportion: float) -> Tuple[List[int], str]:
     objective = objectives[0]
     objective_id = run.get_objective_id(objective)
     rows = []
-    for index, trial in enumerate(run.history):
+    for index, trial in enumerate(t for t in run.history if t.status == Status.SUCCESS):
         value = trial.costs[objective_id]
         if trial.status == Status.SUCCESS and value is not None and np.isfinite(value):
             rows.append({"history_index": index, "objective": float(value)})
@@ -333,7 +364,7 @@ def _analysis_panel(analysis: str, summary: bool = False) -> Any:
             if analysis == "growth"
             else "Random expectation" if analysis == "growth_baseline" else title
         )
-        if analysis not in ("pairwise", "combinatorial", "combinatorial_baseline")
+        if analysis not in ("pairwise", "combinatorial", "combinatorial_baseline", "forecast")
         else None
     )
     if analysis == "discrepancy":
@@ -369,7 +400,13 @@ def _analysis_panel(analysis: str, summary: bool = False) -> Any:
             (
                 html.Small(description, className="coverage-job-description")
                 if analysis
-                not in ("pairwise", "discrepancy", "combinatorial", "combinatorial_baseline")
+                not in (
+                    "pairwise",
+                    "discrepancy",
+                    "combinatorial",
+                    "combinatorial_baseline",
+                    "forecast",
+                )
                 else None
             ),
             html.Div(
@@ -380,7 +417,7 @@ def _analysis_panel(analysis: str, summary: bool = False) -> Any:
             html.Div(
                 (
                     ""
-                    if analysis in ("pairwise", "combinatorial_baseline")
+                    if analysis in ("pairwise", "combinatorial_baseline", "forecast")
                     else f"Estimated compute: {cost}"
                 ),
                 id=_id(f"{analysis}-metadata"),
@@ -390,7 +427,7 @@ def _analysis_panel(analysis: str, summary: bool = False) -> Any:
             html.Div(
                 [
                     dbc.Button(
-                        "Run analysis",
+                        "Compute forecast" if analysis == "forecast" else "Run analysis",
                         id=_id(f"{analysis}-run"),
                         n_clicks=0,
                         title=(
@@ -428,7 +465,7 @@ def _analysis_panel(analysis: str, summary: bool = False) -> Any:
         ],
         className=(
             "coverage-ccm-baseline-controls"
-            if analysis == "combinatorial_baseline"
+            if analysis in ("combinatorial_baseline", "forecast")
             else (
                 "coverage-job coverage-ccm-controls"
                 if analysis == "combinatorial"
@@ -575,6 +612,13 @@ class SearchSpaceCoverage(Plugin):
         """Return automatic content, or run one explicitly named analysis in API mode."""
         data = prepare_coverage(run)
         analysis = inputs.get("analysis")
+        if analysis == "forecast":
+            return run_coverage_analysis(analysis, data, run.configspace, forecast_options(inputs))
+        if analysis == "planning":
+            error = planning_source_error(run)
+            if error:
+                raise ValueError(error)
+            return run_coverage_analysis(analysis, data, run.configspace, planning_options(inputs))
         if analysis:
             options = analysis_options(
                 analysis,
@@ -886,6 +930,7 @@ class SearchSpaceCoverage(Plugin):
                                         className="coverage-profile-baseline-badge",
                                     ),
                                     _analysis_panel("combinatorial_baseline"),
+                                    _analysis_panel("forecast"),
                                 ],
                                 className="coverage-profile-benchmark-controls",
                             ),
@@ -896,6 +941,7 @@ class SearchSpaceCoverage(Plugin):
                 ],
                 className="coverage-card coverage-profile-card",
             ),
+            planning_panel(),
         ]
         growth = _card(
             "Coverage Growth",
@@ -985,6 +1031,34 @@ class SearchSpaceCoverage(Plugin):
                     max=20000,
                     step=1,
                 ),
+                html.Hr(),
+                dbc.Label("Forecast probability"),
+                dcc.Dropdown(
+                    id=_id("forecast-probability"),
+                    value=0.8,
+                    clearable=False,
+                    options=[{"label": f"{p:.0%}", "value": p} for p in (0.5, 0.8, 0.95)],
+                ),
+                dbc.Label("Forecast simulations", className="mt-3"),
+                dbc.Input(
+                    id=_id("forecast-simulations"),
+                    type="number",
+                    value=2000,
+                    min=20,
+                    max=10000,
+                    step=1,
+                ),
+                dbc.Label("Maximum trials per continuation", className="mt-3"),
+                dbc.Input(
+                    id=_id("forecast-max-trials"),
+                    type="number",
+                    value=100000,
+                    min=1,
+                    max=10000000,
+                    step=1,
+                ),
+                dbc.Label("Forecast time limit (seconds)", className="mt-3"),
+                dbc.Input(id=_id("forecast-timeout"), type="number", value=30, min=0.1, max=120),
                 dbc.Label("Random seed", className="mt-3"),
                 dbc.Input(id=_id("seed"), type="number", value=0, min=0, max=2**32 - 2001, step=1),
             ],
@@ -1014,7 +1088,7 @@ class SearchSpaceCoverage(Plugin):
                     dcc.Store(id=_id("context")),
                     *[
                         dcc.Store(id=_id(f"{analysis}-{kind}"))
-                        for analysis in UI_ANALYSES
+                        for analysis in (*UI_ANALYSES, "forecast")
                         for kind in ("data", "view")
                     ],
                     settings,
@@ -1040,6 +1114,8 @@ class SearchSpaceCoverage(Plugin):
         from deepcave import app, queue, rc, run_handler
 
         jobs = CoverageJobs(rc.cache_dir, queue)
+        self._register_planning_callbacks(app, jobs, run_handler)
+        self._register_forecast_callback(app, jobs, run_handler)
 
         def coverage_array_snapshot(context: Any, random: Any) -> tuple:
             reference = _current(random, context)
@@ -1049,7 +1125,43 @@ class SearchSpaceCoverage(Plugin):
                     "run_id": context["run_id"],
                     **jobs.read(context["run_id"], "combinatorial"),
                 }
-            return _combinatorial_snapshot(context, measured, reference)
+            result, baseline = _combinatorial_snapshot(context, measured, reference)
+            source = reference if baseline else measured or {}
+            if result is None and context:
+                saved = jobs.read(context["run_id"], "forecast")
+                result = (saved.get("result") or {}).get("observed")
+                source = saved
+            if result:
+                result = {**result, "source_fingerprint": source.get("fingerprint")}
+            return result, baseline
+
+        @app.callback(  # type: ignore[untyped-decorator]
+            Output(_id("planning-budget-field"), "style"),
+            Output(_id("planning-strength-field"), "style"),
+            Output(_id("planning-strength"), "disabled"),
+            Output(_id("planning-coverage"), "children"),
+            Output(_id("planning-strength-mode"), "options"),
+            Output(_id("planning-strength"), "max"),
+            Input(_id("planning-strategy"), "value"),
+            Input(_id("planning-strength-mode"), "value"),
+            Input(_id("planning-resolution"), "value"),
+            Input(_id("context"), "data"),
+            Input(_id("combinatorial_baseline-data"), "data"),
+            Input(_id("forecast-data"), "data"),
+        )
+        def planning_controls(
+            strategy: Any, mode: Any, resolution: Any, context: Any, random: Any, forecast: Any
+        ) -> Any:
+            result, _ = coverage_array_snapshot(context, random)
+            metrics, options, maximum = planning_coverage(result, resolution)
+            return (
+                {} if strategy == "maximize_coverage" else {"display": "none"},
+                {} if mode == "custom" else {"display": "none"},
+                mode != "custom",
+                metrics,
+                options,
+                maximum,
+            )
 
         @app.callback(  # type: ignore[untyped-decorator]
             Output(_id("combinatorial-result"), "children"),
@@ -1057,9 +1169,18 @@ class SearchSpaceCoverage(Plugin):
             Output(_id("combinatorial-baseline-label"), "children"),
             Input(_id("context"), "data"),
             Input(_id("combinatorial_baseline-data"), "data"),
+            Input(_id("forecast-data"), "data"),
         )
-        def combinatorial_results(context: Any, random: Any) -> Any:
+        def combinatorial_results(context: Any, random: Any, raw_forecast: Any = None) -> Any:
             result, baseline = coverage_array_snapshot(context, random)
+            entry = _current(raw_forecast, context)
+            forecast = entry.get("result")
+            if (
+                forecast
+                and result
+                and forecast.get("source_fingerprint") != result.get("source_fingerprint")
+            ):
+                forecast = None
             counts = (
                 f"{len(result['parameters'])} Parameters · {result['trials']:,} Trials"
                 if result
@@ -1070,7 +1191,7 @@ class SearchSpaceCoverage(Plugin):
                 if baseline
                 else "Random baseline · awaiting values"
             )
-            return combinatorial_view(result, baseline), counts, label
+            return combinatorial_view(result, baseline, forecast), counts, label
 
         @app.callback(  # type: ignore[untyped-decorator]
             Output(_id("combinatorial-resolution-detail"), "children"),
@@ -1452,6 +1573,253 @@ class SearchSpaceCoverage(Plugin):
                     ", ".join(result["discrepancy_parameters"]) or "unavailable"
                 )
             return _growth_figure(realised, random, metric, bool(value)), options, value, note
+
+    def _register_forecast_callback(self, app: Any, jobs: CoverageJobs, run_handler: Any) -> None:
+        @app.callback(  # type: ignore[untyped-decorator]
+            Output(_id("forecast-data"), "data"),
+            Output(_id("forecast-status"), "children"),
+            Output(_id("forecast-run"), "children"),
+            Output(_id("forecast-run"), "disabled"),
+            Output(_id("forecast-view"), "data"),
+            Output(_id("forecast-cancel"), "style"),
+            Output(_id("forecast-metadata"), "children"),
+            Input(_id("forecast-run"), "n_clicks"),
+            Input(_id("forecast-cancel"), "n_clicks"),
+            Input(_id("tick"), "n_intervals"),
+            Input(_id("context"), "data"),
+            Input(_id("forecast-probability"), "value"),
+            Input(_id("forecast-simulations"), "value"),
+            Input(_id("forecast-max-trials"), "value"),
+            Input(_id("forecast-timeout"), "value"),
+            Input(_id("seed"), "value"),
+            State("global-run-selector", "value"),
+            State(_id("forecast-view"), "data"),
+            State(_id("forecast-data"), "data"),
+        )
+        def forecast_job(
+            clicks: Any,
+            cancel: Any,
+            tick: Any,
+            context: Any,
+            probability: Any,
+            simulations: Any,
+            max_trials: Any,
+            timeout: Any,
+            seed: Any,
+            active_run: Any,
+            previous: Any,
+            current: Any = None,
+        ) -> Any:
+            if not context or context["run_id"] != active_run:
+                raise PreventUpdate
+            run = run_handler.get_run(active_run)
+            data, _ = _prepared(run)
+            entry = jobs.poll(run.id, "forecast")
+            if cancel and ctx.triggered_id == _id("forecast-cancel"):
+                entry = jobs.cancel(run.id, "forecast")
+            error, options = None, {}
+            try:
+                options = forecast_options(
+                    dict(
+                        probability=probability,
+                        simulations=simulations,
+                        max_trials=max_trials,
+                        timeout=timeout,
+                        seed=seed,
+                    )
+                )
+            except ValueError as exception:
+                error = str(exception)
+            if not error and clicks and ctx.triggered_id == _id("forecast-run"):
+                entry = jobs.start(run, "forecast", data, options)
+            status = analysis_status(entry, data, options)
+            if (
+                status == "completed"
+                and entry["result"].get("forecast_version") != FORECAST_VERSION
+            ):
+                status = "stale"
+            message = {
+                "not_run": "Forecast additional trials under independent random sampling.",
+                "running": "Computing trial forecast…",
+                "completed": "Forecast saved. Approximate values and conservative bounds are labelled.",
+                "stale": "Forecast uses earlier data, settings or methods. Recompute to update it.",
+                "failed": entry.get("error") or "Forecast failed. Retry to recompute.",
+            }[status]
+            if error:
+                message += " " + error
+            if status == "completed":
+                measured = jobs.read(run.id, "combinatorial_baseline")
+                if measured.get("result") and measured.get("fingerprint") != entry.get(
+                    "fingerprint"
+                ):
+                    message += " Refresh coverage to display matching forecasts."
+            view = dict(
+                run_id=run.id,
+                fingerprint=data.fingerprint,
+                options=options,
+                status=status,
+                error=error,
+                computed_at=entry.get("computed_at"),
+                job=entry.get("job"),
+                revision=context.get("revision"),
+            )
+            if view == previous:
+                raise PreventUpdate
+            payload = dict(
+                run_id=run.id,
+                fingerprint=entry.get("fingerprint"),
+                status=status,
+                result=entry.get("result"),
+                options=entry.get("options"),
+            )
+            return (
+                no_update if payload == current else payload,
+                message,
+                (
+                    "Computing…"
+                    if status == "running"
+                    else "Recompute forecast" if entry.get("result") else "Compute forecast"
+                ),
+                status == "running" or bool(error),
+                view,
+                {} if status == "running" else {"display": "none"},
+                "",
+            )
+
+    def _register_planning_callbacks(self, app: Any, jobs: CoverageJobs, run_handler: Any) -> None:
+        @app.callback(  # type: ignore[untyped-decorator]
+            Output(_id("planning-resolution"), "value"),
+            Input(_id("combinatorial-resolution-selection"), "data"),
+            prevent_initial_call=True,
+        )
+        def planning_resolution(selection: Any) -> Any:
+            return (selection or {}).get("resolution") or no_update
+
+        @app.callback(  # type: ignore[untyped-decorator]
+            Output(_id("planning-data"), "data"),
+            Output(_id("planning-status"), "children"),
+            Output(_id("planning-run"), "children"),
+            Output(_id("planning-run"), "disabled"),
+            Output(_id("planning-cancel"), "style"),
+            Output(_id("planning-result"), "children"),
+            Output(_id("planning-view"), "data"),
+            Input(_id("planning-run"), "n_clicks"),
+            Input(_id("planning-cancel"), "n_clicks"),
+            Input(_id("tick"), "n_intervals"),
+            Input(_id("context"), "data"),
+            Input(_id("planning-strategy"), "value"),
+            Input(_id("planning-resolution"), "value"),
+            Input(_id("planning-strength-mode"), "value"),
+            Input(_id("planning-strength"), "value"),
+            Input(_id("planning-budget"), "value"),
+            Input(_id("planning-timeout"), "value"),
+            Input(_id("planning-seed"), "value"),
+            State("global-run-selector", "value"),
+            State(_id("planning-view"), "data"),
+        )
+        def planning_job(
+            clicks: Any,
+            cancel: Any,
+            tick: Any,
+            context: Any,
+            strategy: Any,
+            resolution: Any,
+            mode: Any,
+            strength: Any,
+            budget: Any,
+            timeout: Any,
+            seed: Any,
+            active_run: Any,
+            previous: Any,
+        ) -> Any:
+            if not context or context["run_id"] != active_run:
+                raise PreventUpdate
+            run = run_handler.get_run(active_run)
+            data, _ = _prepared(run)
+            entry = jobs.poll(run.id, "planning")
+            # A click may arrive together with a timer tick or a control update.
+            triggered = ctx.triggered_prop_ids.values()
+            cancel_requested = bool(cancel) and _id("planning-cancel") in triggered
+            if cancel_requested:
+                entry = jobs.cancel(run.id, "planning")
+            error = planning_source_error(run)
+            options = {}
+            try:
+                options = planning_options(
+                    {
+                        "strategy": strategy,
+                        "resolution": resolution,
+                        "strength_mode": mode,
+                        "target_strength": strength,
+                        "max_additional_trials": budget if strategy == "maximize_coverage" else None,
+                        "solver_timeout": timeout,
+                        "seed": seed,
+                    }
+                )
+            except ValueError as exception:
+                error = error or str(exception)
+            if not cancel_requested and not error and clicks and _id("planning-run") in triggered:
+                entry = jobs.start(run, "planning", data, options)
+            status = analysis_status(entry, data, options)
+            if (
+                entry.get("result")
+                and entry["result"].get("version") != PLANNING_VERSION
+                and status == "completed"
+            ):
+                status = "stale"
+            message = {
+                "not_run": "Generate a plan to improve coverage of the selected run or group.",
+                "running": "Generating coverage plan…",
+                "completed": "Plan saved in DeepCAVE. Observed coverage is unchanged.",
+                "stale": "This plan uses an earlier study state or different settings. Recompute to update it.",
+                "failed": entry.get("error") or "Planning failed. Retry to generate a new plan.",
+            }[status]
+            if error:
+                message += " " + error
+            view = {
+                "run_id": run.id,
+                "fingerprint": data.fingerprint,
+                "status": status,
+                "options": options,
+                "error": error or entry.get("error"),
+                "computed_at": entry.get("computed_at"),
+                "job": entry.get("job"),
+                "revision": context.get("revision"),
+            }
+            if view == previous:
+                raise PreventUpdate
+            payload = {"run_id": run.id, "status": status, "result": entry.get("result")}
+            same_result = previous and all(
+                previous.get(key) == view.get(key) for key in ("run_id", "computed_at", "revision")
+            )
+            return (
+                payload,
+                message,
+                (
+                    "Generating…"
+                    if status == "running"
+                    else "Recompute plan" if entry.get("result") else "Generate plan"
+                ),
+                status == "running" or bool(error),
+                {} if status == "running" else {"display": "none"},
+                no_update if same_result else plan_view(entry.get("result")),
+                view,
+            )
+
+        @app.callback(  # type: ignore[untyped-decorator]
+            Output(_id("planning-trial-detail"), "children"),
+            Input(_id("planning-trials"), "active_cell"),
+            State(_id("planning-trials"), "derived_virtual_data"),
+            State(_id("planning-data"), "data"),
+            prevent_initial_call=True,
+        )
+        def planning_detail(cell: Any, rows: Any, entry: Any) -> Any:
+            if not cell or not entry:
+                return []
+            position = cell.get("row_id")
+            if position is None and rows and 0 <= cell.get("row", -1) < len(rows):
+                position = rows[cell["row"]]["id"]
+            return plan_trial_detail(entry.get("result") or {}, position)
 
     def _register_analysis_callback(
         self, app: Any, jobs: CoverageJobs, run_handler: Any, analysis: str

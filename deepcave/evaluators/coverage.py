@@ -27,7 +27,7 @@ from scipy.stats import kstest, qmc
 
 from deepcave.runs.status import Status
 
-VERSION = 5
+VERSION = 6
 DEFAULT_BINS = 20
 DEFAULT_REFERENCES = 2048
 PAIR_REFERENCES = 512
@@ -245,20 +245,19 @@ def normalize_configurations(
 
 
 def prepare_coverage(run: Any) -> CoverageData:
-    """Normalize every sampled trial, including failed and repeated configurations."""
+    """Normalize successful trials in history order, retaining repetitions."""
+    trials = [trial for trial in run.history if trial.status == Status.SUCCESS]
     configs: Dict[int, Dict[str, Any]] = {}
-    for trial in run.history:
+    for trial in trials:
         if trial.config_id not in configs:
             configs[trial.config_id] = dict(run.get_config(trial.config_id))
-    data = normalize_configurations(run.configspace, [configs[t.config_id] for t in run.history])
+    data = normalize_configurations(run.configspace, [configs[t.config_id] for t in trials])
     definition = run.configspace.to_serialized_dict()
     signature = [
         VERSION,
         definition,
-        [
-            [t.config_id, t.budget, t.seed, int(t.status), data.values[i]]
-            for i, t in enumerate(run.history)
-        ],
+        [[t.config_id, t.budget, t.seed, int(t.status)] for t in run.history],
+        data.values,
     ]
     data.fingerprint = hashlib.sha256(
         json.dumps(signature, sort_keys=True, default=_python).encode()
@@ -267,6 +266,7 @@ def prepare_coverage(run: Any) -> CoverageData:
     failures = (Status.TIMEOUT, Status.MEMORYOUT, Status.CRASHED, Status.ABORTED, Status.FAILED)
     data.overview = {
         "trials": data.count,
+        "total_trials": len(run.history),
         "complete": statuses["SUCCESS"],
         "failed": sum(statuses[s.name] for s in failures),
         "statuses": statuses,
@@ -998,9 +998,21 @@ def _validate_options(designs: int, reference_samples: int) -> None:
 
 
 def run_coverage_analysis(
-    analysis: str, data: CoverageData, configspace: ConfigurationSpace, options: Dict[str, int]
+    analysis: str,
+    data: CoverageData,
+    configspace: ConfigurationSpace,
+    options: Dict[str, Any],
+    observed: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Dispatch exactly one explicitly requested worker job."""
+    if analysis == "forecast":
+        from deepcave.evaluators.coverage_forecast import compute_coverage_forecast
+
+        return compute_coverage_forecast(data, options, observed)
+    if analysis == "planning":
+        from deepcave.evaluators.coverage_planning import generate_coverage_trial_plan
+
+        return generate_coverage_trial_plan(data, options)
     if analysis in ("combinatorial", "combinatorial_baseline"):
         from deepcave.evaluators.combinatorial import (
             compute_combinatorial_baseline,

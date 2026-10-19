@@ -2,11 +2,15 @@
 
 from typing import Any, Dict, Optional
 
-from math import ceil, floor
+from math import prod
 
 from dash import dcc, html
 
 from deepcave.plugins.hyperparameter.combinatorial_groups import group_diagnostics
+from deepcave.plugins.hyperparameter.coverage_forecast_views import (
+    forecast_cell,
+    forecast_details,
+)
 from deepcave.plugins.hyperparameter.coverage_views import _id, _table
 
 
@@ -31,7 +35,7 @@ def _cell_label(cell: Dict, trials: int) -> tuple:
             _percent(cell["coverage"]),
             "complete" if cell["missing"] == 0 else "partial",
             f"{cell['covered']:,} / {cell['total']:,} combinations · "
-            f"{cell['complete_groups']:,} / {cell['groups']:,} fully covered groups",
+            f"{cell['complete_groups']:,} / {cell['groups']:,} fully covered {cell['strength']}-parameter combinations",
         )
     if cell["status"] == "trial_limit":
         return (
@@ -43,18 +47,6 @@ def _cell_label(cell: Dict, trials: int) -> tuple:
     if cell["status"] == "not_computed":
         return "…", "unavailable", "Not evaluated after stopping this resolution's calculation."
     return "…", "unavailable", "Not computed: exact enumeration exceeds the work limit."
-
-
-def _legend() -> Any:
-    return html.Span(
-        [
-            html.Span([html.Span(className="coverage-benchmark-key-band"), "Random 5–95%"]),
-            html.Span([html.Span(className="coverage-benchmark-key-median"), "Random median"]),
-            html.Span([html.Span(className="coverage-benchmark-key-point"), "Your result"]),
-        ],
-        className="coverage-benchmark-legend",
-        **{"aria-hidden": "true"},
-    )
 
 
 def _rank(summary: Dict) -> str:
@@ -83,119 +75,64 @@ def _strength_reference(summary: Optional[Dict]) -> str:
     return text
 
 
-def _coverage_range(value: float, summary: Optional[Dict]) -> tuple:
-    """Zoom to the observation and reference band, with readable percentage endpoints."""
-    values = [value]
-    if summary:
-        values.extend([summary["lower"], summary["upper"]])
-        if summary.get("median") is not None:
-            values.append(summary["median"])
-    lower, upper = min(values), max(values)
-    padding = max((upper - lower) * 0.15, 0.005 if summary else 0.05)
-    return max(0, floor((lower - padding) * 100) / 100), min(1, ceil((upper + padding) * 100) / 100)
-
-
-def _coverage_benchmark(
-    cell: Dict, summary: Optional[Dict], trials: int, axis: Optional[tuple] = None
-) -> Any:
-    label, _, title = _cell_label(cell, trials)
-    heading = html.Span(
-        [
-            html.Small(f"t = {cell['strength']}"),
-            html.Strong(label),
-        ],
-        className="coverage-benchmark-heading",
-    )
-    if cell["status"] != "computed":
-        return html.Span([heading, html.Small(title, className="coverage-benchmark-caption")])
-    value = cell["coverage"]
-    axis_lower, axis_upper = axis or _coverage_range(value, summary)
-
-    def position(value: float) -> float:
-        return 100 * (value - axis_lower) / (axis_upper - axis_lower)
-
-    markers = []
-    caption = "Random reference: awaiting values"
-    assessment = ""
-    if summary:
-        lower, upper = summary["lower"], summary["upper"]
-        markers.append(
-            html.Span(
-                className="coverage-benchmark-band",
-                style={
-                    "left": f"{position(lower):.6g}%",
-                    "width": f"{position(upper) - position(lower):.6g}%",
-                },
-            )
+def _configuration_cells(row: Dict, parameters: int, trials: int) -> list:
+    """Count full binned configurations independently of next-strength coverage."""
+    cell = _next_cell(row)
+    label = "—"
+    if cell:
+        label, _, title = _cell_label(cell, trials)
+    else:
+        title = (
+            "All strengths covered"
+            if row["observed_strength"] == parameters
+            else f"t = {row['observed_strength'] + 1}: not computed"
         )
-        median = summary.get("median")
-        if median is not None:
-            markers.append(
-                html.Span(
-                    className="coverage-benchmark-median",
-                    style={"left": f"{position(median):.6g}%"},
-                )
-            )
-        median_text = _percent(median) if median is not None else "refresh baseline"
-        caption = f"Random reference: {_percent(lower)} – {_percent(upper)} (median: {median_text})"
-        if "degenerate" in summary:
-            comparison = (
-                "Below the typical random range"
-                if value < lower
-                else (
-                    "Above the typical random range"
-                    if value > upper
-                    else "Within the typical random range"
-                )
-            )
-            assessment = f"{comparison} · {_rank(summary)}"
-    markers.append(
-        html.Span(className="coverage-benchmark-point", style={"left": f"{position(value):.6g}%"})
-    )
-    return html.Span(
-        [
-            heading,
-            html.Span(
-                markers,
-                className="coverage-benchmark-track",
-                role="img",
-                title=f"{caption}. {assessment} Coverage scale: {_percent(axis_lower)}–{_percent(axis_upper)} (shared across resolutions)",
-                **{
-                    "aria-label": f"Observed coverage: {label}. {caption}. {assessment} Scale: {_percent(axis_lower)}–{_percent(axis_upper)}."
-                },
+    points = row.get("discretization", {}).get("points")
+    unique = f"{len({tuple(point) for point in points}):,}" if points is not None else "—"
+    return [
+        html.Span(
+            unique,
+            className="coverage-strength-count",
+            title=(
+                "Unique full configurations after feature binning; repetitions count once."
+                if points is not None
+                else "Unique full configurations unavailable in this saved result."
             ),
-            html.Span(
-                [html.Small(_percent(axis_lower)), html.Small(_percent(axis_upper))],
-                className="coverage-benchmark-axis",
-            ),
-        ],
-        className="coverage-benchmark",
-    )
+        ),
+        html.Span(
+            f"{prod(int(size) for size in row['levels'].values()):,}",
+            className="coverage-strength-count",
+            title=f"All possible configurations at maximum strength t = {parameters}.",
+        ),
+        html.Span(
+            [
+                html.Small(f"t = {cell['strength']}") if cell else html.Small(title),
+                html.Strong(label),
+            ],
+            className="coverage-strength-coverage",
+            title=title,
+        )
+    ]
 
 
-def combinatorial_view(result: Optional[Dict], baseline: Optional[Dict] = None) -> Any:
+def combinatorial_view(
+    result: Optional[Dict], baseline: Optional[Dict] = None, forecast: Optional[Dict] = None
+) -> Any:
     """Compare achieved strength and remaining coverage at each resolution."""
     if not result:
+        if forecast:
+            return html.Div(
+                [
+                    html.P("Coverage array unavailable for this search space."),
+                    forecast_details(forecast),
+                ]
+            )
         return html.P(
             "Run combinatorial coverage to measure the coverage profile of sampled trials."
         )
-    comparisons = {
-        (cell["resolution"], cell["strength"]): cell for cell in (baseline or {}).get("cells", [])
-    }
-    ranges = []
-    for row in result["rows"]:
-        cell = _next_cell(row)
-        if cell and cell["status"] == "computed":
-            reference = comparisons.get((row["resolution"], cell["strength"]))
-            ranges.append(_coverage_range(cell["coverage"], reference))
-    shared_axis = (
-        (min(lower for lower, _ in ranges), max(upper for _, upper in ranges)) if ranges else None
-    )
     options = []
     for row in result["rows"]:
         strength = row["observed_strength"]
-        cell = _next_cell(row)
-        comparison = comparisons.get((row["resolution"], cell["strength"])) if cell else None
         strength_reference = next(
             (
                 item
@@ -204,14 +141,7 @@ def combinatorial_view(result: Optional[Dict], baseline: Optional[Dict] = None) 
             ),
             None,
         )
-        if cell:
-            next_coverage = _coverage_benchmark(cell, comparison, result["trials"], shared_axis)
-        else:
-            next_coverage = html.Small(
-                "All strengths covered"
-                if strength == len(result["parameters"])
-                else f"t = {strength + 1}: not computed"
-            )
+        configuration_cells = _configuration_cells(row, len(result["parameters"]), result["trials"])
         options.append(
             {
                 "value": row["resolution"],
@@ -244,7 +174,19 @@ def combinatorial_view(result: Optional[Dict], baseline: Optional[Dict] = None) 
                             ],
                             className="coverage-strength-achieved",
                         ),
-                        next_coverage,
+                        configuration_cells[2],
+                        forecast_cell(
+                            next(
+                                (
+                                    item
+                                    for item in (forecast or {}).get("rows", [])
+                                    if item["resolution"] == row["resolution"]
+                                ),
+                                None,
+                            ),
+                            include_full=False,
+                        ),
+                        *configuration_cells[:2],
                     ],
                     className="coverage-strength-row",
                 ),
@@ -258,7 +200,13 @@ def combinatorial_view(result: Optional[Dict], baseline: Optional[Dict] = None) 
                         [
                             html.Span("Feature Binning"),
                             html.Span("Strength"),
-                            html.Span(["Coverage at next strength", _legend()]),
+                            html.Span("Coverage at next strength"),
+                            html.Span(
+                                "Needed trials for next strength "
+                                f"({(forecast or {}).get('probability_threshold', 0.8):.0%} prob.)"
+                            ),
+                            html.Span("Nr. observed configurations"),
+                            html.Span("Nr. possible configurations (total)"),
                         ],
                         className="coverage-strength-row coverage-strength-head",
                     ),
@@ -283,8 +231,8 @@ def combinatorial_view(result: Optional[Dict], baseline: Optional[Dict] = None) 
                     html.Summary("Method & level definitions"),
                     html.P(
                         "Coverage is the sum of observed combinations divided by all combinations "
-                        "across every group of t parameters. Strength is the highest verified t "
-                        "with every group complete; all lower strengths are then complete as well. "
+                        "across every combination of t parameters. Strength is the highest verified t "
+                        "with every t-parameter combination complete; all lower strengths are then complete as well. "
                         "An exact strength of 0 means single-parameter coverage is incomplete. "
                         "Strengths are examined up to the first incomplete interaction or "
                         "the trial-count or computation limit. The trial-count bound is necessary, "
@@ -294,14 +242,11 @@ def combinatorial_view(result: Optional[Dict], baseline: Optional[Dict] = None) 
                         "Continuous levels divide the theoretical sampling CDF, including log scales. "
                         "Ordered discrete values are grouped near theoretical quantiles without "
                         "splitting a value. Categories and ordinals retain their original values. "
-                        "Constants are excluded. All recorded trials, including failures and "
-                        "repetitions, contribute. Conditions and forbidden combinations are unsupported."
+                        "Constants are excluded. Successful trials contribute; repetitions add no "
+                        "new combinations. Conditions and forbidden combinations are unsupported."
                     ),
                     _table(
-                        [
-                            {"levels": row["resolution"], **row["levels"]}
-                            for row in result["rows"]
-                        ]
+                        [{"levels": row["resolution"], **row["levels"]} for row in result["rows"]]
                     ),
                 ],
                 className="coverage-details",
@@ -375,11 +320,59 @@ def combinatorial_view(result: Optional[Dict], baseline: Optional[Dict] = None) 
                         ]
                     ),
                     html.P(
-                        "Die Strength misst damit die Vollständigkeit der kombinatorischen Abdeckung."
+                        "Vollständige Abdeckung für jede Parametergruppe bedeutet dabei nicht, "
+                        "dass wir schon den gesamten Suchraum durchprobiert haben müssen. "
+                        "Wie das funktioniert, lässt sich an einem kleineren Beispiel zeigen: "
+                        "drei Parameter A, B und C mit jeweils zwei Levels, 0 und 1."
+                    ),
+                    html.P(
+                        "Insgesamt gibt es acht mögliche Konfigurationen. Um Strength 2 zu "
+                        "erreichen, genügen jedoch diese vier Trials:"
+                    ),
+                    html.Table(
+                        [
+                            html.Thead(
+                                html.Tr(
+                                    [
+                                        html.Th(label, scope="col")
+                                        for label in ("Trial", "A", "B", "C")
+                                    ]
+                                )
+                            ),
+                            html.Tbody(
+                                [
+                                    html.Tr(
+                                        [html.Th(trial, scope="row")]
+                                        + [html.Td(value) for value in values]
+                                    )
+                                    for trial, values in enumerate(
+                                        [(0, 0, 0), (0, 1, 1), (1, 0, 1), (1, 1, 0)], start=1
+                                    )
+                                ]
+                            ),
+                        ],
+                        className="table table-sm table-bordered",
+                    ),
+                    html.P(
+                        "Betrachten wir jeweils nur zwei Spalten, finden wir für jedes "
+                        "Parameterpaar – A × B, A × C und B × C – alle vier Kombinationen: "
+                        "00, 01, 10 und 11."
+                    ),
+                    html.P(
+                        html.Strong(
+                            "Mit nur 4 statt 8 Trials haben wir bereits alle paarweisen "
+                            "Kombinationen vollständig abgedeckt."
+                        )
+                    ),
+                    html.P(
+                        "Genau das bedeutet Strength 2: Jedes Paar ist vollständig abgedeckt. "
+                        "Erst für Strength 3 müssten auch alle acht Kombinationen der drei "
+                        "Parameter gemeinsam vorkommen."
                     ),
                 ],
                 className="coverage-strength-explanation",
             ),
+            forecast_details(forecast),
         ]
     )
 

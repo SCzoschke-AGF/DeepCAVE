@@ -1,7 +1,7 @@
 Search Space Coverage
 =====================
 
-The Search Space Coverage suite is available under Hyperparameter Analysis and
+The Search Space Coverage suite is available under Configuration Analyses and
 uses the globally selected run or group. Coverage statistics are independent of
 objective values; optional elite-trial highlighting uses objective scores.
 
@@ -81,8 +81,8 @@ Five internal tabs keep each question in its own view:
   are grouped near theoretical quantiles while keeping every level nonempty.
   Categories and ordinals retain their original values, so mixed group sizes are
   supported. Constants are excluded. This first version requires independent
-  parameters without conditions or forbidden combinations. All recorded trials
-  contribute, including failed trials and repeated configurations.
+  parameters without conditions or forbidden combinations. Only successful trials
+  contribute; repeated successful configurations remain in the history.
   A single **Compute coverage** / **Refresh** button in the header updates both
   observed coverage and the random baseline in one worker job. The header also
   shows the reference count and update age. Each row displays observed next-strength
@@ -112,6 +112,112 @@ Five internal tabs keep each question in its own view:
 **Analysis settings** in the header opens a drawer for simulation counts and seed.
 Tab switches, metric changes, matrix clicks, region selection, and opening settings
 only change the view; they never submit calculations.
+
+Trial requirements forecast
+---------------------------
+
+The Coverage Array includes **Additional trials**, with separate **Next** and
+**Full** targets. **Compute forecast** starts an independent background job;
+opening the page or changing settings does not start computation. The default
+80% means an 80% probability of reaching **100% coverage** of the target strength,
+starting from the existing successful configurations. Full strength always means
+all varying parameters, independently of the current trial-count feasibility bound.
+Constants do not contribute to strength. If current strength is only a lower bound,
+the next incomplete strength is unknown and its forecast is unavailable.
+
+The sampling model is independent random sampling from the displayed ConfigSpace,
+including its category weights, discrete support, steps and distributions.
+Continuous levels partition the theoretical sampling CDF and have equal masses;
+discrete bin masses are calculated from the configured distribution. Observed
+TPE frequencies are never used to infer random probabilities. For groups, the
+displayed merged ConfigSpace defines the future distribution; this is not an
+inferred mixture of member studies. Forecasts assume future configurations
+contribute to coverage; they do not predict failures, pruning or adaptive TPE
+behaviour. Conditional spaces, forbidden combinations and unknown distributions
+are explicitly unsupported.
+
+Next-strength Monte Carlo continuations share the same historical missing-tuple
+state and use independent reproducible seeds. The default is 2,000 continuations;
+the detail view reports 95% confidence intervals for the estimated quantile.
+Any incomplete continuation or exhausted runtime/work budget produces a censored
+result without a quantile from the successful subset. A conservative sufficient
+budget may still be available. Large t-way calculations use a union bound that
+remains valid for dependent coverage events. Such a bound is labelled **bound**,
+not displayed as an estimated quantile.
+
+Full-strength forecasts count unique historical level configurations. Small
+uniform spaces use an exact occupancy chain; nonuniform spaces with at most twelve
+missing coupons use inclusion-exclusion. Larger supported coupon sets use a
+labelled Poisson approximation, with rigorous bounds on the exact quantile.
+Large uniform spaces require only total and missing counts, without enumerating
+the Cartesian product. Large nonuniform spaces use conservative bounds when
+explicit coupon enumeration would exceed the configured limit.
+
+Analysis settings provide probabilities of 50%, 80% and 95%, simulation count,
+trial horizon and a shared forecast time limit. The API additionally exposes tuple,
+group, projection and explicit-coupon limits through ``forecast_options``.
+Results retain per-target statuses, actual simulation counts, seed, limits,
+binning definitions and probabilities, search-space hash and algorithm version.
+They are cached separately from the random baseline. Changes to trials, search
+space, settings or algorithm mark forecasts stale; only explicit recomputation
+starts a new job. A forecast is shown beside measured coverage only when their
+source fingerprints match. Existing coverage and baseline values are unchanged.
+
+Use ``SearchSpaceCoverage.process(run, {"analysis": "forecast", ...})`` or
+``compute_coverage_forecast(data, options, observed=existing_coverage)`` for API use.
+The latter can reuse an existing measured snapshot.
+
+Improve Coverage
+----------------
+
+The **Global** tab includes an expandable **Improve Coverage** planner. It uses
+the selected run or the existing merged group search space, including the minimum
+and maximum bounds across group members. The planner supports independent search
+spaces regardless of the sampling method. Missing or incorrect sampler metadata
+does not prevent planning. Conditions and forbidden clauses are rejected.
+
+Select the resolution used by the Coverage Array (2, 3, 4 or 8 levels). Selecting
+an array row also selects that resolution for planning. Categories and ordinals
+retain all original values; constants do not increase strength. Choose:
+
+* **Maximize Coverage**: generate up to the required additional trial budget.
+* **Minimize Trials**: seek full target coverage with an optional maximum trial
+  budget. This is a heuristic search, so the result need not use the fewest trials.
+
+The default target is the next incomplete strength. Custom and maximum strength
+are also available. Unlike the overview calculation, planning measures the selected
+strength even when there are too few observed trials to reach it. Advanced settings
+control search time (0.1–120 seconds) and seed. Numerical proposals use the same
+sampling CDF, level boundaries and step lattices as the measured array.
+
+Only **Generate plan** or **Recompute plan** starts a worker job. Opening the
+section, selecting a resolution or changing settings never starts planning or
+random-baseline jobs. **Cancel** retains the previous completed plan.
+
+The saved result shows observed and projected coverage separately, a cumulative
+projection and a paginated table of concrete parameter values and marginal gains.
+Select a table row to inspect its validated configuration and the combinations it
+would newly cover. Observed coverage changes only when successful trials are
+actually recorded. New trials or changed settings mark the plan as outdated; it
+remains available until an explicit recomputation. Plans persist with the other
+coverage results across page navigation and server restarts; clearing plugin caches
+removes them. Planning never executes trials or modifies the source study.
+
+Search uses greedy selection with missing-tuple completion, random candidates,
+mutations and local improvement. Redundant configurations are removed from complete
+Minimize Trials plans. Gains count each combination once, including overlap between
+proposals. A fixed-group lower bound reports the minimum number of additional trials
+that could possibly complete the target. If the budget is below that bound, full
+coverage is explicitly marked impossible within that budget, while the improving
+partial plan remains available. Other partial results do not prove impossibility.
+Optimality is only reported when full coverage proves the maximum coverage objective,
+or a complete Minimize Trials plan matches the lower bound.
+
+Exact tuple accounting is bounded to 10,000 parameter groups, five million tuples
+and 20 million observed trial/group projections. Oversized problems are rejected
+with a request to reduce strength or resolution. Unbudgeted plans also stop at
+1,000 additional trials. Search timeouts retain validated progress. Approximate
+coverage and exact solvers are not part of this version.
 
 Independent analyses
 --------------------
@@ -179,10 +285,12 @@ Inactive conditional parameters remain missing and contribute only when active
 to marginal and pairwise statistics. Reference designs obey conditions, forbidden
 combinations, and step lattices without mutating the original search space's RNG.
 
-Every recorded trial contributes, including failures and repeated configurations
-at different seeds or budgets. Unique configuration counts are also shown.
-Growth follows recorded history order, rather than sorting configurations or
-deduplicating repeated trials.
+Only trials with ``Status.SUCCESS`` contribute to every coverage analysis and
+plan. Failed, pruned and other unsuccessful trials are excluded. Overview counts
+still show how many recorded trials were excluded. Repeated successful
+configurations at different seeds or budgets remain in the history; they do not
+cover new combinatorial tuples. Unique configuration counts are also shown.
+Growth follows successful-trial history order rather than sorting configurations.
 
 Continuous marginal coverage is occupied-bin fraction; discrete marginal coverage
 is visited-value fraction. Min/max range fraction is in original value coordinates,
@@ -293,3 +401,9 @@ results. For a single explicit expensive analysis, pass ``analysis`` as one of
 ``radius``, ``baseline``, ``growth``, or
 ``growth_baseline``. The evaluator also exports separate calculation functions
 for callers that want to reuse one normalized ``CoverageData`` snapshot.
+
+For planning, use ``analysis="planning"`` with ``strategy="maximize_coverage"``
+or ``"minimize_trials"``, ``resolution``, ``strength_mode="next"`` (or ``"custom"``
+with ``target_strength``, or ``"maximum"``), ``max_additional_trials``,
+``solver_timeout`` and ``seed``. The returned dictionary is the validated plan;
+no trials are executed. Sampler metadata is not used to determine compatibility.

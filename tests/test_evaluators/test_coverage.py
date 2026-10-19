@@ -49,17 +49,18 @@ def test_log_sampling_space_and_trial_statuses():
         [Status.SUCCESS, Status.CRASHED, Status.PRUNED],
     )
     data = coverage.prepare_coverage(run)
-    np.testing.assert_allclose(data.points[:, 0], [0, 0.5, 1])
-    assert data.overview["trials"] == 3
+    np.testing.assert_allclose(data.points[:, 0], [0])
+    assert data.overview["trials"] == 1
+    assert data.overview["total_trials"] == 3
     assert data.overview["complete"] == 1
     assert data.overview["failed"] == 1
     assert data.overview["statuses"]["PRUNED"] == 1
     (row,) = coverage.compute_univariate_coverage(data, bins=2)
-    assert row["range_fraction"] == 1
-    assert row["max_gap"] == pytest.approx(0.5)
-    assert row["raw_max_gap"] == pytest.approx(0.06)
-    assert row["coverage"] == 1
-    assert row["expected"] == [1.5, 1.5]
+    assert row["range_fraction"] == 0
+    assert row["max_gap"] == 1
+    assert row["raw_max_gap"] is None
+    assert row["coverage"] == 0.5
+    assert row["expected"] == [0.5, 0.5]
     assert row["distribution"] == "LogUniformFloat"
 
 

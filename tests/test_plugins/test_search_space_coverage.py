@@ -214,7 +214,10 @@ def test_strength_profile_explains_next_strength_and_ranks_missing_groups(callba
                 "trial_bound": 3,
                 "levels": dict.fromkeys("abcdef", 4),
                 "cells": [cell],
-                "discretization": {"points": [], "definitions": {}},
+                "discretization": {
+                    "points": [[0] * 6, [1] * 6] * 40,
+                    "definitions": {},
+                },
             }
         ],
     }
@@ -234,6 +237,24 @@ def test_strength_profile_explains_next_strength_and_ranks_missing_groups(callba
     assert value.children[1].className == "coverage-strength-total"
     assert "necessary, not sufficient" in selector.options[0]["label"].children[1].children[1].title
     assert "Random reference:" not in label
+    columns = selector.options[0]["label"].children
+    assert len(columns) == 6
+    assert columns[4].children == "2"
+    assert columns[5].children == "4,096"
+    assert "maximum strength t = 6" in columns[5].title
+    assert visible_text(columns[2]) == "t = 2 99.2%"
+    assert "repetitions count once" in columns[4].title
+    headers = profile.children[0].children[0]
+    assert [column.children for column in headers.children] == [
+        "Feature Binning",
+        "Strength",
+        "Coverage at next strength",
+        "Needed trials for next strength (80% prob.)",
+        "Nr. observed configurations",
+        "Nr. possible configurations (total)",
+    ]
+    assert "coverage-benchmark-track" not in str(profile)
+    assert "Random 5–95%" not in visible_text(profile)
     advanced = profile.children[1]
     assert isinstance(advanced, html.Details)
     assert advanced.children[0].children == "Method & level definitions"
@@ -258,6 +279,28 @@ def test_strength_profile_explains_next_strength_and_ranks_missing_groups(callba
     assert "×" not in visible_text(table)
     assert "Select a resolution" in visible_text(detail([8], {"run_id": run.id}, entry)[0])
     assert not queue.calls
+
+
+def test_profile_counts_unique_full_configurations_at_each_binning_resolution():
+    from deepcave.evaluators.combinatorial import compute_combinatorial_coverage
+    from deepcave.plugins.hyperparameter.combinatorial_views import combinatorial_view
+
+    space = ConfigurationSpace(space={"a": (0.0, 1.0), "b": (0.0, 1.0)})
+    data = normalize_configurations(
+        space,
+        [
+            {"a": 0.1, "b": 0.1},
+            {"a": 0.3, "b": 0.1},
+            {"a": 0.1, "b": 0.1},
+            {"a": 0.7, "b": 0.7},
+        ],
+    )
+    profile = combinatorial_view(compute_combinatorial_coverage(data))
+    options = profile.children[0].children[1].options
+    assert [option["label"].children[4].children for option in options] == ["2", "2", "3", "3"]
+    assert [option["label"].children[5].children for option in options] == ["4", "9", "16", "64"]
+    assert all(int(option["label"].children[4].children) <= data.count for option in options)
+    assert "Nr. possible configurations (next strength)" not in visible_text(profile)
 
 
 def test_coverage_array_rows_toggle_close_and_switch_without_starting_jobs(callbacks, run):
@@ -315,7 +358,7 @@ def test_combinatorial_group_interactions_only_use_saved_results(callbacks, run,
     monkeypatch.setattr(suite, "_prepared", unexpected)
     monkeypatch.setattr(suite, "missing_tuple_page", unexpected)
     overview = filters(["a", "b"], "all", resolution, context, entry)
-    assert "Groups analyzed 1" in visible_text(overview)
+    assert "2-parameter combinations analyzed 1" in visible_text(overview)
     assert "Random" not in visible_text(overview)
     event.triggered_id = {"type": suite._id("group-open"), "resolution": 2, "group": 0}
     opened, selected = detail([1], ["a", "b"], "all", None, resolution, context, entry)
@@ -385,6 +428,9 @@ def test_strength_profile_distinguishes_complete_uncomputed_and_trial_limits(run
 
     result = suite.SearchSpaceCoverage.process(run, {"analysis": "combinatorial"})
     result["rows"] = [result["rows"][0]]
+    columns = combinatorial_view(result).children[0].children[1].options[0]["label"].children
+    assert [column.children for column in columns[4:6]] == ["2", "4"]
+    assert "at least" in columns[2].title
     text = visible_text(combinatorial_resolution_detail(result, 2))
     assert "Full coverage at strength 2 requires more trials." in text
     row = result["rows"][0]
@@ -548,7 +594,12 @@ def callbacks(monkeypatch, tmp_path, run):
         return decorate
 
     queue = FakeQueue()
-    context = SimpleNamespace(triggered_id=None)
+    class CallbackContext(SimpleNamespace):
+        @property
+        def triggered_prop_ids(self):
+            return {"trigger": self.triggered_id} if self.triggered_id else {}
+
+    context = CallbackContext(triggered_id=None)
     monkeypatch.setattr(suite, "ctx", context)
     monkeypatch.setattr(deepcave, "app", SimpleNamespace(callback=register), raising=False)
     monkeypatch.setattr(deepcave, "queue", queue, raising=False)
@@ -590,6 +641,165 @@ def test_each_button_is_the_only_start_trigger(callbacks, run):
         assert output[3] is True
         assert queue.calls[-1]["analysis"] == analysis
         assert len(queue.calls) == index + 1
+
+
+def _forecast_call(callback, run, **overrides):
+    values = dict(
+        clicks=0,
+        cancel=0,
+        tick=0,
+        context={"run_id": run.id, "fingerprint": prepare_coverage(run).fingerprint},
+        probability=0.8,
+        simulations=128,
+        max_trials=10000,
+        timeout=30,
+        seed=0,
+        active_run=run.id,
+        previous=None,
+        current=None,
+    )
+    values.update(overrides)
+    return callback(**values)
+
+
+def _forecast_text(view):
+    selector = view.children[0].children[1]
+    return (
+        visible_text(view)
+        + " "
+        + " ".join(visible_text(option["label"]) for option in selector.options)
+    )
+
+
+def test_forecast_is_explicit_cached_and_reuses_matching_coverage(
+    callbacks, tmp_path, run, monkeypatch
+):
+    from deepcave.evaluators import coverage_forecast
+
+    registered, queue, event = callbacks
+    callback = next(c for c in registered if c.__name__ == "forecast_job")
+    for trigger in (
+        "context",
+        "tick",
+        "seed",
+        "forecast-probability",
+        "forecast-simulations",
+        "tabs",
+    ):
+        event.triggered_id = suite._id(trigger)
+        output = _forecast_call(callback, run, clicks=9)
+        assert output[0]["status"] == "not_run"
+        assert queue.calls == []
+    data = prepare_coverage(run)
+    baseline = suite.SearchSpaceCoverage.process(
+        run, {"analysis": "combinatorial_baseline", "designs": 2}
+    )
+    jobs = suite.CoverageJobs(tmp_path, queue)
+    entry = dict(
+        result=baseline,
+        fingerprint=data.fingerprint,
+        version=suite.VERSION,
+        options={"seed": 0, "designs": 2},
+        trial_count=data.count,
+    )
+    jobs._write(run.id, "combinatorial_baseline", entry)
+    event.triggered_id = suite._id("forecast-run")
+    started = _forecast_call(callback, run, clicks=1)
+    assert started[3] is True and len(queue.calls) == 1
+    assert queue.calls[0]["analysis"] == "forecast"
+    job = next(iter(queue.jobs.values()))
+    assert job.args[-1] == baseline["observed"]
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("A matching saved coverage snapshot must be reused")
+
+    monkeypatch.setattr(coverage_forecast, "compute_combinatorial_coverage", unexpected)
+    queue.finish(job.id)
+    event.triggered_id = suite._id("tick")
+    finished = _forecast_call(callback, run, previous=started[4])
+    assert finished[0]["status"] == "completed" and finished[3] is False
+    saved = suite.CoverageJobs(tmp_path, queue).read(run.id, "forecast")
+    assert saved["result"] == finished[0]["result"]
+    assert jobs.read(run.id, "combinatorial_baseline") == entry
+    render = next(c for c in registered if c.__name__ == "combinatorial_results")
+    context = {"run_id": run.id, "fingerprint": data.fingerprint}
+    view = render(context, {"run_id": run.id, **entry}, finished[0])[0]
+    text = _forecast_text(view)
+    assert "Needed trials for next strength (80% prob.)" in text
+    assert "Next · t=2" not in text and "Full · t=2" not in text
+    assert "probability of reaching 100% coverage" in text
+    changed = _forecast_call(callback, run, probability=0.95, previous=finished[4])
+    assert changed[0]["status"] == "stale" and len(queue.calls) == 1
+    assert "80%" in visible_text(render(context, {"run_id": run.id, **entry}, changed[0])[0])
+    monkeypatch.setattr(suite, "FORECAST_VERSION", suite.FORECAST_VERSION + 1)
+    assert _forecast_call(callback, run)[0]["status"] == "stale"
+
+
+def test_forecast_results_do_not_mix_different_histories(callbacks, tmp_path, run):
+    registered, queue, event = callbacks
+    callback = next(c for c in registered if c.__name__ == "forecast_job")
+    event.triggered_id = suite._id("forecast-run")
+    _forecast_call(callback, run, clicks=1)
+    queue.finish(next(iter(queue.jobs)))
+    event.triggered_id = suite._id("tick")
+    finished = _forecast_call(callback, run)
+    render = next(c for c in registered if c.__name__ == "combinatorial_results")
+    context = {"run_id": run.id}
+    # A forecast alone provides the same measured snapshot to the table and drilldowns.
+    forecast_view = render(context, {}, finished[0])[0]
+    cell = forecast_view.children[0].children[1].options[0]["label"].children[3]
+    assert isinstance(cell.children[0].children[0], html.Strong)
+    baseline = suite.SearchSpaceCoverage.process(
+        run, {"analysis": "combinatorial_baseline", "designs": 2}
+    )
+    mismatched = dict(run_id=run.id, fingerprint="different-history", result=baseline)
+    text = _forecast_text(render(context, mismatched, finished[0])[0])
+    assert "Next ·" not in text and "Not computed" in text
+    invalid = _forecast_call(callback, run, simulations=0)
+    assert invalid[3] is True and len(queue.calls) == 1
+
+
+def test_forecast_api_uses_probability_and_simulation_settings(run):
+    result = suite.SearchSpaceCoverage.process(
+        run,
+        {
+            "analysis": "forecast",
+            "probability": 0.95,
+            "simulations": 32,
+            "seed": 17,
+        },
+    )
+    assert result["probability_threshold"] == 0.95
+    assert result["simulations"] == 32 and result["seed"] == 17
+
+
+def test_forecast_view_distinguishes_bounds_censoring_and_missing_targets():
+    from deepcave.plugins.hyperparameter.coverage_forecast_views import forecast_cell
+
+    row = dict(
+        next_strength_target=2,
+        full_strength_target=10,
+        next=dict(status="Censored", method="MC", reason="Trial limit", trials_p80=None),
+        full=dict(
+            status="Approximate",
+            method="Approximation",
+            kind="upper_bound",
+            trials_p80=None,
+            upper_bound_trials=24_000_000_000,
+            reason="Union bound",
+        ),
+    )
+    text = visible_text(forecast_cell(row))
+    assert "Censored" in text and "~24,000,000,000" in text
+    assert "≈" not in text
+    text = visible_text(forecast_cell(row, include_full=False))
+    assert text == "Censored"
+    assert "Full" not in text and "24,000,000,000" not in text
+    bound_cell = forecast_cell(
+        {**row, "next": {**row["full"], "upper_bound_trials": 4137}}, include_full=False
+    )
+    assert visible_text(bound_cell) == "~4,137"
+    assert "Next · t=2" in bound_cell.children[0].title
 
 
 def test_callback_rejects_stale_run_context(callbacks, run):
@@ -1572,7 +1782,7 @@ def test_overview_compares_defined_and_observed_ranges_with_compact_counts(run):
     data = prepare_coverage(run)
     overview = views._overview(data, compute_univariate_coverage(data), "Random")
     assert [metric.children[0].children for metric in overview.children[0].children] == [
-        "Trials",
+        "Successful trials",
         "Parameters",
         "Sampler",
     ]
@@ -1705,6 +1915,10 @@ def test_dash_registers_callbacks_and_layout_contains_no_global_process(monkeypa
     assert "CCM random comparison" not in labels
     assert "Coverage Array" in labels
     assert "Strength Profile" not in labels
+    for name in ("planning-strength-mode", "planning-strategy"):
+        control = next(c for c in components if getattr(c, "id", None) == suite._id(name))
+        # These options include component labels, which dbc 1.0 cannot render.
+        assert isinstance(control, dcc.RadioItems)
     assert "Selected parameter group" not in labels
     radius_ids = {
         suite._id(name)
@@ -1768,9 +1982,14 @@ def test_dash_registers_callbacks_and_layout_contains_no_global_process(monkeypa
     assert all(suite._id(f"{analysis}-cancel") in ids for analysis in suite.UI_ANALYSES)
     assert "Coverage status" not in labels
     assert suite._id("coverage-status") not in ids
-    assert len(app.callback_map) == 21
+    assert len(app.callback_map) == 26
     assert {callback["callback"].__name__ for callback in app.callback_map.values()} == {
         "automatic",
+        "planning_resolution",
+        "planning_controls",
+        "planning_job",
+        "planning_detail",
+        "forecast_job",
         "selectors",
         "marginal",
         "scatter",
@@ -1834,7 +2053,7 @@ def test_dash_http_updates_render_automatic_content_and_one_queued_analysis(
                 "outputs": outputs,
                 "inputs": inputs,
                 "state": states,
-                "changedPropIds": [changed],
+                "changedPropIds": [changed] if isinstance(changed, str) else changed,
             },
         )
         assert response.status_code == 200, response.data.decode()
@@ -1877,3 +2096,335 @@ def test_dash_http_updates_render_automatic_content_and_one_queued_analysis(
     controls[(suite._id("pair-metric"), "value")] = "occupancy"
     matrix = post(suite._id("pair-matrix"), controls, suite._id("pairwise-data") + ".data")
     assert matrix[suite._id("pair-matrix")]["figure"]["data"][0]["type"] == "heatmap"
+
+    controls.update(
+        {
+            (suite._id("planning-strategy"), "value"): "maximize_coverage",
+            (suite._id("planning-resolution"), "value"): 2,
+            (suite._id("planning-strength-mode"), "value"): "next",
+            (suite._id("planning-strength"), "value"): 2,
+            (suite._id("planning-budget"), "value"): 10,
+            (suite._id("planning-timeout"), "value"): 30,
+            (suite._id("planning-seed"), "value"): 0,
+        }
+    )
+    idle = post(suite._id("planning-data"), controls, suite._id("context") + ".data")
+    assert idle[suite._id("planning-data")]["data"]["status"] == "not_run"
+    assert len(queue.calls) == 1
+    controls[(suite._id("planning-run"), "n_clicks")] = 1
+    controls[(suite._id("planning-view"), "data")] = idle[suite._id("planning-view")]["data"]
+    planned = post(suite._id("planning-data"), controls, suite._id("planning-run") + ".n_clicks")
+    assert planned[suite._id("planning-run")]["disabled"] is True
+    assert len(queue.calls) == 2
+    queue.finish(next(iter(queue.jobs)))
+    controls[(suite._id("planning-view"), "data")] = planned[suite._id("planning-view")]["data"]
+    complete = post(suite._id("planning-data"), controls, suite._id("tick") + ".n_intervals")
+    assert complete[suite._id("planning-data")]["data"]["result"]["projected_coverage"] == 1
+    assert complete[suite._id("planning-run")]["disabled"] is False
+    assert "Projected coverage" in str(complete[suite._id("planning-result")])
+
+    controls.update(
+        {
+            (suite._id("forecast-probability"), "value"): 0.8,
+            (suite._id("forecast-simulations"), "value"): 32,
+            (suite._id("forecast-max-trials"), "value"): 10000,
+            (suite._id("forecast-timeout"), "value"): 30,
+        }
+    )
+    forecast_idle = post(suite._id("forecast-data"), controls, suite._id("context") + ".data")
+    assert forecast_idle[suite._id("forecast-data")]["data"]["status"] == "not_run"
+    assert len(queue.calls) == 2
+    controls[(suite._id("forecast-run"), "n_clicks")] = 1
+    controls[(suite._id("forecast-view"), "data")] = forecast_idle[suite._id("forecast-view")][
+        "data"
+    ]
+    forecast_started = post(
+        suite._id("forecast-data"), controls, suite._id("forecast-run") + ".n_clicks"
+    )
+    assert len(queue.calls) == 3
+    queue.finish(next(iter(queue.jobs)))
+    controls[(suite._id("forecast-view"), "data")] = forecast_started[suite._id("forecast-view")][
+        "data"
+    ]
+    forecast_finished = post(
+        suite._id("forecast-data"), controls, suite._id("tick") + ".n_intervals"
+    )
+    payload = forecast_finished[suite._id("forecast-data")]["data"]
+    assert payload["status"] == "completed"
+    controls[(suite._id("forecast-data"), "data")] = payload
+    profile = post(
+        suite._id("combinatorial-result"), controls, suite._id("forecast-data") + ".data"
+    )
+    assert "Needed trials for next strength" in str(profile)
+    assert "Next · t=2" not in visible_text(profile)
+
+    # Dash can batch a button click with a timer tick or a control update. Recompute
+    # must handle the click even when it is not the first changed property.
+    for concurrent in ("tick.n_intervals", "planning-budget.value", "context.data"):
+        calls_before = len(queue.calls)
+        controls[(suite._id("planning-run"), "n_clicks")] += 1
+        controls[(suite._id("planning-view"), "data")] = complete[suite._id("planning-view")][
+            "data"
+        ]
+        recomputed = post(
+            suite._id("planning-data"),
+            controls,
+            [suite._id(concurrent), suite._id("planning-run") + ".n_clicks"],
+        )
+        assert recomputed[suite._id("planning-run")]["disabled"] is True
+        assert len(queue.calls) == calls_before + 1
+        queue.finish(next(iter(queue.jobs)))
+        controls[(suite._id("planning-view"), "data")] = recomputed[suite._id("planning-view")][
+            "data"
+        ]
+        complete = post(suite._id("planning-data"), controls, suite._id("tick") + ".n_intervals")
+        assert complete[suite._id("planning-data")]["data"]["status"] == "completed"
+
+    controls[(suite._id("planning-view"), "data")] = complete[suite._id("planning-view")]["data"]
+    controls[(suite._id("planning-run"), "n_clicks")] += 1
+    restarting = post(
+        suite._id("planning-data"), controls, suite._id("planning-run") + ".n_clicks"
+    )
+    controls[(suite._id("planning-view"), "data")] = restarting[suite._id("planning-view")]["data"]
+    controls[(suite._id("planning-cancel"), "n_clicks")] = 1
+    calls_before = len(queue.calls)
+    cancelled = post(
+        suite._id("planning-data"),
+        controls,
+        [
+            suite._id("tick") + ".n_intervals",
+            suite._id("planning-run") + ".n_clicks",
+            suite._id("planning-cancel") + ".n_clicks",
+        ],
+    )
+    assert not queue.jobs and len(queue.calls) == calls_before
+    assert cancelled[suite._id("planning-cancel")]["style"] == {"display": "none"}
+    assert cancelled[suite._id("planning-data")]["data"]["result"] == complete[
+        suite._id("planning-data")
+    ]["data"]["result"]
+
+
+def _planner_call(callback, run, **overrides):
+    values = dict(
+        clicks=0,
+        cancel=0,
+        tick=0,
+        context={"run_id": run.id},
+        strategy="maximize_coverage",
+        resolution=2,
+        mode="next",
+        strength=2,
+        budget=10,
+        timeout=30,
+        seed=0,
+        active_run=run.id,
+        previous=None,
+    )
+    values.update(overrides)
+    return callback(**values)
+
+
+@pytest.mark.parametrize("budget", [None, 1, 0])
+def test_planning_minimize_ignores_hidden_budget(callbacks, run, budget):
+    registered, queue, event = callbacks
+    callback = next(c for c in registered if c.__name__ == "planning_job")
+    event.triggered_id = suite._id("planning-run")
+    output = _planner_call(callback, run, clicks=1, strategy="minimize_trials", budget=budget)
+    assert output[0]["status"] == "running"
+    assert output[6]["options"]["max_additional_trials"] is None
+    queue.finish(output[6]["job"]["id"])
+    completed = _planner_call(callback, run, strategy="minimize_trials", budget=budget)
+    assert completed[0]["result"]["target_complete"]
+    assert len(completed[0]["result"]["trials"]) > 1
+
+
+def test_planning_controls_follow_strategy_goal_and_selected_resolution(callbacks, run):
+    registered, queue, _ = callbacks
+    callback = next(c for c in registered if c.__name__ == "planning_controls")
+    result = {
+        "parameters": ["a", "b", "c"],
+        "trials": 1000,
+        "rows": [
+            {
+                "resolution": 3,
+                "observed_strength": 1,
+                "strength_is_lower_bound": False,
+                "cells": [{"strength": 2, "status": "computed", "coverage": 0.977}],
+            },
+            {
+                "resolution": 2,
+                "observed_strength": 3,
+                "strength_is_lower_bound": False,
+                "cells": [],
+            },
+        ],
+    }
+    context = {"run_id": run.id}
+    entry = {"run_id": run.id, "result": {"observed": result}}
+    budget_style, custom_style, disabled, metrics, options, maximum = callback(
+        "maximize_coverage", "next", 3, context, entry, None
+    )
+    assert budget_style == {} and custom_style == {"display": "none"} and disabled
+    assert maximum == 3
+    assert "t = 1 / 3" in visible_text(metrics)
+    assert "Next strength (t = 2)" in visible_text(metrics)
+    assert "97.7%" in visible_text(metrics)
+    assert "Based on" not in visible_text(metrics)
+    assert "Reach next strength (t = 2)" in visible_text(options[0]["label"])
+    assert "Reach maximum strength (t = 3)" in visible_text(options[2]["label"])
+    hidden = callback("minimize_trials", "custom", 2, context, entry, None)
+    assert hidden[:3] == ({"display": "none"}, {}, False)
+    assert "t = 3 / 3" in visible_text(hidden[3])
+    assert "All strengths covered" in visible_text(hidden[3])
+    # A different run's measurements must never appear in this run's controls.
+    missing = callback("maximize_coverage", "maximum", 3, {"run_id": "other"}, entry, None)
+    assert "Awaiting coverage measurements" in visible_text(missing[3])
+    assert "97.7%" not in visible_text(missing[3])
+    result["rows"][0]["strength_is_lower_bound"] = True
+    result["rows"][0]["cells"][0] = {"strength": 2, "status": "trial_limit"}
+    censored = callback("maximize_coverage", "next", 3, context, entry, None)
+    assert "t ≥ 1 / 3" in visible_text(censored[3])
+    assert "97.7%" not in visible_text(censored[3])
+    assert not queue.calls
+
+
+def test_planning_only_starts_on_explicit_button_and_persists_result(callbacks, run, tmp_path):
+    registered, queue, event = callbacks
+    callback = next(c for c in registered if c.__name__ == "planning_job")
+    for trigger in (
+        "context",
+        "tick",
+        "planning-budget",
+        "planning-resolution",
+        "planning-strategy",
+        "planning-strength-mode",
+        "planning-strength",
+        "planning-timeout",
+        "planning-seed",
+    ):
+        event.triggered_id = suite._id(trigger)
+        output = _planner_call(callback, run, clicks=1)
+        assert output[0]["status"] == "not_run"
+    assert queue.calls == []
+    event.triggered_id = suite._id("planning-run")
+    started = _planner_call(callback, run, clicks=1)
+    assert len(queue.calls) == 1 and queue.calls[0]["analysis"] == "planning"
+    assert started[3]
+    # A second click while running must not queue a duplicate.
+    _planner_call(callback, run, clicks=2)
+    assert len(queue.calls) == 1
+    queue.finish(started[6]["job"]["id"])
+    event.triggered_id = suite._id("tick")
+    completed = _planner_call(callback, run, previous=started[6])
+    assert completed[0]["status"] == "completed"
+    assert completed[0]["result"]["target_complete"]
+    assert "Plan saved" in completed[1]
+    restored = suite.CoverageJobs(tmp_path, queue).read(run.id, "planning")
+    assert restored["result"] == completed[0]["result"]
+    assert prepare_coverage(run).count == 2
+    assert len(queue.calls) == 1
+
+
+def test_planning_settings_and_new_trials_mark_saved_plan_stale(callbacks, run):
+    registered, queue, event = callbacks
+    callback = next(c for c in registered if c.__name__ == "planning_job")
+    event.triggered_id = suite._id("planning-run")
+    started = _planner_call(callback, run, clicks=1)
+    queue.finish(started[6]["job"]["id"])
+    event.triggered_id = suite._id("tick")
+    completed = _planner_call(callback, run)
+    event.triggered_id = suite._id("planning-budget")
+    stale = _planner_call(callback, run, budget=5, previous=completed[6])
+    assert stale[0]["status"] == "stale"
+    assert stale[0]["result"] == completed[0]["result"]
+    assert stale[5] is suite.no_update
+    run.history.append(SimpleNamespace(config_id=0, status=Status.SUCCESS, seed=1, budget=1))
+    run.latest_change = 2
+    event.triggered_id = suite._id("context")
+    updated = _planner_call(callback, run)
+    assert updated[0]["status"] == "stale"
+    assert len(queue.calls) == 1
+
+
+def test_planning_cancel_works_with_invalid_controls_and_retains_saved_plan(callbacks, run):
+    registered, queue, event = callbacks
+    callback = next(c for c in registered if c.__name__ == "planning_job")
+    event.triggered_id = suite._id("planning-run")
+    started = _planner_call(callback, run, clicks=1)
+    queue.finish(started[6]["job"]["id"])
+    event.triggered_id = suite._id("tick")
+    previous = _planner_call(callback, run)[0]["result"]
+    event.triggered_id = suite._id("planning-run")
+    _planner_call(callback, run, clicks=2)
+    event.triggered_id = suite._id("planning-cancel")
+    cancelled = _planner_call(callback, run, cancel=1, budget=None)
+    assert cancelled[0]["result"] == previous
+    assert cancelled[4] == {"display": "none"}
+    assert not queue.jobs
+
+
+@pytest.mark.parametrize("sampler", [None, "Unknown sampler", "TPESampler", "RandomSampler"])
+def test_planning_ignores_missing_or_incorrect_sampler_metadata(callbacks, run, sampler):
+    registered, queue, event = callbacks
+    callback = next(c for c in registered if c.__name__ == "planning_job")
+    run.meta = {"optuna_sampler": sampler} if sampler else {}
+    event.triggered_id = suite._id("planning-run")
+    started = _planner_call(callback, run, clicks=1)
+    assert started[0]["status"] == "running"
+    assert len(queue.calls) == 1
+    queue.finish(started[6]["job"]["id"])
+    event.triggered_id = suite._id("tick")
+    completed = _planner_call(callback, run)
+    assert completed[0]["result"]["target_complete"]
+    plan = suite.SearchSpaceCoverage.process(
+        run, {"analysis": "planning", "max_additional_trials": 2}
+    )
+    assert plan["target_complete"]
+
+
+def test_planning_can_start_without_successful_trials(callbacks, run):
+    registered, queue, event = callbacks
+    for trial in run.history:
+        trial.status = Status.FAILED
+    callback = next(c for c in registered if c.__name__ == "planning_job")
+    event.triggered_id = suite._id("planning-run")
+    started = _planner_call(callback, run, clicks=1)
+    queue.finish(started[6]["job"]["id"])
+    event.triggered_id = suite._id("tick")
+    completed = _planner_call(callback, run)
+    assert completed[0]["result"]["observed_trials"] == 0
+    assert completed[0]["result"]["initial_coverage"] == 0
+    assert completed[0]["result"]["projected_coverage"] == 1
+
+
+def test_planning_details_follow_row_identity_and_resolution_selection(callbacks, run):
+    registered, queue, _ = callbacks
+    resolution = next(c for c in registered if c.__name__ == "planning_resolution")
+    assert resolution({"resolution": 4}) == 4
+    assert resolution(None) is suite.no_update
+    plan = suite.SearchSpaceCoverage.process(
+        run,
+        {
+            "analysis": "planning",
+            "max_additional_trials": 10,
+        },
+    )
+    detail = next(c for c in registered if c.__name__ == "planning_detail")
+    text = visible_text(detail({"row": 0, "row_id": 2}, [{"id": 1}], {"result": plan}))
+    assert "Proposed trial 2" in text and "validated" in text
+    assert "newly covered combinations" in text
+    assert not queue.calls
+
+
+def test_elite_indices_match_successful_coverage_rows_after_failed_trials(run):
+    run.history.insert(
+        0, SimpleNamespace(config_id=99, status=Status.FAILED, costs=[-10], budget=1, seed=0)
+    )
+    objective = SimpleNamespace(name="Loss", optimize="lower")
+    run.get_objectives = lambda: [objective]
+    run.get_objective_id = lambda _: 0
+    run.history[1].costs, run.history[2].costs = [0.2], [0.1]
+    indices, _ = suite._elite_trials(run, 0.1)
+    assert indices == [1]
+    data = prepare_coverage(run)
+    assert data.values[indices[0]] == {"x": 0.75, "y": 0.25}

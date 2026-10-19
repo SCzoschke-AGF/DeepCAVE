@@ -55,10 +55,10 @@ def _tags(parameters: List[str]) -> Any:
     )
 
 
-def _kpis(groups: List[Dict]) -> Any:
+def _kpis(groups: List[Dict], strength: int) -> Any:
     worst = groups[0] if groups else None
     values = [
-        ("Groups analyzed", f"{len(groups):,}"),
+        (f"{strength}-parameter combinations analyzed", f"{len(groups):,}"),
         ("Fully covered", f"{sum(group['missing'] == 0 for group in groups):,}"),
         ("Most missing", f"{worst['missing']:,} / {worst['total']:,}" if worst else "—"),
     ]
@@ -69,7 +69,7 @@ def _kpis(groups: List[Dict]) -> Any:
     )
 
 
-def _distribution(groups: List[Dict]) -> Any:
+def _distribution(groups: List[Dict], strength: int) -> Any:
     counts = Counter(group["missing"] for group in groups)
     values = sorted(counts)
     figure = go.Figure(
@@ -78,7 +78,7 @@ def _distribution(groups: List[Dict]) -> Any:
             y=[counts[value] for value in values],
             width=0.8,
             marker_color="#8661bd",
-            hovertemplate="%{x} missing combinations<br>%{y} groups<extra></extra>",
+            hovertemplate=f"%{{x}} missing bin combinations<br>%{{y}} {strength}-parameter combinations<extra></extra>",
         )
     )
     figure.update_layout(
@@ -90,14 +90,14 @@ def _distribution(groups: List[Dict]) -> Any:
         font=dict(size=10, color="#64748b"),
         bargap=0.25,
         xaxis=dict(
-            title="Missing combinations per group",
+            title=f"Missing bin combinations per {strength}-parameter combination",
             tickmode="linear",
             dtick=1,
             range=[-0.5, max(values, default=0) + 0.5],
             fixedrange=True,
         ),
         yaxis=dict(
-            title="Groups",
+            title=f"{strength}-parameter combinations",
             rangemode="tozero",
             tickformat=",d",
             dtick=max(1, ceil(max(counts.values(), default=0) / 4)),
@@ -119,6 +119,7 @@ def _distribution(groups: List[Dict]) -> Any:
 def group_overview(result: Dict, row: Dict, parameters: Any = None, limit: Any = 5) -> Any:
     """Render filtered KPIs, all-group distribution and a limited, sorted table."""
     groups = group_records(result, row, parameters)
+    strength = row["observed_strength"] + 1
     shown = groups if limit == "all" else groups[: int(limit or 5)]
     rows = []
     for group in shown:
@@ -130,7 +131,7 @@ def group_overview(result: Dict, row: Dict, parameters: Any = None, limit: Any =
                             _tags(group["parameters"]),
                             type="button",
                             className="coverage-group-open",
-                            title="Show the missing level combinations for this group",
+                            title=f"Show the missing bin combinations for this {strength}-parameter combination",
                         )
                     ),
                     html.Td(
@@ -151,22 +152,39 @@ def group_overview(result: Dict, row: Dict, parameters: Any = None, limit: Any =
         )
     table = html.Table(
         [
-            html.Thead(html.Tr([html.Th("Parameter group"), html.Th("Missing combinations")])),
+            html.Thead(
+                html.Tr(
+                    [
+                        html.Th(f"{strength}-parameter combinations"),
+                        html.Th("Missing bin combinations"),
+                    ]
+                )
+            ),
             html.Tbody(rows),
         ],
         className="coverage-group-table",
     )
     return html.Div(
         [
-            _kpis(groups),
-            _distribution(groups),
+            _kpis(groups, strength),
+            _distribution(groups, strength),
             html.Small(
-                "Observed groups · filtered" if parameters else "Observed groups · all groups",
+                (
+                    f"Observed {strength}-parameter combinations · filtered"
+                    if parameters
+                    else f"Observed {strength}-parameter combinations · all"
+                ),
                 className="coverage-group-note",
             ),
-            table if groups else html.P("No groups contain all selected parameters."),
+            (
+                table
+                if groups
+                else html.P(
+                    f"No {strength}-parameter combinations contain all selected parameters."
+                )
+            ),
             html.Small(
-                f"Showing {len(shown):,} of {len(groups):,} groups · most missing first",
+                f"Showing {len(shown):,} of {len(groups):,} {strength}-parameter combinations · most missing first",
                 className="coverage-group-note",
             ),
         ]
@@ -178,9 +196,11 @@ def group_diagnostics(result: Dict, row: Dict, cell: Dict) -> Any:
     if "group_covered" not in cell or "discretization" not in row:
         return html.Div(
             [
-                html.H5(f"Groups preventing strength {cell['strength']}"),
+                html.H5(
+                    f"{cell['strength']}-parameter combinations preventing strength {cell['strength']}"
+                ),
                 html.P(
-                    "Refresh coverage to load all group counts and saved level definitions. "
+                    f"Refresh coverage to load all {cell['strength']}-parameter combination counts and saved level definitions. "
                     "The existing coverage results remain available."
                 ),
             ],
@@ -188,7 +208,9 @@ def group_diagnostics(result: Dict, row: Dict, cell: Dict) -> Any:
         )
     return html.Div(
         [
-            html.H5(f"Groups preventing strength {cell['strength']}"),
+            html.H5(
+                f"{cell['strength']}-parameter combinations preventing strength {cell['strength']}"
+            ),
             html.Div(
                 [
                     html.Div(
@@ -271,7 +293,7 @@ def group_drilldown(result: Dict, row: Dict, group: Dict) -> Any:
     definitions = row["discretization"]["definitions"]
     return html.Section(
         [
-            html.H6("Missing level combinations"),
+            html.H6("Missing bin combinations"),
             _tags(group["parameters"]),
             html.P(
                 f"{group['total']:,} possible · {group['covered']:,} observed · "
@@ -300,7 +322,9 @@ def group_drilldown(result: Dict, row: Dict, group: Dict) -> Any:
                     },
                 )
                 if group["missing"]
-                else html.P("This group covers every combination.")
+                else html.P(
+                    f"This {len(group['parameters'])}-parameter combination covers every level combination."
+                )
             ),
             html.Details(
                 [

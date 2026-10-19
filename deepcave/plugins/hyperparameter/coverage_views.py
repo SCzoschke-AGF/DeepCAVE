@@ -285,9 +285,10 @@ def _overview(data: CoverageData, marginals: List[Dict], sampler: str) -> Any:
     info = data.overview
     metrics = [
         _metric(
-            "Trials",
+            "Successful trials",
             f"{info['trials']:,}",
-            f"{info['complete']:,} complete · {info['failed']:,} failed",
+            f"{info.get('total_trials', info['trials']):,} recorded · "
+            f"{info.get('total_trials', info['trials']) - info['trials']:,} excluded",
         ),
         _metric("Parameters", info["parameters"]),
         _metric("Sampler", sampler),
@@ -332,8 +333,8 @@ def _overview(data: CoverageData, marginals: List[Dict], sampler: str) -> Any:
                     ),
                     _definition_table(marginals),
                     html.P(
-                        "All sampled trials contribute, including failures "
-                        "and repeated configurations. "
+                        "Only successful trials contribute. Failed and pruned trials are excluded. "
+                        "Repeated successful configurations remain in the history. "
                         "Inactive parameters are excluded from marginals."
                     ),
                     html.P(

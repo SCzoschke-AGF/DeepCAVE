@@ -6,11 +6,12 @@ from itertools import combinations
 from math import comb, prod
 
 import numpy as np
-from ConfigSpace import ConfigurationSpace
+from ConfigSpace import Configuration, ConfigurationSpace
 
 from deepcave.evaluators.coverage import (
     CoverageAxis,
     CoverageData,
+    normalize_configurations,
     sample_reference_design,
     summarize_baseline,
 )
@@ -111,6 +112,95 @@ def discretize_combinatorial(data: CoverageData, resolution: int) -> Tuple[np.nd
     """Encode theoretical levels; categories/ordinals retain their original values."""
     points, sizes, _ = _discretization(data, resolution)
     return points, sizes
+
+
+class CoverageSpec:
+    """Use the measured discretization to generate and re-encode concrete values."""
+
+    def __init__(self, data: CoverageData, resolution: int) -> None:
+        if data.constrained or any(axis.conditional for axis in data.axes):
+            raise ValueError(
+                "Coverage planning requires independent parameters without constraints."
+            )
+        if data.configspace is None:
+            raise ValueError("Coverage planning requires a search-space definition.")
+        if not np.isfinite(data.points).all():
+            raise ValueError("Every successful trial must define every parameter.")
+        self.configspace = data.configspace
+        self.resolution = resolution
+        self.axes = [axis for axis in data.axes if axis.size != 1]
+        self.constants = {
+            axis.name: axis.values_at(np.array([0]))[0] for axis in data.axes if axis.size == 1
+        }
+        if not self.axes:
+            raise ValueError("Coverage planning requires at least one varying parameter.")
+        self.points, self.sizes, self.definitions = _discretization(data, resolution, True)
+        self.names = [axis.name for axis in self.axes]
+        self.rank_edges = {
+            axis.name: np.r_[0, _discrete_cuts(axis, size), axis.size]
+            for axis, size in zip(self.axes, self.sizes)
+            if axis.size is not None and axis.kind not in ("categorical", "ordinal")
+        }
+
+    def materialize(self, point: np.ndarray, rng: np.random.Generator) -> Dict[str, Any]:
+        """Choose legal values within levels without modifying the search-space RNG."""
+        values = dict(self.constants)
+        for axis, size, level in zip(self.axes, self.sizes, point):
+            level = int(level)
+            if axis.kind in ("categorical", "ordinal"):
+                value = axis.choices[level]
+            elif axis.size is not None:
+                edges = self.rank_edges[axis.name]
+                rank = int(rng.integers(edges[level], edges[level + 1]))
+                value = axis.values_at(np.array([rank]))[0]
+            else:
+                # Stay away from numerical boundaries; use the inverse of encode's CDF.
+                quantile = (level + rng.uniform(0.1, 0.9)) / size
+                rv = getattr(axis.hp._vector_dist, "rv", None)
+                vector = rv.ppf(quantile) if rv is not None else quantile
+                value = float(axis.hp.to_value(vector))
+            values[axis.name] = value
+        Configuration(self.configspace, values=values).check_valid_configuration()
+        actual = self.encode([values])[0]
+        if not np.array_equal(actual, point):
+            raise ValueError(
+                "A proposed configuration cannot realize its intended coverage levels."
+            )
+        return values
+
+    def encode(self, configurations: List[Dict[str, Any]]) -> np.ndarray:
+        """Apply the original discretization to concrete configurations."""
+        data = normalize_configurations(self.configspace, configurations)
+        return discretize_combinatorial(data, self.resolution)[0]
+
+    def serialize(self) -> Dict[str, Any]:
+        """Retain exact numerical boundaries as well as readable level definitions."""
+        parameters = []
+        for axis, size in zip(self.axes, self.sizes):
+            parameter = {
+                "name": axis.name,
+                "type": axis.kind,
+                "levels": self.definitions[axis.name],
+            }
+            if axis.kind in ("categorical", "ordinal"):
+                parameter["values"] = axis.choices
+            elif axis.size is not None:
+                parameter["rank_edges"] = self.rank_edges[axis.name].tolist()
+                parameter["lower"] = axis.hp.lower
+                parameter["step"] = axis.step
+            else:
+                quantiles = np.linspace(0, 1, size + 1)
+                rv = getattr(axis.hp._vector_dist, "rv", None)
+                vectors = rv.ppf(quantiles) if rv is not None else quantiles
+                edges = np.asarray(axis.hp.to_value(vectors), dtype=float)
+                edges[0], edges[-1] = axis.hp.lower, axis.hp.upper
+                parameter["edges"] = edges.tolist()
+            parameters.append(parameter)
+        return {
+            "resolution": self.resolution,
+            "parameters": parameters,
+            "constants": self.constants,
+        }
 
 
 def _group_counts(points: np.ndarray, sizes: List[int], groups: List[tuple]) -> np.ndarray:

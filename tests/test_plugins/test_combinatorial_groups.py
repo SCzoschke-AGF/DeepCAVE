@@ -41,7 +41,17 @@ def test_all_groups_survive_top_twenty_limit_and_filter_counts_match_histogram(m
     )
     initial = views.group_overview(measured, row)
     assert len(initial.children[3].children[1].children) == 5
-    assert "Groups analyzed 36 Fully covered 15 Most missing 2 / 4" == text(initial.children[0])
+    assert "2-parameter combinations analyzed 36 Fully covered 15 Most missing 2 / 4" == text(
+        initial.children[0]
+    )
+    assert "2-parameter combinations Missing bin combinations" == text(
+        initial.children[3].children[0]
+    )
+    assert initial.children[1].figure.layout.yaxis.title.text == "2-parameter combinations"
+    assert (
+        initial.children[1].figure.layout.xaxis.title.text
+        == "Missing bin combinations per 2-parameter combination"
+    )
     trace = initial.children[1].figure.data[0]
     assert list(trace.x) == [0, 2]
     assert list(trace.y) == [15, 21]
@@ -49,14 +59,16 @@ def test_all_groups_survive_top_twenty_limit_and_filter_counts_match_histogram(m
         len(views.group_overview(measured, row, limit="all").children[3].children[1].children) == 36
     )
     filtered = views.group_overview(measured, row, ["feature_0"], limit=10)
-    assert "Groups analyzed 8 Fully covered 2 Most missing 2 / 4" == text(filtered.children[0])
+    assert "2-parameter combinations analyzed 8 Fully covered 2 Most missing 2 / 4" == text(
+        filtered.children[0]
+    )
     assert sum(filtered.children[1].figure.data[0].y) == 8
     and_groups = views.group_records(measured, row, ["feature_7", "feature_8"])
     assert len(and_groups) == 1
     assert and_groups[0]["parameters"] == ["feature_7", "feature_8"]
     assert and_groups[0]["missing"] == 0
     empty = views.group_overview(measured, row, ["feature_0", "feature_1", "feature_2"])
-    assert "No groups contain all selected parameters." in text(empty)
+    assert "No 2-parameter combinations contain all selected parameters." in text(empty)
     assert not empty.children[1].figure.data[0].x
 
 
@@ -82,7 +94,7 @@ def test_missing_tuples_use_persisted_encoding_and_definitions_without_recalcula
         views.group_drilldown(measured, row, group)
     )
     fully_covered = views.group_records(measured, row, ["feature_7", "feature_8"])[0]
-    assert "This group covers every combination." in text(
+    assert "This 2-parameter combination covers every level combination." in text(
         views.group_drilldown(measured, row, fully_covered)
     )
 
@@ -106,7 +118,9 @@ def test_missing_tuple_pages_are_disjoint_and_cover_exact_cartesian_complement()
     assert [len(page) for page in pages] == [20, 20, 20, 3]
     tuples = [tuple(record[name] for name in names) for page in pages for record in page]
     assert len(set(tuples)) == 63
-    assert set(tuples) == set(product([f"range {i}" for i in range(4)], repeat=3)) - {("range 0",) * 3}
+    assert set(tuples) == set(product([f"range {i}" for i in range(4)], repeat=3)) - {
+        ("range 0",) * 3
+    }
 
 
 def test_old_results_remain_visible_and_request_manual_refresh_for_new_diagnostics(measured):
