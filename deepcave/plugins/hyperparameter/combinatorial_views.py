@@ -6,7 +6,7 @@ from math import prod
 
 from dash import dcc, html
 
-from deepcave.plugins.hyperparameter.combinatorial_groups import group_diagnostics
+from deepcave.plugins.hyperparameter.combinatorial_groups import diagnostic_cell, group_diagnostics
 from deepcave.plugins.hyperparameter.coverage_forecast_views import (
     forecast_cell,
     forecast_details,
@@ -85,7 +85,7 @@ def _configuration_cells(row: Dict, parameters: int, trials: int) -> list:
         title = (
             "All strengths covered"
             if row["observed_strength"] == parameters
-            else f"t = {row['observed_strength'] + 1}: not computed"
+            else "Not computed"
         )
     points = row.get("discretization", {}).get("points")
     unique = f"{len({tuple(point) for point in points}):,}" if points is not None else "—"
@@ -106,17 +106,52 @@ def _configuration_cells(row: Dict, parameters: int, trials: int) -> list:
         ),
         html.Span(
             [
-                html.Small(f"t = {cell['strength']}") if cell else html.Small(title),
+                html.Small(title) if not cell else None,
                 html.Strong(label),
             ],
             className="coverage-strength-coverage",
             title=title,
-        )
+        ),
     ]
 
 
+def _estimated_trials_cell(row: Dict) -> Any:
+    """Display a sufficient plan size only after the heuristic closes every gap."""
+    estimate = row.get("trial_estimate")
+    label = "Not computed"
+    title = "Refresh coverage to estimate additional trials needed to reach the next strength."
+    if estimate:
+        count = estimate["trials"]
+        if count is not None:
+            exact = estimate["optimality_proven"]
+            label = ("" if exact else "≈ ") + f"{count:,}"
+            title = (
+                "Proven minimum additional trials."
+                if exact
+                else "Additional trials in a validated heuristic plan that reaches full coverage "
+                "at the next strength. A smaller plan may exist."
+            )
+        else:
+            label = estimate["status"]
+            title = estimate.get("reason", "No complete plan found within the planning limits.")
+            if estimate["status"] == "Incomplete":
+                title = (
+                    "No complete plan found within the planning limits. "
+                    f"{estimate['proposed_trials']:,} proposed trials do not close every gap. "
+                    f"Termination: {title}."
+                )
+    return html.Span(
+        label,
+        className="coverage-strength-count",
+        title=title,
+    )
+
+
 def combinatorial_view(
-    result: Optional[Dict], baseline: Optional[Dict] = None, forecast: Optional[Dict] = None
+    result: Optional[Dict],
+    baseline: Optional[Dict] = None,
+    forecast: Optional[Dict] = None,
+    include_explanations: bool = True,
 ) -> Any:
     """Compare achieved strength and remaining coverage at each resolution."""
     if not result:
@@ -124,7 +159,7 @@ def combinatorial_view(
             return html.Div(
                 [
                     html.P("Coverage array unavailable for this search space."),
-                    forecast_details(forecast),
+                    forecast_details(forecast) if include_explanations else None,
                 ]
             )
         return html.P(
@@ -186,6 +221,7 @@ def combinatorial_view(
                             ),
                             include_full=False,
                         ),
+                        _estimated_trials_cell(row),
                         *configuration_cells[:2],
                     ],
                     className="coverage-strength-row",
@@ -202,11 +238,12 @@ def combinatorial_view(
                             html.Span("Strength"),
                             html.Span("Coverage at next strength"),
                             html.Span(
-                                "Needed trials for next strength "
-                                f"({(forecast or {}).get('probability_threshold', 0.8):.0%} prob.)"
+                                "Needed random trials for next strength "
+                                f"(prob. {(forecast or {}).get('probability_threshold', 0.8):.0%})"
                             ),
+                            html.Span("Needed minimum trials for next strength"),
                             html.Span("Nr. observed configurations"),
-                            html.Span("Nr. possible configurations (total)"),
+                            html.Span(f"Nr. possible configurations (t={len(result['parameters'])})"),
                         ],
                         className="coverage-strength-row coverage-strength-head",
                     ),
@@ -226,210 +263,183 @@ def combinatorial_view(
                 ],
                 className="coverage-strength-profile",
             ),
-            html.Details(
-                [
-                    html.Summary("Method & level definitions"),
-                    html.P(
-                        "Coverage is the sum of observed combinations divided by all combinations "
-                        "across every combination of t parameters. Strength is the highest verified t "
-                        "with every t-parameter combination complete; all lower strengths are then complete as well. "
-                        "An exact strength of 0 means single-parameter coverage is incomplete. "
-                        "Strengths are examined up to the first incomplete interaction or "
-                        "the trial-count or computation limit. The trial-count bound is necessary, "
-                        "not sufficient: a covering array is not guaranteed to exist."
-                    ),
-                    html.P(
-                        "Continuous levels divide the theoretical sampling CDF, including log scales. "
-                        "Ordered discrete values are grouped near theoretical quantiles without "
-                        "splitting a value. Categories and ordinals retain their original values. "
-                        "Constants are excluded. Successful trials contribute; repetitions add no "
-                        "new combinations. Conditions and forbidden combinations are unsupported."
-                    ),
-                    _table(
-                        [{"levels": row["resolution"], **row["levels"]} for row in result["rows"]]
-                    ),
-                ],
-                className="coverage-details",
-            ),
-            html.Details(
-                [
-                    html.Summary("Was bedeutet Strength?"),
-                    html.P(
-                        html.Strong(
-                            "Strength beschreibt, bis zu wie vielen Parametern gleichzeitig alle "
-                            "möglichen Wertekombinationen durch die Trials abgedeckt sind."
-                        )
-                    ),
-                    html.P(
-                        [
-                            "Dafür wird jeder Parameter in eine bestimmte Anzahl von Wertebereichen (",
-                            html.Em("Levels"),
-                            ") aufgeteilt.",
-                        ]
-                    ),
-                    html.P(
-                        [
-                            html.Strong("Beispiel:"),
-                            " Wir haben 6 Parameter mit jeweils 2 Levels.",
-                        ]
-                    ),
-                    html.Ul(
-                        [
-                            html.Li(
-                                [
-                                    html.Strong("Strength 1:"),
-                                    " Bei jedem einzelnen Parameter wurden beide Wertebereiche besucht.",
-                                ]
-                            ),
-                            html.Li(
-                                [
-                                    html.Strong("Strength 2:"),
-                                    " Für jedes mögliche Parameterpaar wurden alle 4 Wertekombinationen beobachtet.",
-                                ]
-                            ),
-                            html.Li(
-                                [
-                                    html.Strong("Strength 3:"),
-                                    " Für jede mögliche Dreiergruppe wurden alle 8 Wertekombinationen beobachtet.",
-                                ]
-                            ),
-                            html.Li(
-                                [
-                                    html.Strong("Strength 4:"),
-                                    " Für jede mögliche Vierergruppe wurden alle 16 Wertekombinationen beobachtet.",
-                                ]
-                            ),
-                        ]
-                    ),
-                    html.P(
-                        "Das setzt sich fort, bis bei Strength 6 alle 64 Kombinationen des gesamten "
-                        "Suchraums abgedeckt sind."
-                    ),
-                    html.P(
-                        html.Strong(
-                            "Je höher die Strength, desto mehr Parameter können wir gleichzeitig "
-                            "betrachten, ohne dass Kombinationen fehlen."
-                        )
-                    ),
-                    html.P(
-                        [
-                            "Eine Strength von 4 bedeutet also nicht, dass nur 4 von 6 Parametern "
-                            "abgedeckt sind. Sie bedeutet, dass bei ",
-                            html.Strong("jeder beliebigen Auswahl von 4 Parametern"),
-                            " alle möglichen Wertekombinationen beobachtet wurden.",
-                        ]
-                    ),
-                    html.P(
-                        "Vollständige Abdeckung für jede Parametergruppe bedeutet dabei nicht, "
-                        "dass wir schon den gesamten Suchraum durchprobiert haben müssen. "
-                        "Wie das funktioniert, lässt sich an einem kleineren Beispiel zeigen: "
-                        "drei Parameter A, B und C mit jeweils zwei Levels, 0 und 1."
-                    ),
-                    html.P(
-                        "Insgesamt gibt es acht mögliche Konfigurationen. Um Strength 2 zu "
-                        "erreichen, genügen jedoch diese vier Trials:"
-                    ),
-                    html.Table(
-                        [
-                            html.Thead(
-                                html.Tr(
-                                    [
-                                        html.Th(label, scope="col")
-                                        for label in ("Trial", "A", "B", "C")
-                                    ]
-                                )
-                            ),
-                            html.Tbody(
-                                [
-                                    html.Tr(
-                                        [html.Th(trial, scope="row")]
-                                        + [html.Td(value) for value in values]
-                                    )
-                                    for trial, values in enumerate(
-                                        [(0, 0, 0), (0, 1, 1), (1, 0, 1), (1, 1, 0)], start=1
-                                    )
-                                ]
-                            ),
-                        ],
-                        className="table table-sm table-bordered",
-                    ),
-                    html.P(
-                        "Betrachten wir jeweils nur zwei Spalten, finden wir für jedes "
-                        "Parameterpaar – A × B, A × C und B × C – alle vier Kombinationen: "
-                        "00, 01, 10 und 11."
-                    ),
-                    html.P(
-                        html.Strong(
-                            "Mit nur 4 statt 8 Trials haben wir bereits alle paarweisen "
-                            "Kombinationen vollständig abgedeckt."
-                        )
-                    ),
-                    html.P(
-                        "Genau das bedeutet Strength 2: Jedes Paar ist vollständig abgedeckt. "
-                        "Erst für Strength 3 müssten auch alle acht Kombinationen der drei "
-                        "Parameter gemeinsam vorkommen."
-                    ),
-                ],
-                className="coverage-strength-explanation",
-            ),
-            forecast_details(forecast),
+            *(combinatorial_explanations(result, forecast) if include_explanations else []),
         ]
     )
 
 
+def combinatorial_explanations(result: Optional[Dict], forecast: Optional[Dict] = None) -> list:
+    """Render the three explanation toggles at the bottom of the Global page."""
+    if not result:
+        return [forecast_details(forecast)]
+    return [
+        html.Details(
+            [
+                html.Summary("Method & level definitions"),
+                html.P(
+                    "Coverage is the sum of observed combinations divided by all combinations "
+                    "across every combination of t parameters. Strength is the highest verified t "
+                    "with every t-parameter combination complete; all lower strengths are then complete as well. "
+                    "An exact strength of 0 means single-parameter coverage is incomplete. "
+                    "Strengths are examined up to the first incomplete interaction or "
+                    "the trial-count or computation limit. The trial-count bound is necessary, "
+                    "not sufficient: a covering array is not guaranteed to exist."
+                ),
+                html.P(
+                    "Estimated trials are additional trials in a validated heuristic plan that "
+                    "closes every gap at the next strength. ≈ marks an unproven minimum; "
+                    "full-strength counts are exact. Incomplete means the bounded search "
+                    "did not find full coverage. Estimates are computed and saved on Refresh."
+                ),
+                html.P(
+                    "Continuous levels divide the theoretical sampling CDF, including log scales. "
+                    "Ordered discrete values are grouped near theoretical quantiles without "
+                    "splitting a value. Categories and ordinals retain their original values. "
+                    "Constants are excluded. Successful trials contribute; repetitions add no "
+                    "new combinations. Conditions and forbidden combinations are unsupported."
+                ),
+                _table([{"levels": row["resolution"], **row["levels"]} for row in result["rows"]]),
+            ],
+            className="coverage-details",
+        ),
+        html.Details(
+            [
+                html.Summary("Was bedeutet Strength?"),
+                html.P(
+                    html.Strong(
+                        "Strength beschreibt, bis zu wie vielen Parametern gleichzeitig alle "
+                        "möglichen Wertekombinationen durch die Trials abgedeckt sind."
+                    )
+                ),
+                html.P(
+                    [
+                        "Dafür wird jeder Parameter in eine bestimmte Anzahl von Wertebereichen (",
+                        html.Em("Levels"),
+                        ") aufgeteilt.",
+                    ]
+                ),
+                html.P(
+                    [
+                        html.Strong("Beispiel:"),
+                        " Wir haben 6 Parameter mit jeweils 2 Levels.",
+                    ]
+                ),
+                html.Ul(
+                    [
+                        html.Li(
+                            [
+                                html.Strong("Strength 1:"),
+                                " Bei jedem einzelnen Parameter wurden beide Wertebereiche besucht.",
+                            ]
+                        ),
+                        html.Li(
+                            [
+                                html.Strong("Strength 2:"),
+                                " Für jedes mögliche Parameterpaar wurden alle 4 Wertekombinationen beobachtet.",
+                            ]
+                        ),
+                        html.Li(
+                            [
+                                html.Strong("Strength 3:"),
+                                " Für jede mögliche Dreiergruppe wurden alle 8 Wertekombinationen beobachtet.",
+                            ]
+                        ),
+                        html.Li(
+                            [
+                                html.Strong("Strength 4:"),
+                                " Für jede mögliche Vierergruppe wurden alle 16 Wertekombinationen beobachtet.",
+                            ]
+                        ),
+                    ]
+                ),
+                html.P(
+                    "Das setzt sich fort, bis bei Strength 6 alle 64 Kombinationen des gesamten "
+                    "Suchraums abgedeckt sind."
+                ),
+                html.P(
+                    html.Strong(
+                        "Je höher die Strength, desto mehr Parameter können wir gleichzeitig "
+                        "betrachten, ohne dass Kombinationen fehlen."
+                    )
+                ),
+                html.P(
+                    [
+                        "Eine Strength von 4 bedeutet also nicht, dass nur 4 von 6 Parametern "
+                        "abgedeckt sind. Sie bedeutet, dass bei ",
+                        html.Strong("jeder beliebigen Auswahl von 4 Parametern"),
+                        " alle möglichen Wertekombinationen beobachtet wurden.",
+                    ]
+                ),
+                html.P(
+                    "Vollständige Abdeckung für jede Parametergruppe bedeutet dabei nicht, "
+                    "dass wir schon den gesamten Suchraum durchprobiert haben müssen. "
+                    "Wie das funktioniert, lässt sich an einem kleineren Beispiel zeigen: "
+                    "drei Parameter A, B und C mit jeweils zwei Levels, 0 und 1."
+                ),
+                html.P(
+                    "Insgesamt gibt es acht mögliche Konfigurationen. Um Strength 2 zu "
+                    "erreichen, genügen jedoch diese vier Trials:"
+                ),
+                html.Table(
+                    [
+                        html.Thead(
+                            html.Tr(
+                                [html.Th(label, scope="col") for label in ("Trial", "A", "B", "C")]
+                            )
+                        ),
+                        html.Tbody(
+                            [
+                                html.Tr(
+                                    [html.Th(trial, scope="row")]
+                                    + [html.Td(value) for value in values]
+                                )
+                                for trial, values in enumerate(
+                                    [(0, 0, 0), (0, 1, 1), (1, 0, 1), (1, 1, 0)], start=1
+                                )
+                            ]
+                        ),
+                    ],
+                    className="table table-sm table-bordered",
+                ),
+                html.P(
+                    "Betrachten wir jeweils nur zwei Spalten, finden wir für jedes "
+                    "Parameterpaar – A × B, A × C und B × C – alle vier Kombinationen: "
+                    "00, 01, 10 und 11."
+                ),
+                html.P(
+                    html.Strong(
+                        "Mit nur 4 statt 8 Trials haben wir bereits alle paarweisen "
+                        "Kombinationen vollständig abgedeckt."
+                    )
+                ),
+                html.P(
+                    "Genau das bedeutet Strength 2: Jedes Paar ist vollständig abgedeckt. "
+                    "Erst für Strength 3 müssten auch alle acht Kombinationen der drei "
+                    "Parameter gemeinsam vorkommen."
+                ),
+            ],
+            className="coverage-strength-explanation",
+        ),
+        forecast_details(forecast),
+    ]
+
+
 def combinatorial_resolution_detail(result: Optional[Dict], resolution: Any) -> Any:
-    """Explain the selected resolution and rank its next-strength coverage deficits."""
+    """Extend the selected coverage row with its next-strength gap diagnosis."""
     row = next(
         (row for row in (result or {}).get("rows", []) if row["resolution"] == resolution), None
     )
     if not row:
-        return html.P(
-            "Select a resolution above to see coverage by strength.",
-            className="coverage-strength-prompt",
+        return None
+    cell = diagnostic_cell(result, row)
+    if cell is None:
+        return html.Section(
+            "Coverage gaps have not been computed for this strength.",
+            className="coverage-strength-detail",
+            **{"data-resolution": resolution},
         )
-    strength = row["observed_strength"]
-    cell = _next_cell(row)
-    if strength:
-        explanation = f"All combinations up to strength {strength} are covered. "
-    elif row["strength_is_lower_bound"]:
-        explanation = "Single-parameter coverage has not been fully evaluated. "
-    else:
-        explanation = "Single-parameter coverage is incomplete. "
-    if cell and cell["status"] == "computed":
-        explanation += (
-            f"At strength {cell['strength']}, {_percent(cell['coverage'])} of combinations "
-            "are covered."
-        )
-    elif cell and cell["status"] == "trial_limit":
-        explanation += f"Full coverage at strength {cell['strength']} requires more trials."
-    elif strength < len(result["parameters"]):
-        explanation += f"Coverage at strength {strength + 1} has not been computed."
-    strip = []
-    for current in row["cells"]:
-        label, color, title = _cell_label(current, result["trials"])
-        strip.append(
-            html.Div(
-                [
-                    html.Small(f"t={current['strength']}"),
-                    html.Strong("✓" if color == "complete" else label),
-                ],
-                className=f"coverage-strength-step coverage-ccm-{color}",
-                title=title,
-            )
-        )
-    diagnosis = None
-    if cell and cell["status"] == "computed" and cell["missing"]:
-        diagnosis = group_diagnostics(result, row, cell)
     return html.Section(
-        [
-            html.H4(f"{row['resolution']} Levels — Detail"),
-            html.Small(
-                f"Trial-count limit: t ≤ {row['trial_bound']}",
-                title="Necessary, not sufficient, for full coverage.",
-            ),
-            html.P(explanation),
-            html.Div(strip, className="coverage-strength-strip"),
-            diagnosis,
-        ],
+        group_diagnostics(result, row, cell),
         className="coverage-strength-detail",
+        **{"data-resolution": resolution},
     )

@@ -3,7 +3,7 @@ Search Space Coverage
 
 The Search Space Coverage suite is available under Configuration Analyses and
 uses the globally selected run or group. Coverage statistics are independent of
-objective values; optional elite-trial highlighting uses objective scores.
+objective values; optional cell-performance coloring and elite-trial selection use objective scores.
 
 Overview, marginal coverage, and the selected parameter-pair scatter are
 available immediately. Opening the page, selecting parameters, changing settings,
@@ -27,22 +27,30 @@ Five internal tabs keep each question in its own view:
   categorical, and mixed pairs. A cell selects the scatter and pair KPIs.
   Manual parameter selection works before computing the matrix. The ranking table
   is available under **Show detailed table**.
-  X and Y selectors span the scatter panel; pair KPIs start at the plot's top edge.
+  X and Y selectors span the plot panel. A fixed sidebar shows the pair KPIs at
+  the top and reserves space for the cell-color legend below, keeping axes and metrics stationary.
   All matrix colors express **Coverage concern**: light cream means low concern,
   and dark rust/bordeaux means high concern. Cell labels retain the original
   metric. Heatmap tooltips are disabled; cells remain clickable.
   Text contrast follows the cell background.
-  The scatter shows the same cell grid used for occupancy, with unvisited cells
-  shaded lightly. Continuous axes use sampling coordinates; discrete axes show
+  The 2-D plot combines three independent layers, controlled by a compact toolbar
+  below the plot: **Cell coloring** (None, Density, Performance), **Trial markers**
+  (None, All, Elites), and the **Highlight empty cells** switch. Defaults are
+  Density, All, and highlighting enabled. Both content layers cannot be set to None.
+  Density uses the existing occupancy grid and trial-count legend; Performance
+  aggregates the best finite objective per cell and shows a continuous objective
+  scale. Coverage metrics always use all jointly active trials, including when
+  markers are hidden or restricted to elites.
+  Continuous axes use sampling coordinates; discrete axes show
   original valid values, grouping support values when they exceed the bin limit.
-  **Highlight elite trials** overlays larger orange diamonds for the best successful
+  **Trial markers: Elites** shows only larger orange diamonds for the best successful
   trials. The header dropdown selects 20%, 10%, 5%, 2%, or 1% (default 10%).
   Ranking uses the first objective other than the synthetic Time objective and
   respects minimization/maximization; the objective name appears in the panel title.
   Trials without finite scores are excluded, and ties at the quantile threshold
   are included. Elite selection spans the run; only jointly active trials appear
-  in the selected scatter. Highlighting does not change coverage calculations or
-  start worker jobs. Scatter tooltips remain disabled.
+  in the selected plot. Layer changes do not change coverage calculations or
+  start worker jobs. Trial tooltips remain disabled; cell hover shows density or performance.
 * **Global** starts with **Combinatorial Coverage**: a measured resolution/strength
   **Coverage Array** for 2, 3, 4, and 8 levels. Each resolution shows the achieved
   strength and coverage at the next strength, so near-complete interactions remain

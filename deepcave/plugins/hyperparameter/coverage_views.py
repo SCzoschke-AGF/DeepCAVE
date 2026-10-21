@@ -34,6 +34,12 @@ PAIR_METRICS = {
     "max_radius": "Coverage radius",
 }
 PAIR_PLOT_HEIGHT = 510
+CELL_DENSITY_LEVELS = [
+    (0, "0 · Empty", "#e7d3b2"),
+    (1, "1 · Sparse", "#bdd8cf"),
+    (3, "2–3 · Moderate", "#7cae9f"),
+    (np.inf, "4+ · Dense", "#47857a"),
+]
 PAIR_METRIC_SCALES = {
     "occupancy": {"higher_is_better": True, "upper": 1.0, "power": 1.0},
     "empty_cell_rate": {"higher_is_better": False, "upper": 1.0, "power": 1.0},
@@ -839,7 +845,7 @@ def _univariate(row: Dict, mode: str = "distribution") -> Any:
 
 
 def _pair_figure(figure: go.Figure, x: str = "", y: str = "", matrix: bool = False) -> go.Figure:
-    """Fix the inner plot's vertical domain independently of labels and colorbars."""
+    """Keep a fixed plot area with bottom padding for the axis labels."""
     _figure(figure, x, y)
     figure.update_layout(
         height=PAIR_PLOT_HEIGHT,
@@ -1001,6 +1007,214 @@ def _scatter_cell_shapes(
     return shapes
 
 
+def _cell_performance(
+    data: CoverageData,
+    columns: List[int],
+    indices: np.ndarray,
+    shape: tuple,
+    costs: List[Any],
+    statistic: str,
+    optimize: str,
+) -> np.ndarray:
+    """Aggregate finite objectives using exactly the coverage grid's cell assignment."""
+    cells = []
+    for column, count in zip(columns, shape):
+        axis = data.axes[column]
+        if axis.size is not None:
+            ranks = axis.ranks([data.values[k][axis.name] for k in indices])
+            cells.append(np.minimum(count - 1, ranks * count // axis.size))
+        else:
+            cells.append(np.minimum(count - 1, (data.points[indices, column] * count).astype(int)))
+    grouped: Dict[tuple, List[float]] = {}
+    for index, cell in zip(indices, zip(*cells)):
+        value = costs[index]
+        if value is not None and np.isfinite(value):
+            grouped.setdefault(cell, []).append(float(value))
+    aggregate = np.median if statistic == "median" else np.min if optimize == "lower" else np.max
+    values = np.full(shape, np.nan)
+    for cell, observations in grouped.items():
+        values[cell] = aggregate(observations)
+    return values
+
+
+def _cell_coordinates(
+    data: CoverageData, columns: List[int], cells: np.ndarray, edges: List[np.ndarray]
+) -> List[List[Any]]:
+    """Locate cell hover targets in numeric or categorical plotting coordinates."""
+    coordinates = []
+    for dimension, column in enumerate(columns):
+        axis = data.axes[column]
+        centers = (edges[dimension][:-1] + edges[dimension][1:]) / 2
+        coordinates.append(
+            [
+                (
+                    str(axis.choices[int(round(centers[cell[dimension]]))])
+                    if axis.kind in ("categorical", "ordinal", "constant")
+                    else float(centers[cell[dimension]])
+                )
+                for cell in cells
+            ]
+        )
+    return coordinates
+
+
+def _cell_tiles(
+    grid: np.ndarray,
+    edges: List[np.ndarray],
+    highlight_empty: bool,
+    performance_shapes: Optional[List[Dict]] = None,
+) -> List[Dict]:
+    """Draw rounded, spaced tiles in the actual coverage coordinates, including categories."""
+    performance_colors = {
+        (shape["x0"], shape["y0"]): shape["fillcolor"] for shape in (performance_shapes or [])
+    }
+    shapes = []
+    for i, j in np.ndindex(grid.shape):
+        count = grid[i, j]
+        color = next(color for limit, _, color in CELL_DENSITY_LEVELS if count <= limit)
+        if count == 0 and not highlight_empty:
+            color = "#f4f5f7"
+        elif count > 0 and performance_shapes is not None:
+            color = performance_colors.get((float(edges[0][i]), float(edges[1][j])), "#e7ecf0")
+        x0, x1 = float(edges[0][i]), float(edges[0][i + 1])
+        y0, y1 = float(edges[1][j]), float(edges[1][j + 1])
+        dx, dy = (x1 - x0) * 0.025, (y1 - y0) * 0.025
+        x0, x1, y0, y1 = x0 + dx, x1 - dx, y0 + dy, y1 - dy
+        rx, ry = (x1 - x0) * 0.1, (y1 - y0) * 0.1
+        shapes.append(
+            dict(
+                type="path",
+                xref="x",
+                yref="y",
+                layer="below",
+                line=dict(width=0),
+                fillcolor=color,
+                path=(
+                    f"M {x0 + rx},{y0} L {x1 - rx},{y0} Q {x1},{y0} {x1},{y0 + ry} "
+                    f"L {x1},{y1 - ry} Q {x1},{y1} {x1 - rx},{y1} "
+                    f"L {x0 + rx},{y1} Q {x0},{y1} {x0},{y1 - ry} "
+                    f"L {x0},{y0 + ry} Q {x0},{y0} {x0 + rx},{y0} Z"
+                ),
+            )
+        )
+    return shapes
+
+
+def _cell_legend(
+    coloring: str, highlight_empty: bool, performance_trace: Optional[go.Scatter] = None
+) -> Any:
+    """Keep the cell legend in a reserved slot, separate from the coverage metrics."""
+    if coloring == "none":
+        return html.Div(className="coverage-cell-legend", **{"aria-hidden": "true"})
+    levels = CELL_DENSITY_LEVELS
+    scale = []
+    if coloring == "performance":
+        levels = [CELL_DENSITY_LEVELS[0]]
+        if performance_trace is not None:
+            marker = performance_trace.marker
+            gradient = ", ".join(
+                f"{color} {position * 100:g}%" for position, color in marker.colorscale
+            )
+            scale = [
+                html.Small(performance_trace.name),
+                html.Div(
+                    className="coverage-cell-performance-scale",
+                    style={"background": f"linear-gradient(to right, {gradient})"},
+                    role="img",
+                    **{
+                        "aria-label": (
+                            f"{performance_trace.name}: {marker.cmin:.4g} to {marker.cmax:.4g}"
+                        )
+                    },
+                ),
+                html.Div(
+                    [html.Span(f"{marker.cmin:.4g}"), html.Span(f"{marker.cmax:.4g}")],
+                    className="coverage-cell-performance-limits",
+                ),
+            ]
+    return html.Aside(
+        [
+            html.H5("Cell performance" if coloring == "performance" else "Trials per cell"),
+            *scale,
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Span(
+                                className="coverage-cell-swatch",
+                                style={
+                                    "backgroundColor": (
+                                        "#f4f5f7" if limit == 0 and not highlight_empty else color
+                                    )
+                                },
+                                **{"aria-hidden": "true"},
+                            ),
+                            html.Span(label),
+                        ],
+                        className="coverage-cell-legend-item",
+                    )
+                    for limit, label, color in levels
+                ],
+                className="coverage-cell-legend-items",
+            ),
+        ],
+        className="coverage-cell-legend",
+    )
+
+
+def _performance_cells(
+    data: CoverageData,
+    columns: List[int],
+    values: np.ndarray,
+    edges: List[np.ndarray],
+    label: str,
+    optimize: str,
+) -> tuple:
+    """Color exact cell bounds and provide objective values on hover and a color scale."""
+    cells = np.argwhere(np.isfinite(values))
+    costs = values[tuple(cells.T)]
+    low, high = float(costs.min()), float(costs.max())
+    if low == high:
+        low, high = low - 0.5, high + 0.5
+    scale = "Viridis_r" if optimize == "lower" else "Viridis"
+    colors = sample_colorscale(scale, ((costs - low) / (high - low)).tolist())
+    shapes = [
+        dict(
+            type="rect",
+            xref="x",
+            yref="y",
+            layer="below",
+            line=dict(width=0),
+            fillcolor=color,
+            x0=float(edges[0][i]),
+            x1=float(edges[0][i + 1]),
+            y0=float(edges[1][j]),
+            y1=float(edges[1][j + 1]),
+        )
+        for (i, j), color in zip(cells, colors)
+    ]
+    coordinates = _cell_coordinates(data, columns, cells, edges)
+    trace = go.Scatter(
+        x=coordinates[0],
+        y=coordinates[1],
+        mode="markers",
+        name=label,
+        marker=dict(
+            size=20,
+            opacity=0,
+            color=costs,
+            colorscale=scale,
+            cmin=low,
+            cmax=high,
+            showscale=False,
+        ),
+        customdata=costs,
+        hovertemplate=escape(label) + ": %{customdata:.4g}<extra></extra>",
+        showlegend=False,
+    )
+    return trace, shapes
+
+
 def _scatter(
     data: CoverageData,
     x: str,
@@ -1009,6 +1223,12 @@ def _scatter(
     highlight_empty: bool = True,
     elite_indices: Optional[List[int]] = None,
     elite_label: Optional[str] = None,
+    objective_values: Optional[List[Any]] = None,
+    objective_label: Optional[str] = None,
+    performance_statistic: str = "best",
+    objective_optimize: str = "lower",
+    cell_coloring: str = "density",
+    trial_markers: str = "all",
 ) -> Any:
     names = [axis.name for axis in data.axes]
     if x not in names or y not in names:
@@ -1022,40 +1242,112 @@ def _scatter(
     indices = np.flatnonzero(active)
     x_values, x_edges, x_options = _scatter_axis(data, i, indices, grid.shape[0])
     y_values, y_edges, y_options = _scatter_axis(data, j, indices, grid.shape[1])
-    figure = go.Figure(
-        go.Scattergl(
-            x=x_values,
-            y=y_values,
-            mode="markers",
-            marker=dict(size=6, opacity=0.85, color="#3730a3"),
-            customdata=[
-                [str(data.values[k][x]), str(data.values[k][y]), int(k) + 1] for k in indices
-            ],
-            hoverinfo="none",
-        )
+    cell_coloring = (
+        cell_coloring if cell_coloring in ("none", "density", "performance") else "density"
     )
-    if elite_indices:
-        elite_set = set(elite_indices)
-        selected = [position for position, index in enumerate(indices) if index in elite_set]
-        figure.data[0].marker.opacity = 0.35
+    trial_markers = trial_markers if trial_markers in ("none", "all", "elites") else "all"
+    if cell_coloring == trial_markers == "none":
+        trial_markers = "all"
+    figure = go.Figure()
+    performance_trace = None
+    performance_shapes: List[Dict] = []
+    if cell_coloring == "performance":
+        note = None
+        if not objective_values:
+            note = objective_label or "No optimization objective"
+        else:
+            values = _cell_performance(
+                data,
+                [i, j],
+                indices,
+                grid.shape,
+                objective_values,
+                performance_statistic,
+                objective_optimize,
+            )
+            statistic_label = "Median" if performance_statistic == "median" else "Best Trial"
+            label = f"{objective_label or 'Objective'} · {statistic_label}"
+            if np.isfinite(values).any():
+                performance_trace, performance_shapes = _performance_cells(
+                    data, [i, j], values, [x_edges, y_edges], label, objective_optimize
+                )
+                figure.add_trace(performance_trace)
+            else:
+                note = "No finite objective values for this parameter pair."
+        if note:
+            figure.add_annotation(
+                text=escape(note),
+                x=0,
+                y=1,
+                xref="paper",
+                yref="paper",
+                xanchor="left",
+                yanchor="top",
+                showarrow=False,
+                bgcolor="rgba(255,255,255,0.85)",
+                font=dict(size=11, color="#475569"),
+            )
+    if cell_coloring == "density":
+        coordinates = _cell_coordinates(data, [i, j], np.argwhere(grid >= 0), [x_edges, y_edges])
+        figure.add_trace(
+            go.Scatter(
+                x=coordinates[0],
+                y=coordinates[1],
+                mode="markers",
+                marker=dict(size=20, opacity=0),
+                customdata=grid.ravel(),
+                hovertemplate="Trials per cell: %{customdata}<extra></extra>",
+                showlegend=False,
+            )
+        )
+    if trial_markers != "none":
+        elite_set = set(elite_indices or [])
+        selected = [
+            position
+            for position, index in enumerate(indices)
+            if trial_markers == "all" or index in elite_set
+        ]
         figure.add_trace(
             go.Scattergl(
                 x=[x_values[position] for position in selected],
                 y=[y_values[position] for position in selected],
                 mode="markers",
-                name="Elite trials",
-                marker=dict(
-                    size=10,
-                    symbol="diamond",
-                    color="#f59e0b",
-                    line=dict(color="#92400e", width=1),
+                name="Elite trials" if trial_markers == "elites" else "Trials",
+                marker=(
+                    dict(
+                        size=10,
+                        symbol="diamond",
+                        color="#f59e0b",
+                        line=dict(color="#92400e", width=1),
+                    )
+                    if trial_markers == "elites"
+                    else dict(size=6, opacity=0.85, color="#3730a3")
                 ),
+                customdata=[
+                    [
+                        str(data.values[indices[p]][x]),
+                        str(data.values[indices[p]][y]),
+                        int(indices[p]) + 1,
+                    ]
+                    for p in selected
+                ],
                 hoverinfo="none",
             )
         )
     _pair_figure(figure, x, y)
     figure.update_layout(plot_bgcolor="#ffffff", paper_bgcolor="#ffffff")
-    figure.update_layout(shapes=_scatter_cell_shapes(grid, x_edges, y_edges, highlight_empty))
+    figure.update_layout(
+        shapes=(
+            _cell_tiles(
+                grid,
+                [x_edges, y_edges],
+                highlight_empty,
+                performance_shapes if cell_coloring == "performance" else None,
+            )
+            if cell_coloring != "none"
+            else _scatter_cell_shapes(grid, x_edges, y_edges, highlight_empty)
+        )
+    )
     figure.update_xaxes(**x_options)
     figure.update_yaxes(**y_options)
     for update_axis in (figure.update_xaxes, figure.update_yaxes):
@@ -1071,31 +1363,35 @@ def _scatter(
             title_font=dict(color="#334155"),
         )
     pair = next((p for p in (result or {}).get("pairs", []) if {p["x"], p["y"]} == {x, y}), None)
-    metrics = (
-        html.Aside(
-            [
-                _metric(
-                    PAIR_METRICS[key],
-                    (
-                        _number(pair.get(key), key in ("occupancy", "empty_cell_rate"))
-                        if pair.get(key) is not None
-                        else "No joint observations" if not len(indices) else "No reference samples"
-                    ),
-                )
-                for key in PAIR_METRICS
-            ],
-            className="coverage-pair-metrics",
-        )
-        if pair
-        else None
+    if pair is None:
+        pair = {
+            "occupancy": np.count_nonzero(grid) / grid.size,
+            "empty_cell_rate": np.count_nonzero(grid == 0) / grid.size,
+        }
+    metrics = html.Aside(
+        [
+            _metric(
+                PAIR_METRICS[key],
+                (
+                    _number(pair.get(key), key in ("occupancy", "empty_cell_rate"))
+                    if pair.get(key) is not None
+                    else "No joint observations" if not len(indices) else "No reference samples"
+                ),
+            )
+            for key in PAIR_METRICS
+        ],
+        className="coverage-pair-metrics",
+    )
+    sidebar = html.Aside(
+        [metrics, _cell_legend(cell_coloring, highlight_empty, performance_trace)],
+        className="coverage-pair-sidebar",
     )
     return _pair_panel(
         f"{x} × {y}" + (f" · {elite_label}" if elite_label else ""),
         None,
         html.Div(
-            [_pair_graph(figure), metrics],
-            className="coverage-pair-plot-row coverage-pair-scatter"
-            + (" coverage-pair-scatter--with-metrics" if pair else ""),
+            [_pair_graph(figure), sidebar],
+            className="coverage-pair-plot-row coverage-pair-scatter",
         ),
     )
 

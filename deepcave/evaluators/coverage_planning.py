@@ -16,6 +16,7 @@ from deepcave.evaluators.coverage import CoverageData, _python
 from deepcave.evaluators.coverage_state import CoverageState as _CoverageState
 
 PLANNING_VERSION = 1
+TRIAL_ESTIMATE_VERSION = 1
 MAX_GROUPS = 10_000
 MAX_TUPLES = 5_000_000
 MAX_PROJECTIONS = 20_000_000
@@ -76,6 +77,61 @@ def planning_source_error(run: Any) -> Optional[str]:
     if space.conditions or space.forbidden_clauses:
         return "Planning supports independent search spaces without conditions or constraints."
     return None
+
+
+def estimate_coverage_trials(
+    data: CoverageData, observed: Dict[str, Any], seed: int = 0
+) -> Dict[str, Any]:
+    """Attach cached, bounded next-strength estimates inside an explicit worker job."""
+    if observed.get("trial_estimate_version") == TRIAL_ESTIMATE_VERSION:
+        return observed
+    dimensions = len(observed["parameters"])
+    rows = []
+    for row in observed["rows"]:
+        current = row["observed_strength"]
+        target = current + 1 if current < dimensions else None
+        estimate: Dict[str, Any] = {
+            "target_strength": target,
+            "trials": None,
+            "optimality_proven": False,
+            "status": "Unavailable",
+        }
+        if row["strength_is_lower_bound"]:
+            estimate["target_strength"] = None
+            estimate["reason"] = "Current strength is only a lower bound; next target is unknown."
+        elif target is None:
+            estimate.update(trials=0, optimality_proven=True, status="Completed")
+        else:
+            try:
+                if target == dimensions:
+                    # Full-strength gaps each require exactly one trial; no search is needed.
+                    spec = CoverageSpec(data, row["resolution"])
+                    count = prod(spec.sizes) - len({tuple(point) for point in spec.points})
+                    estimate.update(trials=count, optimality_proven=True, status="Completed")
+                else:
+                    plan = generate_coverage_trial_plan(
+                        data,
+                        {
+                            "strategy": "minimize_trials",
+                            "resolution": row["resolution"],
+                            "strength_mode": "custom",
+                            "target_strength": target,
+                            "solver_timeout": 1.0,
+                            "seed": seed,
+                        },
+                    )
+                    estimate.update(
+                        trials=len(plan["trials"]) if plan["target_complete"] else None,
+                        optimality_proven=plan["optimality_proven"],
+                        status="Completed" if plan["target_complete"] else "Incomplete",
+                        lower_bound_trials=plan["lower_bound_trials"],
+                        proposed_trials=len(plan["trials"]),
+                        reason=plan["termination_reason"],
+                    )
+            except ValueError as error:
+                estimate["reason"] = str(error)
+        rows.append({**row, "trial_estimate": estimate})
+    return {**observed, "rows": rows, "trial_estimate_version": TRIAL_ESTIMATE_VERSION}
 
 
 class CoverageState(_CoverageState):

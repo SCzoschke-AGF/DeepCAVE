@@ -7,7 +7,6 @@ from itertools import combinations
 from math import prod
 
 import dash_bootstrap_components as dbc
-import plotly.graph_objects as go
 from dash import dash_table, dcc, html
 
 from deepcave.evaluators.combinatorial import RESOLUTIONS
@@ -21,26 +20,20 @@ def strength_options(next_strength: Any = None, maximum: Any = None) -> list:
     return [
         {
             "label": html.Span(
-                [html.Strong(label), html.Small(description)],
+                [html.Strong(label)],
                 className="coverage-planning-choice",
             ),
             "value": value,
         }
-        for value, label, description in (
+        for value, label in (
             (
                 "next",
                 "Reach next strength" + (f" (t = {next_strength})" if next_strength else ""),
-                (
-                    f"Close remaining gaps to reach strength {next_strength}."
-                    if next_strength
-                    else "Close remaining gaps at the next interaction order."
-                ),
             ),
-            ("custom", "Reach custom strength", "Choose which interaction order to cover."),
+            ("custom", "Reach custom strength"),
             (
                 "maximum",
                 "Reach maximum strength" + (f" (t = {maximum})" if maximum else ""),
-                "Full discretized search-space coverage.",
             ),
         )
     ]
@@ -97,7 +90,7 @@ def planning_panel() -> Any:
                 [
                     html.Section(
                         [
-                            html.H5("1. Coverage resolution"),
+                            html.H5("1. Choose parameter resolution"),
                             html.P("Choose how parameter values are discretized."),
                             dbc.RadioItems(
                                 id=_id("planning-resolution"),
@@ -115,7 +108,7 @@ def planning_panel() -> Any:
                     ),
                     html.Section(
                         [
-                            html.H5("2. Coverage goal"),
+                            html.H5("2. Choose coverage goal"),
                             dcc.RadioItems(
                                 id=_id("planning-strength-mode"),
                                 options=strength_options(),
@@ -149,14 +142,16 @@ def planning_panel() -> Any:
             ),
             html.Section(
                 [
-                    html.H5("3. Optimization Goal"),
+                    html.H5("3. Determine concrete missing configurations to optimize coverage"),
                     dcc.RadioItems(
                         id=_id("planning-strategy"),
                         options=[
                             {
                                 "label": html.Span(
                                     [
-                                        html.Strong("Minimum budget (trials) required to reach the coverage goal"),
+                                        html.Strong(
+                                            "Find minimum trials required to reach the coverage goal"
+                                        ),
                                         html.Small(
                                             "Find a small set of configurations to reach the coverage goal."
                                         ),
@@ -168,7 +163,7 @@ def planning_panel() -> Any:
                             {
                                 "label": html.Span(
                                     [
-                                        html.Strong("Optimal coverage increase with a fixed budget (trials)"),
+                                        html.Strong("Optimize coverage with a fix trial budget"),
                                         html.Small(
                                             "Get the largest coverage improvement for a fixed budget."
                                         ),
@@ -256,44 +251,6 @@ def planning_panel() -> Any:
     )
 
 
-def _plan_trajectory(plan: Dict[str, Any]) -> Any:
-    """Keep the marginal-gain curve available for lower interaction strengths."""
-    trials = plan["trials"]
-    figure = go.Figure()
-    figure.add_scatter(
-        x=[0, len(trials)],
-        y=[plan["initial_coverage"]] * 2,
-        mode="lines",
-        name="Observed coverage",
-        line=dict(color="#64748b", dash="dash"),
-    )
-    figure.add_scatter(
-        x=list(range(len(trials) + 1)),
-        y=[plan["initial_coverage"]] + [trial["cumulative_coverage"] for trial in trials],
-        mode="lines+markers",
-        name="Projected coverage",
-        line=dict(color="#8661bd"),
-        hovertemplate="%{x} additional trials<br>%{y:.1%} coverage<extra></extra>",
-    )
-    figure.add_hline(y=1, line_dash="dot", line_color="#94a3b8")
-    figure.update_layout(
-        height=290,
-        margin=dict(l=55, r=20, t=25, b=45),
-        xaxis=dict(title="Additional trials", dtick=1 if len(trials) < 20 else None),
-        yaxis=dict(title="Coverage", tickformat=".0%", range=[0, 1.03]),
-        legend=dict(orientation="h", y=1.15),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-    )
-    return html.Details(
-        [
-            html.Summary("Show coverage gain by trial"),
-            dcc.Graph(figure=figure, config={"displaylogo": False}, responsive=True),
-        ],
-        className="coverage-plan-trajectory",
-    )
-
-
 def plan_view(plan: Dict[str, Any]) -> Any:
     """Explain the saved plan's outcome, proof and next action before technical details."""
     if not plan:
@@ -304,7 +261,6 @@ def plan_view(plan: Dict[str, Any]) -> Any:
     count = len(trials)
     strength = plan["target_strength"]
     parameters = plan["search_space"]["parameters"]
-    dimensions = len(parameters)
     total = sum(
         prod(len(parameter["levels"]) for parameter in group)
         for group in combinations(parameters, strength)
@@ -313,6 +269,11 @@ def plan_view(plan: Dict[str, Any]) -> Any:
     remaining = plan["missing_tuples_after"]
     observed = total - missing
     added = missing - remaining
+    segments = (
+        ("observed", "Already covered configurations", observed, 0),
+        ("added", "Newly covered configurations", added, observed),
+        ("remaining", "Missing configurations", remaining, observed + added),
+    )
     complete = plan["target_complete"]
     minimize = plan["strategy"] == "minimize_trials"
     minimum_proven = complete and plan["optimality_proven"] and count == plan["lower_bound_trials"]
@@ -325,47 +286,26 @@ def plan_view(plan: Dict[str, Any]) -> Any:
         return ">99.9%" if value > 0.999 else f"{value:.1%}"
 
     if not complete:
-        badge, outcome = "Target not reached", "incomplete"
+        outcome = "incomplete"
     elif plan["optimality_proven"]:
-        badge, outcome = "Optimal solution", "optimal"
+        outcome = "optimal"
     else:
-        badge, outcome = "Heuristic solution", "heuristic"
+        outcome = "heuristic"
+    trial_noun = "trial" if count == 1 else "trials"
     trial_metric = (
-        "Additional trials required" if minimum_proven else "Additional trials proposed",
+        f"Additional {trial_noun} required" if minimum_proven else f"Additional {trial_noun} proposed",
         f"{count:,}",
         (
             "Proven minimum"
             if minimum_proven
             else f"Known lower bound: {plan['lower_bound_trials']:,} trials"
         ),
-        "trials",
     )
-    coverage_metric = (
-        "Projected coverage",
-        f"{percent(plan['initial_coverage'])} → {percent(plan['projected_coverage'])}",
-        f"At target Strength {strength}",
-        "coverage",
-    )
-    if minimize:
-        metrics = [trial_metric, coverage_metric]
-    else:
+    if not minimize:
         budget = plan["max_additional_trials"]
-        metrics = [
-            coverage_metric,
-            (
-                "Additional trials used",
-                f"{count:,} / {budget:,}",
-                f"{count:,} of {budget:,} trial budget used",
-                "trials",
-            ),
-        ]
-    reasons = {
-        "target_reached": "The plan covers all combinations at the target strength.",
-        "budget_exhausted": "The additional trial budget has been reached.",
-        "timeout": "Search time elapsed; the validated proposals remain available.",
-        "trial_limit": "The planning limit of 1,000 additional trials has been reached.",
-        "no_gain_found": "The search found no further improvement; this is not an impossibility proof.",
-    }
+        trial_metric = (f"Additional {trial_noun} used", f"{count:,} / {budget:,}", None)
+    trial_label, trial_value, trial_hint = trial_metric
+    coverage_value = f"{percent(plan['initial_coverage'])} → {percent(plan['projected_coverage'])}"
     if not missing:
         explanation_title = "Target already covered"
         explanation = (
@@ -373,18 +313,7 @@ def plan_view(plan: Dict[str, Any]) -> Any:
             "No additional trials are needed."
         )
     elif not complete:
-        explanation_title = "Why was the target not reached?"
-        explanation = reasons[plan["termination_reason"]]
-        if plan["budget_target_impossible"]:
-            explanation += (
-                f" Full target coverage requires at least {plan['lower_bound_trials']:,} "
-                "additional trials, exceeding this budget."
-            )
-        else:
-            explanation += f" Known lower bound for full coverage: {plan['lower_bound_trials']:,} additional trials."
-        explanation += (
-            f" After successful execution, {remaining:,} combinations would still be missing."
-        )
+        explanation_title = explanation = None
     elif plan["optimality_proven"]:
         explanation_title = explanation = None
     else:
@@ -415,7 +344,6 @@ def plan_view(plan: Dict[str, Any]) -> Any:
                     html.Span(
                         [
                             html.Strong(f"{count:,} proposed configurations"),
-                            html.Small("Ready for execution · Not yet applied"),
                         ]
                     ),
                     html.Span("Show configurations →", className="coverage-plan-action"),
@@ -449,89 +377,69 @@ def plan_view(plan: Dict[str, Any]) -> Any:
     )
     return html.Article(
         [
-            html.Header(
-                [
-                    html.H4("Coverage Improvement Plan"),
-                    html.Span(
-                        ("✓ " if outcome == "optimal" else "") + badge,
-                        className=f"coverage-plan-badge coverage-plan-{outcome}",
-                    ),
-                ],
-                className="coverage-plan-heading",
-            ),
-            html.P(
-                f"Target: Strength {strength} / {dimensions} · {plan['resolution']} levels · "
-                + (
-                    "Minimum budget (trials) required to reach the coverage goal"
-                    if minimize
-                    else "Optimal coverage increase with a fixed budget (trials)"
-                ),
-                className="coverage-plan-target",
-            ),
             html.Div(
                 [
                     html.Div(
-                        [html.Small(label), html.Strong(value), html.Span(hint)],
-                        className=f"coverage-plan-metric coverage-plan-metric-{kind}",
-                    )
-                    for label, value, hint, kind in metrics
+                        [
+                            html.Strong(trial_value),
+                            html.Div(
+                                [
+                                    html.Small(trial_label),
+                                    html.Span(
+                                        trial_hint,
+                                        className="coverage-plan-proof" if minimum_proven else "",
+                                    ) if trial_hint else None,
+                                ],
+                                className="coverage-plan-metric-copy",
+                            ),
+                        ],
+                        className="coverage-plan-metric coverage-plan-metric-trials",
+                    ),
+                    html.Div(
+                        [html.Strong(coverage_value), html.Small("Projected coverage change")],
+                        className="coverage-plan-metric coverage-plan-metric-coverage",
+                    ),
                 ],
                 className="coverage-plan-metrics",
             ),
             html.Section(
                 [
-                    html.H5("Coverage breakdown"),
                     html.Div(
                         [
                             html.Span(
-                                className=f"coverage-plan-segment coverage-plan-segment-{kind}",
-                                style={"width": f"{100 * amount / total:.8g}%"},
+                                [label + ": ", html.Strong(f"{amount:,}")],
+                                className=f"coverage-plan-label coverage-plan-key-{kind}",
+                                **{"data-anchor": f"{100 * (offset + amount / 2) / total:.8g}"},
                             )
-                            for kind, amount in (
-                                ("observed", observed),
-                                ("added", added),
-                                ("remaining", remaining),
-                            )
-                        ],
-                        className="coverage-plan-bar",
-                        role="img",
-                        **{
-                            "aria-label": f"{observed:,} already covered; {added:,} covered by plan; "
-                            f"{remaining:,} remaining after successful execution. Total: {total:,}."
-                        },
-                    ),
-                    html.Div(
-                        [
-                            html.Span(
-                                f"Already covered: {observed:,}",
-                                className="coverage-plan-key-observed",
-                            ),
-                            html.Span(
-                                f"Covered by plan: {added:,}", className="coverage-plan-key-added"
-                            ),
+                            for kind, label, amount, offset in segments
+                            if amount > 0
                         ],
                         className="coverage-plan-legend",
                     ),
-                    html.Dl(
+                    html.Div(
                         [
                             html.Div(
-                                [html.Dt("Total possible combinations"), html.Dd(f"{total:,}")]
-                            ),
-                            html.Div(
                                 [
-                                    html.Dt("Remaining after successful execution"),
-                                    html.Dd(
-                                        f"{remaining:,}",
-                                        className=(
-                                            "coverage-plan-remaining"
-                                            if remaining
-                                            else "coverage-plan-complete"
-                                        ),
-                                    ),
-                                ]
+                                    html.Span(
+                                        className=f"coverage-plan-segment coverage-plan-segment-{kind}",
+                                        style={"width": f"{100 * amount / total:.8g}%"},
+                                    )
+                                    for kind, _, amount, _ in segments
+                                ],
+                                className="coverage-plan-bar",
+                                role="img",
+                                **{
+                                    "aria-label": f"{observed:,} already covered; {added:,} covered by plan; "
+                                    f"{remaining:,} remaining after successful execution. Total: {total:,}."
+                                },
                             ),
                         ],
-                        className="coverage-plan-counts",
+                        className="coverage-plan-track",
+                    ),
+                    html.Div(className="coverage-plan-brace", **{"aria-hidden": "true"}),
+                    html.Div(
+                        [html.Strong(f"{total:,}"), f" possible configurations at strength {strength}"],
+                        className="coverage-plan-total",
                     ),
                 ],
                 className="coverage-plan-breakdown",
@@ -544,7 +452,6 @@ def plan_view(plan: Dict[str, Any]) -> Any:
                 if explanation
                 else None
             ),
-            _plan_trajectory(plan) if strength < dimensions and trials else None,
             (
                 configuration_details
                 if trials

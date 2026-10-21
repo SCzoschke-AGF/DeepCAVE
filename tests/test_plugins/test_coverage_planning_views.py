@@ -51,19 +51,22 @@ def test_full_strength_summary_keeps_metrics_without_explanatory_text():
     plan = make_plan()
     view = plan_view(plan)
     summary = text(view)
-    assert "Coverage Improvement Plan" in summary and "Optimal solution" in summary
-    assert "Target: Strength 3 / 3 · 2 levels · Minimize additional trials" in summary
-    assert "Additional trials required 6 Proven minimum" in summary
-    assert "Projected coverage 25.0% → 100% At target Strength 3" in summary
-    assert "Already covered: 2" in summary and "Covered by plan: 6" in summary
-    assert "Total possible combinations 8" in summary
-    assert "Remaining after successful execution 0" in summary
+    assert "Coverage Improvement Plan" not in summary and "Optimal solution" not in summary
+    assert "Target: Strength" not in summary
+    assert view.children[0].className == "coverage-plan-metrics"
+    assert "6 Additional trials required Proven minimum" in summary
+    assert "25.0% → 100% Projected coverage change" in summary
+    assert "At target Strength" not in summary
+    assert "Already covered configurations:  2" in summary
+    assert "Newly covered configurations:  6" in summary
+    assert "Missing configurations" not in summary
+    assert "8  possible configurations at strength 3" in summary
     assert "Why is this optimal?" not in summary
     assert "Exactly 6 combinations are missing." not in summary
     assert "Observed coverage at target Strength" not in summary
     assert "Proposed improvement:" not in summary
     assert "Observed coverage is unchanged" not in summary
-    assert "Ready for execution · Not yet applied" in summary
+    assert "Ready for execution · Not yet applied" not in summary
     children = list(components(view))
     details = next(c for c in children if isinstance(c, html.Details))
     assert "6 proposed configurations" in text(details.children[0])
@@ -75,31 +78,94 @@ def test_full_strength_summary_keeps_metrics_without_explanatory_text():
     assert [segment.style["width"] for segment in bar.children] == ["25%", "75%", "0%"]
 
 
-def test_lower_strength_heuristic_shows_bound_and_optional_trajectory():
+def test_coverage_breakdown_counts_match_the_reference_example():
+    plan = make_plan(dimensions=4, strength=4, strategy="maximize_coverage", budget=1)
+    for parameter, size in zip(plan["search_space"]["parameters"], [4, 4, 4, 60]):
+        parameter["levels"] = list(range(size))
+    plan.update(
+        initial_coverage=2595 / 3840,
+        projected_coverage=3469 / 3840,
+        missing_tuples_before=1245,
+        missing_tuples_after=371,
+    )
+    view = plan_view(plan)
+    summary = text(view)
+    assert "67.6% → 90.3% Projected coverage change" in summary
+    assert "Already covered configurations:  2,595" in summary
+    assert "Newly covered configurations:  874" in summary
+    assert "Missing configurations:  371" in summary
+    assert "3,840  possible configurations at strength 4" in summary
+    children = list(components(view))
+    bar = next(c for c in children if getattr(c, "className", None) == "coverage-plan-bar")
+    assert [float(segment.style["width"][:-1]) for segment in bar.children] == pytest.approx(
+        [100 * count / 3840 for count in [2595, 874, 371]]
+    )
+    assert "Total: 3,840" in bar.to_plotly_json()["props"]["aria-label"]
+    labels = [
+        c for c in children if "coverage-plan-label " in getattr(c, "className", "")
+    ]
+    assert [float(label.to_plotly_json()["props"]["data-anchor"]) for label in labels] == pytest.approx(
+        [100 * center / 3840 for center in [2595 / 2, 2595 + 874 / 2, 2595 + 874 + 371 / 2]]
+    )
+
+
+def test_almost_full_coverage_anchors_labels_to_segments_and_omits_zero_missing():
+    plan = make_plan(dimensions=6, strength=6, rows=list(product([0, 1], repeat=6))[:-1])
+    assert plan["missing_tuples_before"] == 1 and plan["missing_tuples_after"] == 0
+    labels = [
+        c for c in components(plan_view(plan))
+        if "coverage-plan-label " in getattr(c, "className", "")
+    ]
+    assert [label.className for label in labels] == [
+        "coverage-plan-label coverage-plan-key-observed",
+        "coverage-plan-label coverage-plan-key-added",
+    ]
+    assert [float(label.to_plotly_json()["props"]["data-anchor"]) for label in labels] == pytest.approx(
+        [49.21875, 99.21875]
+    )
+    assert "Missing configurations" not in text(plan_view(plan))
+
+
+def test_tiny_segments_keep_labels_attached_to_actual_segments():
+    plan = make_plan(dimensions=6, strength=6, strategy="maximize_coverage", budget=1)
+    for parameter, size in zip(plan["search_space"]["parameters"], [8, 8, 8, 8, 8, 6]):
+        parameter["levels"] = list(range(size))
+    plan.update(
+        initial_coverage=297 / 196608, projected_coverage=1297 / 196608,
+        missing_tuples_before=196311, missing_tuples_after=195311,
+    )
+    children = list(components(plan_view(plan)))
+    labels = [c for c in children if "coverage-plan-label " in getattr(c, "className", "")]
+    assert [float(label.to_plotly_json()["props"]["data-anchor"]) for label in labels] == pytest.approx(
+        [100 * center / 196608 for center in [297 / 2, 297 + 1000 / 2, 1297 + 195311 / 2]]
+    )
+    assert [label.className.rsplit("-", 1)[-1] for label in labels] == ["observed", "added", "remaining"]
+    assert not any("coverage-plan-connectors" in getattr(c, "className", "") for c in children)
+
+
+def test_lower_strength_heuristic_shows_bound_without_trajectory():
     plan = make_plan(dimensions=4, strength=2, rows=[])
     assert plan["target_complete"] and not plan["optimality_proven"]
     view = plan_view(plan)
     summary = text(view)
-    assert "Heuristic solution" in summary
+    assert "Heuristic solution" not in summary
     assert "Known lower bound: 4 trials" in summary
     assert "A smaller plan may exist" in summary
     assert "Proven minimum" not in summary and "at most one new combination" not in summary
-    assert "Total possible combinations 24" in summary
-    trajectory = next(
-        c for c in components(view) if getattr(c, "className", None) == "coverage-plan-trajectory"
-    )
-    assert not getattr(trajectory, "open", False)
-    assert any(isinstance(c, dcc.Graph) for c in components(trajectory))
+    assert "24  possible configurations at strength 2" in summary
+    assert "Show coverage gain by trial" not in summary
+    assert not any(isinstance(c, dcc.Graph) for c in components(view))
 
 
-def test_lower_strength_optimality_keeps_badge_without_explanation():
+def test_lower_strength_optimality_keeps_proven_minimum_without_header():
     plan = make_plan(strength=2, rows=[(0, 0, 0), (0, 1, 1), (1, 0, 1)])
     assert plan["optimality_proven"] and len(plan["trials"]) == 1
     summary = text(plan_view(plan))
-    assert "Optimal solution" in summary
+    assert "Optimal solution" not in summary
     assert "Why is this optimal?" not in summary
     assert "no smaller plan is possible" not in summary
     assert "Proven minimum" in summary
+    assert "1 Additional trial required Proven minimum" in summary
 
 
 def test_budget_strategy_emphasizes_coverage_without_claiming_minimum_trials():
@@ -109,24 +175,25 @@ def test_budget_strategy_emphasizes_coverage_without_claiming_minimum_trials():
     metrics = next(
         c for c in components(view) if getattr(c, "className", None) == "coverage-plan-metrics"
     )
-    assert text(metrics.children[0]).startswith("Projected coverage 0.0% → 100%")
-    assert f"{len(plan['trials'])} of 20 trial budget used" in text(metrics.children[1])
-    assert "Optimal solution" in text(view)
+    assert text(metrics.children[1]).startswith("0.0% → 100% Projected coverage change")
+    assert f"{len(plan['trials'])} / 20 Additional trials used" in text(metrics.children[0])
+    assert "trial budget used" not in text(view)
+    assert "Optimal solution" not in text(view)
     assert "Why is this optimal?" not in text(view)
     assert "No plan can achieve higher coverage" not in text(view)
     assert "Proven minimum" not in text(view)
 
 
 @pytest.mark.parametrize(
-    "reason,explanation",
+    "reason",
     [
-        ("budget_exhausted", "exceeding this budget"),
-        ("timeout", "Search time elapsed"),
-        ("trial_limit", "planning limit of 1,000 additional trials"),
-        ("no_gain_found", "not an impossibility proof"),
+        "budget_exhausted",
+        "timeout",
+        "trial_limit",
+        "no_gain_found",
     ],
 )
-def test_incomplete_plans_explain_the_limit_and_projected_remaining_gaps(reason, explanation):
+def test_incomplete_plans_show_remaining_gaps_without_explanation(reason):
     plan = make_plan(strategy="maximize_coverage", budget=1)
     plan["termination_reason"] = reason
     if reason != "budget_exhausted":
@@ -135,13 +202,16 @@ def test_incomplete_plans_explain_the_limit_and_projected_remaining_gaps(reason,
         )
     view = plan_view(plan)
     summary = text(view)
-    assert "Target not reached" in summary
-    assert explanation in summary
-    assert "Remaining after successful execution 5" in summary
-    assert "5 combinations would still be missing" in summary
+    assert "Target not reached" not in summary
+    assert "Missing configurations:  5" in summary
+    assert "Why was the target not reached?" not in summary
+    assert "combinations would still be missing" not in summary
+    assert "The additional trial budget has been reached" not in summary
     assert "Optimal solution" not in summary and "Proven minimum" not in summary
     if reason != "budget_exhausted":
-        assert "Additional trials proposed" in summary
+        assert "Additional trial proposed" in summary
+    else:
+        assert "1 / 1 Additional trial used" in summary
 
 
 def test_already_covered_target_has_no_execution_action():
@@ -177,5 +247,5 @@ def test_incomplete_coverage_never_rounds_up_to_100_percent():
         missing_tuples_after=1,
     )
     summary = text(plan_view(plan))
-    assert "Projected coverage >99.9% → >99.9%" in summary
-    assert "Projected coverage 100" not in summary
+    assert ">99.9% → >99.9% Projected coverage change" in summary
+    assert "100%" not in summary

@@ -21,8 +21,12 @@ from ConfigSpace import (
 )
 
 from deepcave.evaluators import coverage_planning as planner
-from deepcave.evaluators.combinatorial import discretize_combinatorial
-from deepcave.evaluators.coverage import normalize_configurations, prepare_coverage
+from deepcave.evaluators.combinatorial import compute_combinatorial_coverage, discretize_combinatorial
+from deepcave.evaluators.coverage import (
+    normalize_configurations,
+    prepare_coverage,
+    run_coverage_analysis,
+)
 from deepcave.runs.converters.deepcave import DeepCAVERun
 from deepcave.runs.group import Group
 from deepcave.runs.objective import Objective
@@ -285,3 +289,77 @@ def test_large_space_missing_tuple_candidates_make_reproducible_positive_progres
         planner.generate_coverage_trial_plan(data, request(max_additional_trials=3, seed=3)) == plan
     )
     assert_coverage_trajectory(data, plan)
+
+
+def test_trial_estimates_use_a_complete_heuristic_plan_and_preserve_observed_counts(monkeypatch):
+    data = binary_data([(0, 0, 0), (1, 1, 1)])
+    observed = compute_combinatorial_coverage(data)
+    original = deepcopy(observed)
+    result = planner.estimate_coverage_trials(data, observed)
+    assert observed == original
+    assert result["trial_estimate_version"] == planner.TRIAL_ESTIMATE_VERSION
+    for row in result["rows"]:
+        estimate = row["trial_estimate"]
+        assert estimate["target_strength"] == 2
+        assert estimate["status"] == "Completed"
+        # Three trials suffice analytically; the heuristic need not find the minimum.
+        assert 3 <= estimate["trials"] <= 6
+        assert estimate["lower_bound_trials"] == 2
+        assert not estimate["optimality_proven"]
+    json.dumps(result, allow_nan=False)
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Cached estimates must not repeat the search")
+
+    monkeypatch.setattr(planner, "generate_coverage_trial_plan", unexpected)
+    assert planner.estimate_coverage_trials(data, result) is result
+
+
+@pytest.mark.parametrize("complete,expected", [(False, 2), (True, 0)])
+def test_full_strength_trial_estimates_are_exact_without_search(monkeypatch, complete, expected):
+    rows = list(product([0, 1], repeat=2)) if complete else [(0, 0), (0, 0), (1, 1)]
+    data = binary_data(rows, dimensions=2)
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Full-strength gaps and covered targets need no heuristic search")
+
+    monkeypatch.setattr(planner, "generate_coverage_trial_plan", unexpected)
+    result = planner.estimate_coverage_trials(data, compute_combinatorial_coverage(data))
+    for row in result["rows"]:
+        assert row["trial_estimate"]["trials"] == expected
+        assert row["trial_estimate"]["optimality_proven"]
+
+
+def test_trial_estimate_limit_does_not_return_an_insufficient_trial_count(monkeypatch):
+    data = binary_data([(0, 0, 0), (1, 1, 1)])
+    monkeypatch.setattr(planner, "MAX_ADDITIONAL_TRIALS", 1)
+    result = planner.estimate_coverage_trials(data, compute_combinatorial_coverage(data))
+    for row in result["rows"]:
+        estimate = row["trial_estimate"]
+        assert estimate["trials"] is None
+        assert estimate["status"] == "Incomplete"
+        assert estimate["proposed_trials"] == 1
+        assert estimate["reason"] == "trial_limit"
+
+
+def test_trial_estimates_report_work_limits_and_unknown_next_strength(monkeypatch):
+    data = binary_data([(0, 0, 0), (1, 1, 1)])
+    observed = compute_combinatorial_coverage(data)
+    observed["rows"][0]["strength_is_lower_bound"] = True
+    monkeypatch.setattr(planner, "MAX_GROUPS", 1)
+    result = planner.estimate_coverage_trials(data, observed)
+    for index, row in enumerate(result["rows"]):
+        estimate = row["trial_estimate"]
+        assert estimate["trials"] is None
+        assert estimate["status"] == "Unavailable"
+        assert ("next target is unknown" if index == 0 else "work limit") in estimate["reason"]
+
+
+@pytest.mark.parametrize("analysis", ["combinatorial", "combinatorial_baseline", "forecast"])
+def test_worker_populates_trial_estimates_for_coverage_and_forecast(analysis):
+    data = binary_data([(0, 0), (1, 1)], dimensions=2)
+    options = {"designs": 2} if analysis == "combinatorial_baseline" else {"simulations": 20}
+    result = run_coverage_analysis(analysis, data, data.configspace, options)
+    observed = result if analysis == "combinatorial" else result["observed"]
+    assert observed["trial_estimate_version"] == planner.TRIAL_ESTIMATE_VERSION
+    assert all(row["trial_estimate"]["trials"] == 2 for row in observed["rows"])

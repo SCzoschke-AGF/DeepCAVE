@@ -1007,8 +1007,14 @@ def run_coverage_analysis(
     """Dispatch exactly one explicitly requested worker job."""
     if analysis == "forecast":
         from deepcave.evaluators.coverage_forecast import compute_coverage_forecast
+        from deepcave.evaluators.coverage_planning import estimate_coverage_trials
 
-        return compute_coverage_forecast(data, options, observed)
+        result = compute_coverage_forecast(data, options, observed)
+        if result.get("observed"):
+            result["observed"] = estimate_coverage_trials(
+                data, result["observed"], options.get("seed", 0)
+            )
+        return result
     if analysis == "planning":
         from deepcave.evaluators.coverage_planning import generate_coverage_trial_plan
 
@@ -1018,10 +1024,21 @@ def run_coverage_analysis(
             compute_combinatorial_baseline,
             compute_combinatorial_coverage,
         )
+        from deepcave.evaluators.coverage_planning import estimate_coverage_trials
 
         if analysis == "combinatorial":
-            return compute_combinatorial_coverage(data)
-        return compute_combinatorial_baseline(data, configspace, **options)
+            return estimate_coverage_trials(data, compute_combinatorial_coverage(data))
+        result = compute_combinatorial_baseline(
+            data, configspace, **{key: value for key, value in options.items() if key != "forecast"}
+        )
+        result["observed"] = estimate_coverage_trials(data, result["observed"], options.get("seed", 0))
+        if "forecast" in options:
+            from deepcave.evaluators.coverage_forecast import compute_coverage_forecast
+
+            result["forecast"] = compute_coverage_forecast(
+                data, options["forecast"], result["observed"]
+            )
+        return result
     if analysis == "pairwise":
         references = sample_reference_design(
             configspace, options.get("reference_samples", PAIR_REFERENCES), options.get("seed", 0)

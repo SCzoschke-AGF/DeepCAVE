@@ -94,15 +94,22 @@ def test_combinatorial_settings_only_validate_consumed_controls():
         suite.analysis_options("combinatorial_baseline", 0, None, 7)
 
 
-def test_saved_baselines_without_medians_request_refresh_without_starting_jobs(
-    callbacks, tmp_path, run
+@pytest.mark.parametrize(
+    "field,label",
+    [
+        ("baseline_version", "Refresh to use the updated strength calculation"),
+        ("trial_estimate_version", "Refresh to compute heuristic trial estimates"),
+    ],
+)
+def test_saved_baselines_request_refresh_without_starting_jobs(
+    callbacks, tmp_path, run, field, label
 ):
     registered, queue, event = callbacks
     data = prepare_coverage(run)
     result = suite.SearchSpaceCoverage.process(
         run, {"analysis": "combinatorial_baseline", "designs": 2}
     )
-    result.pop("baseline_version")
+    (result["observed"] if field == "trial_estimate_version" else result).pop(field)
     suite.CoverageJobs(tmp_path, queue)._write(
         run.id,
         "combinatorial_baseline",
@@ -120,8 +127,8 @@ def test_saved_baselines_without_medians_request_refresh_without_starting_jobs(
     event.triggered_id = suite._id("tick")
     output = callback(0, 0, 1, {"run_id": run.id}, 2, 32, 0, None, run.id)
     assert output[0]["status"] == "stale"
-    assert output[1] == "Refresh to use the updated strength calculation"
-    assert output[2] == "Recompute"
+    assert output[1] == label
+    assert output[2] == "Refresh"
     assert not queue.calls
 
 
@@ -153,8 +160,8 @@ def test_combinatorial_profile_and_random_reference_are_view_only(callbacks, run
     assert "Measured trial data" not in text
     assert "Method & level definitions" in text
     assert "Random comparison" not in text
-    assert view[1] == "2 Parameters · 2 Trials"
-    assert view[2] == "Random baseline · 2 samples"
+    assert "Parameters ·" not in text
+    assert "Random baseline ·" not in text
     strength = selector.options[0]["label"].children[1].children[0]
     assert "Random strength:" in strength.title
     assert "Random strength:" not in visible_text(selector.options[0]["label"])
@@ -167,8 +174,8 @@ def test_combinatorial_profile_and_random_reference_are_view_only(callbacks, run
     other = callback({"run_id": "other"}, baseline)
     assert "Run combinatorial coverage" in visible_text(other)
     detail = next(c for c in registered if c.__name__ == "combinatorial_detail")
-    assert "Select a resolution" in visible_text(detail([], context, baseline)[0])
-    assert "Trial-count limit: t ≤ 1" in visible_text(detail([2], context, baseline)[0])
+    assert detail([], context, baseline)[0] is None
+    assert "Strength 2 · Coverage gaps" in visible_text(detail([2], context, baseline)[0])
     assert not queue.calls
 
 
@@ -178,10 +185,10 @@ def test_strength_profile_explains_next_strength_and_ranks_missing_groups(callba
     cell = {
         "strength": 2,
         "status": "computed",
-        "coverage": 238 / 240,
-        "covered": 238,
+        "coverage": 237 / 240,
+        "covered": 237,
         "total": 240,
-        "missing": 2,
+        "missing": 3,
         "complete_groups": 13,
         "groups": 15,
         "group_covered": [15 if i == 0 else 14 if i == 9 else 16 for i in range(15)],
@@ -227,8 +234,7 @@ def test_strength_profile_explains_next_strength_and_ranks_missing_groups(callba
     assert selector.value == []
     label = visible_text(selector.options[0]["label"])
     assert all(
-        text in label
-        for text in ["4 levels", "t = 1 /6", "max. feasible strength = 3", "t = 2", "99.2%"]
+        text in label for text in ["4 levels", "t = 1 /6", "max. feasible strength = 3", "98.8%"]
     )
     value = selector.options[0]["label"].children[1].children[0]
     assert value.children[0].children == "t = 1"
@@ -238,20 +244,22 @@ def test_strength_profile_explains_next_strength_and_ranks_missing_groups(callba
     assert "necessary, not sufficient" in selector.options[0]["label"].children[1].children[1].title
     assert "Random reference:" not in label
     columns = selector.options[0]["label"].children
-    assert len(columns) == 6
-    assert columns[4].children == "2"
-    assert columns[5].children == "4,096"
-    assert "maximum strength t = 6" in columns[5].title
-    assert visible_text(columns[2]) == "t = 2 99.2%"
-    assert "repetitions count once" in columns[4].title
+    assert len(columns) == 7
+    assert columns[4].children == "Not computed"
+    assert columns[5].children == "2"
+    assert columns[6].children == "4,096"
+    assert "maximum strength t = 6" in columns[6].title
+    assert visible_text(columns[2]).strip() == "98.8%"
+    assert "repetitions count once" in columns[5].title
     headers = profile.children[0].children[0]
     assert [column.children for column in headers.children] == [
         "Feature Binning",
         "Strength",
         "Coverage at next strength",
-        "Needed trials for next strength (80% prob.)",
+        "Needed random trials for next strength (prob. 80%)",
+        "Needed minimum trials for next strength",
         "Nr. observed configurations",
-        "Nr. possible configurations (total)",
+        "Nr. possible configurations (t=6)",
     ]
     assert "coverage-benchmark-track" not in str(profile)
     assert "Random 5–95%" not in visible_text(profile)
@@ -265,20 +273,53 @@ def test_strength_profile_explains_next_strength_and_ranks_missing_groups(callba
     entry = {"run_id": run.id, "result": {"observed": result}}
     diagnosis = detail([4], {"run_id": run.id}, entry)[0]
     text = visible_text(diagnosis)
-    assert "All combinations up to strength 1 are covered." in text
-    assert "99.2% of combinations are covered." in text
-    assert "are missing." not in text
-    assert "Trial-count limit: t ≤ 3" in text
-    overview = diagnosis.children[-1].children[2].children
-    table = overview.children[3]
-    rows = table.children[1].children
-    assert visible_text(rows[0].children[0]) == "c d"
-    assert visible_text(rows[1].children[0]) == "a b"
-    assert len(rows) == 5
-    assert "2 / 16 — 87.5% covered" in " ".join(visible_text(rows[0]).split())
-    assert "×" not in visible_text(table)
-    assert "Select a resolution" in visible_text(detail([8], {"run_id": run.id}, entry)[0])
+    assert "Strength 2 · Coverage gaps" in text
+    assert "2 of 15 parameter groups incomplete" in text
+    assert "All combinations up to strength" not in text
+    assert "Trial-count limit" not in text
+    overview = diagnosis.children.children[-1].children
+    rows = overview.children[2].children
+    assert visible_text(rows[0].children[0].children[0]) == "c d"
+    assert visible_text(rows[1].children[0].children[0]) == "a b"
+    assert len(rows) == 2
+    assert "2 / 16 87.5%" in " ".join(visible_text(rows[0]).split())
+    assert all(isinstance(row, html.Details) and not row.open for row in rows)
+    assert detail([8], {"run_id": run.id}, entry)[0] is None
     assert not queue.calls
+
+
+@pytest.mark.parametrize("proven,label", [(False, "≈ 3"), (True, "3")])
+def test_estimated_trials_distinguish_heuristic_plans_from_proven_minima(proven, label):
+    from deepcave.plugins.hyperparameter.combinatorial_views import _estimated_trials_cell
+
+    cell = _estimated_trials_cell(
+        {
+            "trial_estimate": {
+                "trials": 3,
+                "optimality_proven": proven,
+                "status": "Completed",
+            }
+        }
+    )
+    assert cell.children == label
+    assert ("smaller plan may exist" in cell.title) is not proven
+
+
+def test_incomplete_estimates_do_not_display_partial_trial_counts_as_sufficient():
+    from deepcave.plugins.hyperparameter.combinatorial_views import _estimated_trials_cell
+
+    cell = _estimated_trials_cell(
+        {
+            "trial_estimate": {
+                "trials": None,
+                "status": "Incomplete",
+                "proposed_trials": 10,
+                "reason": "timeout",
+            }
+        }
+    )
+    assert cell.children == "Incomplete"
+    assert "10 proposed trials do not close every gap" in cell.title
 
 
 def test_profile_counts_unique_full_configurations_at_each_binning_resolution():
@@ -297,9 +338,9 @@ def test_profile_counts_unique_full_configurations_at_each_binning_resolution():
     )
     profile = combinatorial_view(compute_combinatorial_coverage(data))
     options = profile.children[0].children[1].options
-    assert [option["label"].children[4].children for option in options] == ["2", "2", "3", "3"]
-    assert [option["label"].children[5].children for option in options] == ["4", "9", "16", "64"]
-    assert all(int(option["label"].children[4].children) <= data.count for option in options)
+    assert [option["label"].children[5].children for option in options] == ["2", "2", "3", "3"]
+    assert [option["label"].children[6].children for option in options] == ["4", "9", "16", "64"]
+    assert all(int(option["label"].children[5].children) <= data.count for option in options)
     assert "Nr. possible configurations (next strength)" not in visible_text(profile)
 
 
@@ -314,30 +355,32 @@ def test_coverage_array_rows_toggle_close_and_switch_without_starting_jobs(callb
         },
     }
     opened, values, previous = callback([2], context, entry)
-    assert "2 Levels — Detail" in visible_text(opened)
+    assert opened.to_plotly_json()["props"]["data-resolution"] == 2
+    assert "Strength 2 · Coverage gaps" in visible_text(opened)
     assert values == [2]
     switched, values, previous = callback([2, 4], context, entry, previous)
-    assert "4 Levels — Detail" in visible_text(switched)
+    assert switched.to_plotly_json()["props"]["data-resolution"] == 4
     assert values == [4]
     # Normalizing the selected row and refreshing results keep the same detail open.
     refreshed, values, previous = callback(values, context, entry, previous)
-    assert "4 Levels — Detail" in visible_text(refreshed)
+    assert refreshed.to_plotly_json()["props"]["data-resolution"] == 4
     assert values == [4]
     closed, values, previous = callback([], context, entry, previous)
-    assert "Select a resolution" in visible_text(closed)
+    assert closed is None
     assert values == []
     reopened, values, previous = callback([4], context, entry, previous)
-    assert "4 Levels — Detail" in visible_text(reopened)
+    assert reopened.to_plotly_json()["props"]["data-resolution"] == 4
     other_run, values, _ = callback(
         values, {"run_id": "other"}, {**entry, "run_id": "other"}, previous
     )
-    assert "Select a resolution" in visible_text(other_run)
+    assert other_run is None
     assert values == []
     assert not queue.calls
 
 
 def test_combinatorial_group_interactions_only_use_saved_results(callbacks, run, monkeypatch):
     from deepcave.evaluators import combinatorial as ccm
+    from deepcave.plugins.hyperparameter import combinatorial_groups as group_views
 
     space = ConfigurationSpace(space={name: (0.0, 1.0) for name in "abc"})
     data = normalize_configurations(space, [{"a": 0, "b": 0, "c": 0}, {"a": 1, "b": 1, "c": 1}] * 4)
@@ -345,7 +388,8 @@ def test_combinatorial_group_interactions_only_use_saved_results(callbacks, run,
     entry = {"run_id": run.id, "result": {"observed": result}}
     context = {"run_id": run.id}
     resolution = {"run_id": run.id, "resolution": 2}
-    registered, queue, event = callbacks
+    identity = {"type": suite._id("group-open"), "resolution": 2, "group": 0}
+    registered, queue, _ = callbacks
     filters = next(c for c in registered if c.__name__ == "combinatorial_groups")
     detail = next(c for c in registered if c.__name__ == "combinatorial_group_detail")
     paginate = next(c for c in registered if c.__name__ == "combinatorial_group_page")
@@ -356,31 +400,26 @@ def test_combinatorial_group_interactions_only_use_saved_results(callbacks, run,
     monkeypatch.setattr(ccm, "compute_combinatorial_coverage", unexpected)
     monkeypatch.setattr(ccm, "compute_combinatorial_baseline", unexpected)
     monkeypatch.setattr(suite, "_prepared", unexpected)
-    monkeypatch.setattr(suite, "missing_tuple_page", unexpected)
-    overview = filters(["a", "b"], "all", resolution, context, entry)
-    assert "2-parameter combinations analyzed 1" in visible_text(overview)
+    missing_tuple_page = group_views.missing_tuple_page
+    monkeypatch.setattr(group_views, "missing_tuple_page", unexpected)
+    overview = filters(["a", "b"], "all", [], resolution, context, entry)
+    assert "2 / 4 50.0%" in visible_text(overview)
     assert "Random" not in visible_text(overview)
-    event.triggered_id = {"type": suite._id("group-open"), "resolution": 2, "group": 0}
-    opened, selected = detail([1], ["a", "b"], "all", None, resolution, context, entry)
-    assert "4 possible · 2 observed · 2 missing" in visible_text(opened)
-    assert selected == {"run_id": run.id, "resolution": 2, "group": 0}
-    assert detail([2], [], 5, selected, resolution, context, entry) == ([], None)
-    event.triggered_id = suite._id("group-filter")
-    assert detail([1], ["c"], 5, selected, resolution, context, entry) == ([], None)
-    event.triggered_id = suite._id("group-limit")
-    assert detail([1], [], 10, selected, resolution, context, entry) == ([], None)
-    # The empty-click event emitted when rows are inserted must never load tuples.
-    event.triggered_id = {"type": suite._id("group-open"), "resolution": 2, "group": 0}
     with pytest.raises(PreventUpdate):
-        detail([0], [], 5, None, resolution, context, entry)
-    from deepcave.plugins.hyperparameter.combinatorial_groups import missing_tuple_page
+        detail(0, False, identity, resolution, context, entry)
 
-    monkeypatch.setattr(suite, "missing_tuple_page", missing_tuple_page)
-    page, tooltips = paginate(0, selected, context, entry)
+    monkeypatch.setattr(group_views, "missing_tuple_page", missing_tuple_page)
+    opened, content = detail(1, False, identity, resolution, context, entry)
+    assert opened
+    assert "Missing bin combinations" in visible_text(content)
+    assert content.children[1].columns == [{"id": "a", "name": "a"}, {"id": "b", "name": "b"}]
+    assert detail(2, True, identity, resolution, context, entry) == (False, None)
+    assert detail(1, False, identity, {"resolution": 4}, context, entry) == (False, None)
+    page, tooltips = paginate(0, identity, resolution, context, entry)
     assert page == [{"a": "[0, 0.5)", "b": "[0.5, 1]"}, {"a": "[0.5, 1]", "b": "[0, 0.5)"}]
     assert tooltips[0]["b"]["value"] == "[0.5, 1]"
     with pytest.raises(PreventUpdate):
-        paginate(0, selected, {"run_id": "other"}, entry)
+        paginate(0, identity, resolution, {"run_id": "other"}, entry)
     assert not queue.calls
 
 
@@ -396,7 +435,8 @@ def test_shared_coverage_refresh_updates_measurement_and_baseline_in_one_job(
     jobs._write(run.id, "combinatorial", {"result": old_result})
     context = {"run_id": run.id}
     render = next(c for c in registered if c.__name__ == "combinatorial_results")
-    assert render(context, None)[1] == "2 Parameters · 1 Trials"
+    old_profile = render(context, None)[0].children[0].children[1]
+    assert old_profile.options[0]["label"].children[5].children == "1"
     updates = [c for c in registered if c.__name__ == "update"]
     refresh = dict(zip(suite.UI_ANALYSES, updates))["combinatorial_baseline"]
     event.triggered_id = suite._id("combinatorial_baseline-run")
@@ -404,7 +444,8 @@ def test_shared_coverage_refresh_updates_measurement_and_baseline_in_one_job(
     assert started[3] is True
     assert len(queue.calls) == 1
     assert queue.calls[0]["analysis"] == "combinatorial_baseline"
-    assert render(context, started[0])[1] == "2 Parameters · 1 Trials"
+    running_profile = render(context, started[0])[0].children[0].children[1]
+    assert running_profile.options[0]["label"].children[5].children == "1"
     queue.finish(started[4]["job"]["id"])
     event.triggered_id = suite._id("tick")
     completed = refresh(1, 0, 2, context, 2, 32, 0, started[4], run.id)
@@ -412,11 +453,11 @@ def test_shared_coverage_refresh_updates_measurement_and_baseline_in_one_job(
     assert completed[2] == "Refresh"
     assert completed[0]["result"]["observed"]["trials"] == 2
     assert completed[0]["result"]["designs"] == 2
-    result, counts, label = render(context, completed[0])
-    assert counts == "2 Parameters · 2 Trials"
-    assert label == "Random baseline · 2 samples"
+    result, explanations = render(context, completed[0])
+    assert completed[0]["result"]["forecast"]["observed"] == completed[0]["result"]["observed"]
     assert "Coverage by resolution and interaction strength" not in visible_text(result)
-    assert "Method & level definitions" in visible_text(result)
+    assert "Method & level definitions" not in visible_text(result)
+    assert "Method & level definitions" in visible_text(explanations)
     assert len(queue.calls) == 1
 
 
@@ -429,19 +470,17 @@ def test_strength_profile_distinguishes_complete_uncomputed_and_trial_limits(run
     result = suite.SearchSpaceCoverage.process(run, {"analysis": "combinatorial"})
     result["rows"] = [result["rows"][0]]
     columns = combinatorial_view(result).children[0].children[1].options[0]["label"].children
-    assert [column.children for column in columns[4:6]] == ["2", "4"]
+    assert [column.children for column in columns[5:7]] == ["2", "4"]
     assert "at least" in columns[2].title
     text = visible_text(combinatorial_resolution_detail(result, 2))
-    assert "Full coverage at strength 2 requires more trials." in text
+    assert "1 of 1 parameter group incomplete" in text
     row = result["rows"][0]
     row["cells"][1]["status"] = "work_limit"
     row["strength_is_lower_bound"] = True
     view = combinatorial_view(result)
     label = visible_text(view.children[0].children[1].options[0]["label"])
     assert "t ≥ 1" in label and "…" in label
-    assert "Coverage at strength 2 has not been computed." in visible_text(
-        combinatorial_resolution_detail(result, 2)
-    )
+    assert "next strength is unknown" in visible_text(combinatorial_resolution_detail(result, 2))
     row["observed_strength"] = 2
     row["strength_is_lower_bound"] = False
     label = visible_text(combinatorial_view(result).children[0].children[1].options[0]["label"])
@@ -594,6 +633,7 @@ def callbacks(monkeypatch, tmp_path, run):
         return decorate
 
     queue = FakeQueue()
+
     class CallbackContext(SimpleNamespace):
         @property
         def triggered_prop_ids(self):
@@ -643,20 +683,22 @@ def test_each_button_is_the_only_start_trigger(callbacks, run):
         assert len(queue.calls) == index + 1
 
 
-def _forecast_call(callback, run, **overrides):
+def _coverage_refresh_call(callback, run, **overrides):
     values = dict(
-        clicks=0,
-        cancel=0,
-        tick=0,
+        n_clicks=0,
+        cancel_clicks=0,
+        _=0,
         context={"run_id": run.id, "fingerprint": prepare_coverage(run).fingerprint},
+        designs=2,
+        references=32,
+        seed=0,
+        previous=None,
+        active_run=run.id,
+        current=None,
         probability=0.8,
-        simulations=128,
+        simulations=32,
         max_trials=10000,
         timeout=30,
-        seed=0,
-        active_run=run.id,
-        previous=None,
-        current=None,
     )
     values.update(overrides)
     return callback(**values)
@@ -671,92 +713,87 @@ def _forecast_text(view):
     )
 
 
-def test_forecast_is_explicit_cached_and_reuses_matching_coverage(
+def test_refresh_computes_coverage_and_forecast_in_one_cached_job(
     callbacks, tmp_path, run, monkeypatch
 ):
     from deepcave.evaluators import coverage_forecast
 
     registered, queue, event = callbacks
-    callback = next(c for c in registered if c.__name__ == "forecast_job")
-    for trigger in (
-        "context",
-        "tick",
-        "seed",
-        "forecast-probability",
-        "forecast-simulations",
-        "tabs",
-    ):
+    updates = [c for c in registered if c.__name__ == "update"]
+    refresh = dict(zip(suite.UI_ANALYSES, updates))["combinatorial_baseline"]
+    for trigger in ("context", "tick", "seed", "forecast-probability", "tabs"):
         event.triggered_id = suite._id(trigger)
-        output = _forecast_call(callback, run, clicks=9)
+        output = _coverage_refresh_call(refresh, run, n_clicks=9)
         assert output[0]["status"] == "not_run"
         assert queue.calls == []
-    data = prepare_coverage(run)
-    baseline = suite.SearchSpaceCoverage.process(
-        run, {"analysis": "combinatorial_baseline", "designs": 2}
-    )
-    jobs = suite.CoverageJobs(tmp_path, queue)
-    entry = dict(
-        result=baseline,
-        fingerprint=data.fingerprint,
-        version=suite.VERSION,
-        options={"seed": 0, "designs": 2},
-        trial_count=data.count,
-    )
-    jobs._write(run.id, "combinatorial_baseline", entry)
-    event.triggered_id = suite._id("forecast-run")
-    started = _forecast_call(callback, run, clicks=1)
+
+    event.triggered_id = suite._id("combinatorial_baseline-run")
+    started = _coverage_refresh_call(refresh, run, n_clicks=1)
     assert started[3] is True and len(queue.calls) == 1
-    assert queue.calls[0]["analysis"] == "forecast"
+    assert started[1] == ""
+    assert queue.calls[0]["analysis"] == "combinatorial_baseline"
     job = next(iter(queue.jobs.values()))
-    assert job.args[-1] == baseline["observed"]
 
     def unexpected(*args, **kwargs):
-        pytest.fail("A matching saved coverage snapshot must be reused")
+        pytest.fail("The combined forecast must reuse its measured coverage snapshot")
 
     monkeypatch.setattr(coverage_forecast, "compute_combinatorial_coverage", unexpected)
     queue.finish(job.id)
     event.triggered_id = suite._id("tick")
-    finished = _forecast_call(callback, run, previous=started[4])
+    finished = _coverage_refresh_call(refresh, run, n_clicks=1, previous=started[4])
     assert finished[0]["status"] == "completed" and finished[3] is False
-    saved = suite.CoverageJobs(tmp_path, queue).read(run.id, "forecast")
-    assert saved["result"] == finished[0]["result"]
-    assert jobs.read(run.id, "combinatorial_baseline") == entry
+    assert finished[2] == "Refresh"
+    saved = suite.CoverageJobs(tmp_path, queue).read(run.id, "combinatorial_baseline")
+    result = saved["result"]
+    assert result == finished[0]["result"]
+    assert result["forecast"]["observed"] == result["observed"]
+    assert result["forecast"]["source_fingerprint"] == saved["fingerprint"]
+    assert result["forecast"]["probability_threshold"] == 0.8
+    assert result["forecast"]["simulations"] == 32
     render = next(c for c in registered if c.__name__ == "combinatorial_results")
-    context = {"run_id": run.id, "fingerprint": data.fingerprint}
-    view = render(context, {"run_id": run.id, **entry}, finished[0])[0]
-    text = _forecast_text(view)
-    assert "Needed trials for next strength (80% prob.)" in text
-    assert "Next · t=2" not in text and "Full · t=2" not in text
-    assert "probability of reaching 100% coverage" in text
-    changed = _forecast_call(callback, run, probability=0.95, previous=finished[4])
-    assert changed[0]["status"] == "stale" and len(queue.calls) == 1
-    assert "80%" in visible_text(render(context, {"run_id": run.id, **entry}, changed[0])[0])
-    monkeypatch.setattr(suite, "FORECAST_VERSION", suite.FORECAST_VERSION + 1)
-    assert _forecast_call(callback, run)[0]["status"] == "stale"
-
-
-def test_forecast_results_do_not_mix_different_histories(callbacks, tmp_path, run):
-    registered, queue, event = callbacks
-    callback = next(c for c in registered if c.__name__ == "forecast_job")
-    event.triggered_id = suite._id("forecast-run")
-    _forecast_call(callback, run, clicks=1)
-    queue.finish(next(iter(queue.jobs)))
-    event.triggered_id = suite._id("tick")
-    finished = _forecast_call(callback, run)
-    render = next(c for c in registered if c.__name__ == "combinatorial_results")
-    context = {"run_id": run.id}
-    # A forecast alone provides the same measured snapshot to the table and drilldowns.
-    forecast_view = render(context, {}, finished[0])[0]
-    cell = forecast_view.children[0].children[1].options[0]["label"].children[3]
+    view, explanations = render({"run_id": run.id}, finished[0])
+    assert "Needed random trials for next strength" in _forecast_text(view)
+    cell = view.children[0].children[1].options[0]["label"].children[3]
     assert isinstance(cell.children[0].children[0], html.Strong)
-    baseline = suite.SearchSpaceCoverage.process(
+    assert "probability of reaching 100% coverage" in visible_text(explanations)
+
+    changed = _coverage_refresh_call(refresh, run, probability=0.95, previous=finished[4])
+    assert changed[0]["status"] == "stale" and len(queue.calls) == 1
+    assert "80%" in visible_text(render({"run_id": run.id}, changed[0])[1])
+    monkeypatch.setattr(suite, "FORECAST_VERSION", suite.FORECAST_VERSION + 1)
+    assert _coverage_refresh_call(refresh, run)[0]["status"] == "stale"
+
+
+def test_combined_refresh_validates_forecast_controls_and_cancels_one_job(callbacks, run):
+    registered, queue, event = callbacks
+    updates = [c for c in registered if c.__name__ == "update"]
+    refresh = dict(zip(suite.UI_ANALYSES, updates))["combinatorial_baseline"]
+    event.triggered_id = suite._id("combinatorial_baseline-run")
+    invalid = _coverage_refresh_call(refresh, run, n_clicks=1, simulations=0)
+    assert invalid[3] is True and not queue.calls
+    started = _coverage_refresh_call(refresh, run, n_clicks=1)
+    assert started[3] is True and len(queue.jobs) == 1
+    event.triggered_id = suite._id("combinatorial_baseline-cancel")
+    cancelled = _coverage_refresh_call(
+        refresh, run, n_clicks=1, cancel_clicks=1, previous=started[4]
+    )
+    assert not queue.jobs and len(queue.calls) == 1
+    assert cancelled[4]["cancelled"]
+    assert cancelled[3] is False
+
+
+def test_combined_forecast_does_not_mix_different_histories(callbacks, run):
+    registered, _, _ = callbacks
+    result = suite.SearchSpaceCoverage.process(
         run, {"analysis": "combinatorial_baseline", "designs": 2}
     )
-    mismatched = dict(run_id=run.id, fingerprint="different-history", result=baseline)
-    text = _forecast_text(render(context, mismatched, finished[0])[0])
-    assert "Next ·" not in text and "Not computed" in text
-    invalid = _forecast_call(callback, run, simulations=0)
-    assert invalid[3] is True and len(queue.calls) == 1
+    result["forecast"] = suite.SearchSpaceCoverage.process(
+        run, {"analysis": "forecast", "simulations": 32}
+    )
+    result["forecast"]["source_fingerprint"] = "different-history"
+    render = next(c for c in registered if c.__name__ == "combinatorial_results")
+    entry = dict(run_id=run.id, fingerprint=prepare_coverage(run).fingerprint, result=result)
+    assert "Not computed" in _forecast_text(render({"run_id": run.id}, entry)[0])
 
 
 def test_forecast_api_uses_probability_and_simulation_settings(run):
@@ -838,10 +875,12 @@ def test_coverage_age_updates_do_not_replace_results_or_collapse_details(
     monkeypatch.setattr(suite, "time", lambda: 179)
     first = update(0, 0, 1, context, 2, 32, 0, None, run.id)
     assert first[0]["result"] == result
-    assert first[6] == "Updated just now"
+    assert first[1] == ""
+    assert first[6] == ""
     monkeypatch.setattr(suite, "time", lambda: 181)
     aged = update(0, 0, 2, context, 2, 32, 0, first[4], run.id, first[0])
-    assert aged[6] == "Updated 1 min ago"
+    assert aged[1] == ""
+    assert aged[6] == ""
     assert aged[0] is suite.no_update
     # An unchanged tick emits nothing, and genuinely new results still propagate.
     with pytest.raises(PreventUpdate):
@@ -1501,7 +1540,9 @@ def test_old_pairwise_metrics_are_not_relabelled_as_mmd(run):
 def test_scatter_shades_the_actual_empty_coverage_cells(run):
     data = prepare_coverage(run)
     result = compute_pairwise_coverage(data, bins=2, references=data)
-    figure = views._scatter(data, "x", "y", result).children[1].children[0].figure
+    figure = (
+        views._scatter(data, "x", "y", result, cell_coloring="none").children[1].children[0].figure
+    )
     empty = [shape for shape in figure.layout.shapes if shape.type == "rect"]
     assert (
         len(empty) == result["pairs"][0]["total_cells"] - result["pairs"][0]["occupied_cells"] == 2
@@ -1519,17 +1560,42 @@ def test_scatter_shades_the_actual_empty_coverage_cells(run):
     assert figure.data[0].hovertemplate is None
 
 
-def test_highlight_empty_cells_toggle_changes_only_shading_without_starting_jobs(callbacks, run):
+@pytest.mark.parametrize("cell_coloring", ["none", "density", "performance"])
+def test_highlight_empty_cells_toggle_changes_only_shading_without_starting_jobs(
+    callbacks, run, cell_coloring
+):
     registered, queue, _ = callbacks
+    run.get_objectives = lambda: [SimpleNamespace(name="Loss", optimize="lower")]
+    run.get_objective_id = lambda _: 0
+    for trial, cost in zip(run.history, (0.5, 0.2)):
+        trial.costs = [cost]
     callback = next(callback for callback in registered if callback.__name__ == "scatter")
-    enabled = callback({"run_id": run.id}, "x", "y", None, True).children[1].children[0].figure
-    disabled = callback({"run_id": run.id}, "x", "y", None, False).children[1].children[0].figure
-    assert any(shape.type == "rect" for shape in enabled.layout.shapes)
-    assert all(shape.type == "line" for shape in disabled.layout.shapes)
-    assert [shape.to_plotly_json() for shape in enabled.layout.shapes if shape.type == "line"] == [
-        shape.to_plotly_json() for shape in disabled.layout.shapes
-    ]
-    assert enabled.data[0].to_plotly_json() == disabled.data[0].to_plotly_json()
+    enabled = (
+        callback({"run_id": run.id}, "x", "y", None, True, cell_coloring=cell_coloring)
+        .children[1]
+        .children[0]
+        .figure
+    )
+    disabled = (
+        callback({"run_id": run.id}, "x", "y", None, False, cell_coloring=cell_coloring)
+        .children[1]
+        .children[0]
+        .figure
+    )
+    if cell_coloring == "none":
+        assert any(shape.type == "rect" for shape in enabled.layout.shapes)
+        assert all(shape.type == "line" for shape in disabled.layout.shapes)
+        assert [s for s in enabled.layout.shapes if s.type == "line"] == list(
+            disabled.layout.shapes
+        )
+    else:
+        for on, off in zip(enabled.layout.shapes, disabled.layout.shapes):
+            assert on.path == off.path
+            if on.fillcolor == views.CELL_DENSITY_LEVELS[0][2]:
+                assert off.fillcolor == "#f4f5f7"
+            else:
+                assert on == off
+    assert enabled.data == disabled.data
     assert enabled.layout.height == disabled.layout.height
     assert not queue.calls
 
@@ -1571,7 +1637,8 @@ def test_elite_trial_quantile_includes_ties_and_handles_missing_objectives(run):
     assert suite._elite_trials(run, 0.1)[0] == []
 
 
-def test_elite_highlight_changes_only_scatter_styling_without_starting_jobs(callbacks, run):
+@pytest.mark.parametrize("cell_coloring", ["none", "density", "performance"])
+def test_elite_markers_show_only_elites_without_starting_jobs(callbacks, run, cell_coloring):
     registered, queue, _ = callbacks
     objective = SimpleNamespace(name="Loss", optimize="lower")
     run.get_objectives = lambda: [objective]
@@ -1579,20 +1646,440 @@ def test_elite_highlight_changes_only_scatter_styling_without_starting_jobs(call
     for trial, cost in zip(run.history, (0.5, 0.2)):
         trial.costs = [cost]
     callback = next(callback for callback in registered if callback.__name__ == "scatter")
-    disabled = callback({"run_id": run.id}, "x", "y", None, True, False, 0.1)
-    enabled = callback({"run_id": run.id}, "x", "y", None, True, True, 0.1)
+    disabled = callback({"run_id": run.id}, "x", "y", None, True, cell_coloring=cell_coloring)
+    enabled = callback(
+        {"run_id": run.id},
+        "x",
+        "y",
+        None,
+        True,
+        cell_coloring=cell_coloring,
+        trial_markers="elites",
+    )
     base = disabled.children[1].children[0].figure
     highlighted = enabled.children[1].children[0].figure
-    assert len(base.data) == 1 and len(highlighted.data) == 2
-    assert list(highlighted.data[1].x) == [0.75]
-    assert list(highlighted.data[1].y) == [0.25]
-    assert highlighted.data[1].marker.symbol == "diamond"
-    assert all(trace.hoverinfo == "none" for trace in highlighted.data)
-    assert list(highlighted.data[0].x) == list(base.data[0].x)
+    assert len(base.data) == len(highlighted.data)
+    assert list(highlighted.data[-1].x) == [0.75]
+    assert list(highlighted.data[-1].y) == [0.25]
+    assert highlighted.data[-1].marker.symbol == "diamond"
+    assert highlighted.data[-1].hoverinfo == "none"
+    assert list(base.data[-1].x) == [0.25, 0.75]
     assert [shape.to_plotly_json() for shape in highlighted.layout.shapes] == [
         shape.to_plotly_json() for shape in base.layout.shapes
     ]
     assert "best 10% (Loss)" in enabled.children[0].children
+    assert not queue.calls
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("optimize", ["lower", "upper"])
+def test_cell_performance_aggregates_trials_and_preserves_scatter(
+    callbacks, run, reverse, optimize
+):
+    registered, queue, _ = callbacks
+    objective = SimpleNamespace(name="Score", optimize=optimize)
+    run.get_objectives = lambda: [objective, SimpleNamespace(name="Time")]
+    run.get_objective_id = lambda _: 0
+    configs = [{"x": x, "y": y} for x, y in [(0, 0), (1, 0), (0, 1), (0, 0)]]
+    run.get_config = lambda index: configs[index]
+    run.history = [
+        SimpleNamespace(config_id=i, status=Status.SUCCESS, costs=[cost], budget=1, seed=0)
+        for i, cost in enumerate([0.0, 2.0, 4.0, 2.0])
+    ]
+    # Failed trials and missing/nonfinite costs must not shift objective/point alignment.
+    run.history.insert(
+        1, SimpleNamespace(config_id=0, status=Status.FAILED, costs=[999], budget=1, seed=0)
+    )
+    for cost in (None, np.nan, np.inf):
+        run.history.append(
+            SimpleNamespace(config_id=0, status=Status.SUCCESS, costs=[cost], budget=1, seed=0)
+        )
+    callback = next(callback for callback in registered if callback.__name__ == "scatter")
+    x, y = ("y", "x") if reverse else ("x", "y")
+    base = (
+        callback({"run_id": run.id}, x, y, None, True, cell_coloring="none")
+        .children[1]
+        .children[0]
+        .figure
+    )
+    enabled = (
+        callback({"run_id": run.id}, x, y, None, True, cell_coloring="performance")
+        .children[1]
+        .children[0]
+        .figure
+    )
+    performance, scatter = enabled.data
+    first = 0 if optimize == "lower" else 2
+    expected = [first, 2, 4] if reverse else [first, 4, 2]
+    assert performance.type == "scatter" and scatter.type == "scattergl"
+    assert performance.name == "Score · Best Trial"
+    assert not enabled.layout.annotations
+    np.testing.assert_allclose(performance.customdata, expected)
+    fills = [s for s in enabled.layout.shapes if s.fillcolor.startswith("rgb")]
+    assert len(fills) == 3
+    assert all(shape.type == "path" and shape.layer == "below" for shape in fills)
+    colors = views.sample_colorscale(
+        "Viridis_r" if optimize == "lower" else "Viridis",
+        [(value - first) / (4 - first) for value in expected],
+    )
+    assert [shape.fillcolor for shape in fills] == colors
+    assert scatter.to_plotly_json() == base.data[0].to_plotly_json()
+    assert enabled.layout.xaxis == base.layout.xaxis
+    assert enabled.layout.yaxis == base.layout.yaxis
+    assert enabled.layout.height == base.layout.height
+    assert enabled.layout.margin == base.layout.margin
+    assert performance.marker.showscale is False
+    elite = (
+        callback(
+            {"run_id": run.id},
+            x,
+            y,
+            None,
+            True,
+            cell_coloring="performance",
+            trial_markers="elites",
+        )
+        .children[1]
+        .children[0]
+        .figure
+    )
+    assert [trace.type for trace in elite.data] == ["scatter", "scattergl"]
+    assert elite.data[1].marker.symbol == "diamond"
+    unshaded = (
+        callback({"run_id": run.id}, x, y, None, False, cell_coloring="performance")
+        .children[1]
+        .children[0]
+        .figure
+    )
+    assert [s for s in unshaded.layout.shapes if s.fillcolor.startswith("rgb")] == fills
+    assert not queue.calls
+
+
+@pytest.mark.parametrize("computed", [False, True])
+def test_pair_plot_reserves_the_same_space_in_every_view(run, computed):
+    data = prepare_coverage(run)
+    result = compute_pairwise_coverage(data, bins=2, references=data) if computed else None
+    panels = [
+        views._scatter(
+            data,
+            "x",
+            "y",
+            result,
+            cell_coloring=coloring,
+            trial_markers=markers,
+            highlight_empty=highlight,
+            elite_indices=[1],
+            objective_values=[0.5, 0.2],
+            objective_label="Loss",
+        )
+        for coloring in ("none", "density", "performance")
+        for markers in ("none", "all", "elites")
+        for highlight in (False, True)
+        if (coloring, markers) != ("none", "none")
+    ]
+    base = panels[0].children[1].children[0]
+    for panel in panels:
+        graph = panel.children[1].children[0]
+        assert graph.style == base.style
+        assert graph.figure.layout.margin == base.figure.layout.margin
+        assert graph.figure.layout.xaxis == base.figure.layout.xaxis
+        assert graph.figure.layout.yaxis == base.figure.layout.yaxis
+        assert graph.figure.layout.height == base.figure.layout.height
+        assert graph.figure.layout.margin.b == 80
+        assert graph.figure.layout.margin.r == 15
+        assert panel.children[1].className == panels[0].children[1].className
+        assert visible_text(panel.children[1].children[1].children[0]) == (
+            visible_text(panels[0].children[1].children[1].children[0])
+        )
+
+
+@pytest.mark.parametrize("coloring", ["none", "density", "performance"])
+@pytest.mark.parametrize("markers", ["none", "all", "elites"])
+def test_scatter_layers_are_independent_and_cannot_both_be_disabled(run, coloring, markers):
+    panel = views._scatter(
+        prepare_coverage(run),
+        "x",
+        "y",
+        {"bins": 2},
+        cell_coloring=coloring,
+        trial_markers=markers,
+        elite_indices=[1],
+        objective_values=[0.5, 0.2],
+        objective_label="Loss",
+    )
+    figure = panel.children[1].children[0].figure
+    trials = [trace for trace in figure.data if trace.type == "scattergl"]
+    if markers == "all" or coloring == markers == "none":
+        assert len(trials) == 1
+        assert list(trials[0].x) == [0.25, 0.75]
+    elif markers == "elites":
+        assert len(trials) == 1
+        assert list(trials[0].x) == [0.75]
+        assert list(trials[0].customdata[0]) == ["0.75", "0.25", 2]
+        assert trials[0].marker.symbol == "diamond"
+    else:
+        assert not trials
+    metrics, legend = panel.children[1].children[1].children
+    assert all(label in visible_text(metrics) for label in views.PAIR_METRICS.values())
+    if coloring == "none":
+        assert visible_text(legend) == ""
+        assert all(shape.type != "path" for shape in figure.layout.shapes)
+    else:
+        assert len(figure.layout.shapes) == 4
+        assert all(shape.type == "path" for shape in figure.layout.shapes)
+        expected = "Trials per cell" if coloring == "density" else "Cell performance"
+        assert expected in visible_text(legend)
+
+
+@pytest.mark.parametrize(
+    "coloring,markers", [("density", "all"), ("none", "all"), ("density", "none")]
+)
+def test_toolbar_disables_only_the_empty_combination(callbacks, coloring, markers):
+    registered, queue, _ = callbacks
+    callback = next(callback for callback in registered if callback.__name__ == "scatter_options")
+    cells, trials = callback(coloring, markers)
+    assert [option["disabled"] for option in cells] == [markers == "none", False, False]
+    assert [option["disabled"] for option in trials] == [coloring == "none", False, False]
+    assert not queue.calls
+
+
+@pytest.mark.parametrize("indices", [[], [99]])
+def test_elites_without_matching_trials_do_not_fall_back_to_all(run, indices):
+    figure = (
+        views._scatter(
+            prepare_coverage(run),
+            "x",
+            "y",
+            cell_coloring="none",
+            trial_markers="elites",
+            elite_indices=indices,
+        )
+        .children[1]
+        .children[0]
+        .figure
+    )
+    assert len(figure.data) == 1
+    assert list(figure.data[0].x) == []
+
+
+def test_cell_performance_aligns_log_integer_and_conditional_coordinates():
+    space = ConfigurationSpace()
+    mode = CategoricalHyperparameter("mode", ["on", "off"])
+    x = UniformFloatHyperparameter("x", 1, 100, log=True)
+    y = UniformIntegerHyperparameter("y", 13, 17)
+    space.add([mode, x, y, EqualsCondition(x, mode, "on")])
+    data = normalize_configurations(
+        space,
+        [
+            {"mode": "off", "y": 13},
+            {"mode": "on", "x": 1, "y": 13},
+            {"mode": "on", "x": 100, "y": 13},
+            {"mode": "on", "x": 1, "y": 17},
+        ],
+    )
+    figure = (
+        views._scatter(
+            data,
+            "x",
+            "y",
+            objective_values=[999, 0, 1, 1],
+            objective_label="Loss",
+            cell_coloring="performance",
+        )
+        .children[1]
+        .children[0]
+        .figure
+    )
+    np.testing.assert_allclose(figure.data[0].customdata, [0, 1, 1])
+    assert figure.layout.xaxis.range == (0, 1)
+    assert figure.layout.yaxis.range == (12.5, 17.5)
+    assert len([s for s in figure.layout.shapes if s.fillcolor.startswith("rgb")]) == 3
+    assert list(figure.data[1].x) == [0, 1, 0]
+
+
+def test_cell_performance_supports_grouped_categorical_and_integer_cells():
+    space = ConfigurationSpace()
+    space.add(
+        [
+            CategoricalHyperparameter("kind", ["a", "b", "c"], weights=[1, 2, 3]),
+            UniformIntegerHyperparameter("depth", 13, 17, meta={"step": 2}),
+        ]
+    )
+    data = normalize_configurations(
+        space,
+        [
+            {"kind": "a", "depth": 13},
+            {"kind": "a", "depth": 15},
+            {"kind": "b", "depth": 13},
+            {"kind": "c", "depth": 17},
+        ],
+    )
+    figure = (
+        views._scatter(
+            data,
+            "kind",
+            "depth",
+            {"bins": 2},
+            objective_values=[1, 3, 5, 7],
+            cell_coloring="performance",
+        )
+        .children[1]
+        .children[0]
+        .figure
+    )
+    np.testing.assert_allclose(figure.data[0].customdata, [1, 7])
+    assert figure.layout.xaxis.range == (-0.5, 2.5)
+    assert figure.layout.yaxis.range == (12, 18)
+    assert list(figure.data[1].x) == ["a", "a", "b", "c"]
+    assert figure.layout.xaxis.type == "category"
+
+
+@pytest.mark.parametrize("costs", [[1, 1, 1], [1, None, np.nan], [None, np.nan, np.inf]])
+def test_cell_performance_handles_constant_sparse_and_missing_values(costs):
+    space = ConfigurationSpace(space={"x": (0.0, 1.0), "y": (0.0, 1.0)})
+    data = normalize_configurations(space, [{"x": 0.25, "y": 0.75}] * 3)
+    panel = views._scatter(data, "x", "y", objective_values=costs, cell_coloring="performance")
+    figure = panel.children[1].children[0].figure
+    if costs[0] is None:
+        assert len(figure.data) == 1
+        assert "No finite objective values" in figure.layout.annotations[0].text
+    else:
+        assert len(figure.data) == 2
+        np.testing.assert_allclose(figure.data[0].customdata, [1])
+        assert figure.data[0].marker.cmin < 1 < figure.data[0].marker.cmax
+
+
+def test_density_layer_shows_legend_and_current_coverage(callbacks, run):
+    registered, queue, _ = callbacks
+    configs = [{"x": x, "y": y} for x, y in [(0.25, 0.25), (0.25, 0.75), (0.75, 0.75)]]
+    run.get_config = lambda index: configs[index]
+    run.history = [
+        SimpleNamespace(config_id=index, status=Status.SUCCESS, budget=1, seed=seed)
+        for index, count in enumerate([1, 2, 4])
+        for seed in range(count)
+    ]
+    entry = {"run_id": run.id, "version": suite.VERSION, "result": {"bins": 2, "pairs": []}}
+    callback = next(callback for callback in registered if callback.__name__ == "scatter")
+    arguments = ({"run_id": run.id}, "x", "y", entry, True)
+    original = callback(*arguments, cell_coloring="none")
+    cells = callback(*arguments, trial_markers="none")
+    figure = cells.children[1].children[0].figure
+    assert [shape.fillcolor for shape in figure.layout.shapes] == [
+        views.CELL_DENSITY_LEVELS[index][2] for index in [1, 2, 0, 3]
+    ]
+    assert all(shape.type == "path" and "Q" in shape.path for shape in figure.layout.shapes)
+    assert all(shape.xref == "x" and shape.yref == "y" for shape in figure.layout.shapes)
+    np.testing.assert_array_equal(figure.data[0].customdata, [1, 2, 0, 4])
+    assert len(figure.data) == 1
+    assert "Trials per cell" in figure.data[0].hovertemplate
+    legend = visible_text(cells.children[1].children[1])
+    for label in ["0 · Empty", "1 · Sparse", "2–3 · Moderate", "4+ · Dense", "75.00%", "25.00%"]:
+        assert label in legend
+    base = original.children[1].children[0].figure
+    assert figure.layout.xaxis == base.layout.xaxis
+    assert figure.layout.yaxis == base.layout.yaxis
+    assert figure.layout.height == base.layout.height
+    restored = callback(*arguments, cell_coloring="none").children[1].children[0].figure
+    assert restored.to_plotly_json() == base.to_plotly_json()
+    unshaded = (
+        callback({"run_id": run.id}, "x", "y", entry, False, trial_markers="none")
+        .children[1]
+        .children[0]
+        .figure
+    )
+    assert unshaded.layout.shapes[2].fillcolor == "#f4f5f7"
+    assert not queue.calls
+
+
+@pytest.mark.parametrize("statistic", ["median", "best"])
+@pytest.mark.parametrize("optimize", ["lower", "upper"])
+def test_performance_layer_supports_aggregation_and_missing_objectives(statistic, optimize):
+    space = ConfigurationSpace(space={"x": (0.0, 1.0), "y": (0.0, 1.0)})
+    configs = [
+        {"x": 0.25, "y": 0.25},
+        {"x": 0.25, "y": 0.75},
+        {"x": 0.25, "y": 0.75},
+        {"x": 0.75, "y": 0.25},
+        {"x": 0.75, "y": 0.75},
+    ]
+    data = normalize_configurations(space, configs)
+    options = dict(
+        result={"bins": 2},
+        objective_values=[None, 1, 4, 5, 10],
+        objective_label="Score",
+        performance_statistic=statistic,
+        objective_optimize=optimize,
+    )
+    tiles = views._scatter(
+        data, "x", "y", cell_coloring="performance", trial_markers="none", **options
+    )
+    figure = tiles.children[1].children[0].figure
+    expected = 2.5 if statistic == "median" else 1 if optimize == "lower" else 4
+    np.testing.assert_allclose(figure.data[0].customdata, [expected, 5, 10])
+    assert len(figure.data) == 1
+    assert len(figure.layout.shapes) == 4
+    assert figure.layout.shapes[0].fillcolor == "#e7ecf0"
+    colors = views.sample_colorscale(
+        "Viridis_r" if optimize == "lower" else "Viridis", [0, (5 - expected) / (10 - expected), 1]
+    )
+    assert [shape.fillcolor for shape in figure.layout.shapes[1:]] == colors
+    legend = visible_text(tiles.children[1].children[1])
+    assert "Cell performance" in legend and "100.00%" in legend
+    assert "No objective" not in legend
+    assert "Score · " in legend
+    assert "coverage-cell-performance-scale" in str(tiles)
+    assert "Trials per cell" not in legend
+
+
+def test_cell_layer_preserves_grouped_categorical_and_integer_axes():
+    space = ConfigurationSpace()
+    space.add(
+        [
+            CategoricalHyperparameter("kind", ["a", "b", "c"]),
+            UniformIntegerHyperparameter("depth", 13, 17, meta={"step": 2}),
+        ]
+    )
+    data = normalize_configurations(
+        space,
+        [
+            {"kind": "a", "depth": 13},
+            {"kind": "a", "depth": 15},
+            {"kind": "b", "depth": 13},
+            {"kind": "c", "depth": 17},
+        ],
+    )
+    tiles = views._scatter(data, "kind", "depth", {"bins": 2}, trial_markers="none")
+    figure = tiles.children[1].children[0].figure
+    np.testing.assert_array_equal(figure.data[0].customdata, [3, 0, 0, 1])
+    assert figure.layout.xaxis.type == "category"
+    assert figure.layout.xaxis.categoryarray == ("a", "b", "c")
+    assert figure.layout.xaxis.range == (-0.5, 2.5)
+    assert figure.layout.yaxis.range == (12, 18)
+    assert "50.00%" in visible_text(tiles.children[1].children[1])
+
+
+def test_empty_cell_layer_displays_zero_coverage():
+    data = normalize_configurations(
+        ConfigurationSpace(space={"x": (0.0, 1.0), "y": (0.0, 1.0)}), []
+    )
+    tiles = views._scatter(data, "x", "y", trial_markers="none")
+    figure = tiles.children[1].children[0].figure
+    assert len(figure.layout.shapes) == 400
+    assert all(shape.fillcolor == views.CELL_DENSITY_LEVELS[0][2] for shape in figure.layout.shapes)
+    assert "0%" in visible_text(tiles.children[1].children[1])
+
+
+def test_cell_performance_explains_missing_objective(callbacks, run):
+    registered, queue, _ = callbacks
+    run.get_objectives = lambda: [SimpleNamespace(name="Time")]
+    callback = next(callback for callback in registered if callback.__name__ == "scatter")
+    figure = (
+        callback({"run_id": run.id}, "x", "y", None, True, cell_coloring="performance")
+        .children[1]
+        .children[0]
+        .figure
+    )
+    assert "No optimization objective" in figure.layout.annotations[0].text
     assert not queue.calls
 
 
@@ -1605,7 +2092,12 @@ def test_elite_overlay_keeps_only_joint_active_trials(run):
     configs = [{"kind": "a", "x": 0.25, "y": 0.75}, {"kind": "b", "y": 0.25}]
     run.get_config = lambda index: configs[index]
     data = prepare_coverage(run)
-    figure = views._scatter(data, "x", "y", elite_indices=[0, 1]).children[1].children[0].figure
+    figure = (
+        views._scatter(data, "x", "y", elite_indices=[0, 1], trial_markers="elites")
+        .children[1]
+        .children[0]
+        .figure
+    )
     assert list(figure.data[1].x) == [0.25]
     assert list(figure.data[1].y) == [0.75]
 
@@ -1624,7 +2116,12 @@ def test_scatter_discrete_cell_boundaries_match_support_grouping(run, categorica
     run.get_config = lambda index: configs[index]
     data = prepare_coverage(run)
     result = compute_pairwise_coverage(data, bins=2, references=data)
-    figure = views._scatter(data, "kind", "rate", result).children[1].children[0].figure
+    figure = (
+        views._scatter(data, "kind", "rate", result, cell_coloring="none")
+        .children[1]
+        .children[0]
+        .figure
+    )
     edges = [-0.5, 1.5, 2.5] if categorical else [12, 16, 18]
     empty = [shape for shape in figure.layout.shapes if shape.type == "rect"]
     assert {(shape.x0, shape.x1, shape.y0, shape.y1) for shape in empty} == {
@@ -1664,13 +2161,10 @@ def test_pairwise_figures_have_identical_vertical_domains_and_fixed_padding(run,
     scatter = views._scatter(data, "x", "y", result)
     assert scatter.className == "coverage-pair-panel"
     plot_row = scatter.children[1]
-    graph, metrics = plot_row.children
-    assert ("coverage-pair-scatter--with-metrics" in plot_row.className) is computed
-    if computed:
-        assert isinstance(metrics, html.Aside)
-        assert len(metrics.children) == 4
-    else:
-        assert metrics is None
+    graph, sidebar = plot_row.children
+    metrics = sidebar.children[0]
+    assert isinstance(metrics, html.Aside)
+    assert len(metrics.children) == 4
     assert graph.className == "coverage-pair-plot-row"
     assert graph.style["height"] == f"{matrix.layout.height}px"
     for layout in (matrix.layout, graph.figure.layout):
@@ -1891,7 +2385,7 @@ def test_dash_registers_callbacks_and_layout_contains_no_global_process(monkeypa
 
     visit(layout)
     assert len(ids) == len(set(ids))
-    assert sum(label == "Run analysis" for label in labels) == len(suite.UI_ANALYSES)
+    assert sum(label == "Run analysis" for label in labels) == len(suite.UI_ANALYSES) - 1
     assert not any("update-button" in name for name in ids)
     tabs = next(c for c in components if getattr(c, "id", None) == suite._id("tabs"))
     assert [tab.label for tab in tabs.children] == [
@@ -1907,11 +2401,18 @@ def test_dash_registers_callbacks_and_layout_contains_no_global_process(monkeypa
     refresh = next(
         c for c in components if getattr(c, "id", None) == suite._id("combinatorial_baseline-run")
     )
-    assert refresh.title == "Refresh coverage and random baseline"
+    assert refresh.title == "Refresh coverage, random baseline and trial forecasts"
+    assert refresh.children == "Refresh"
+    assert suite._id("forecast-run") not in ids
+    assert suite._id("combinatorial-profile-counts") not in ids
+    assert suite._id("combinatorial-baseline-label") not in ids
     assert ids.index(suite._id("combinatorial_baseline-run")) < ids.index(
         suite._id("combinatorial-result")
     )
     assert suite._id("combinatorial-baseline-result") not in ids
+    assert ids.index(suite._id("planning-result")) < ids.index(
+        suite._id("combinatorial-explanations")
+    )
     assert "CCM random comparison" not in labels
     assert "Coverage Array" in labels
     assert "Strength Profile" not in labels
@@ -1968,10 +2469,51 @@ def test_dash_registers_callbacks_and_layout_contains_no_global_process(monkeypa
     assert scatter_slot.children[0].id == suite._id("scatter")
     highlight_footer = scatter_slot.children[1]
     assert highlight_footer.className == "coverage-pair-scatter-footer"
-    assert [control.id for control in highlight_footer.children] == [
-        suite._id("highlight-empty-cells"),
-        suite._id("highlight-elite-trials"),
+    cell_control = highlight_footer.children[0].children[1]
+    marker_control = highlight_footer.children[1].children[1]
+    assert isinstance(cell_control, suite.dbc.RadioItems)
+    assert isinstance(marker_control, suite.dbc.RadioItems)
+    assert cell_control.id == suite._id("cell-coloring")
+    assert cell_control.value == "density"
+    assert cell_control.options == [
+        {"label": "None", "value": "none"},
+        {"label": "Density", "value": "density"},
+        {"label": "Performance", "value": "performance"},
     ]
+    assert marker_control.id == suite._id("trial-markers")
+    assert marker_control.value == "all"
+    assert marker_control.options == [
+        {"label": "None", "value": "none"},
+        {"label": "All", "value": "all"},
+        {"label": "Elites", "value": "elites"},
+    ]
+    toggle = highlight_footer.children[2]
+    assert isinstance(toggle, suite.dbc.Switch)
+    assert toggle.id == suite._id("highlight-empty-cells")
+    assert toggle.label == "Highlight empty cells"
+    assert toggle.value is True
+    assert toggle.className == "coverage-pair-highlight"
+    old_controls = {
+        suite._id(name)
+        for name in (
+            "pair-view",
+            "highlight-elite-trials",
+            "show-cell-performance",
+            "cell-performance-controls",
+        )
+    }
+    assert old_controls.isdisjoint(ids)
+    assert all(
+        item["id"] not in old_controls
+        for callback in app.callback_map.values()
+        for item in callback["inputs"]
+    )
+    assert suite._id("cell-performance-statistic") not in ids
+    assert all(
+        item["id"] != suite._id("cell-performance-statistic")
+        for callback in app.callback_map.values()
+        for item in callback["inputs"]
+    )
     elite_proportion = next(
         c for c in components if getattr(c, "id", None) == suite._id("elite-proportion")
     )
@@ -1989,10 +2531,10 @@ def test_dash_registers_callbacks_and_layout_contains_no_global_process(monkeypa
         "planning_controls",
         "planning_job",
         "planning_detail",
-        "forecast_job",
         "selectors",
         "marginal",
         "scatter",
+        "scatter_options",
         "update",
         "settings",
         "matrix",
@@ -2131,31 +2673,38 @@ def test_dash_http_updates_render_automatic_content_and_one_queued_analysis(
             (suite._id("forecast-timeout"), "value"): 30,
         }
     )
-    forecast_idle = post(suite._id("forecast-data"), controls, suite._id("context") + ".data")
-    assert forecast_idle[suite._id("forecast-data")]["data"]["status"] == "not_run"
+    coverage_idle = post(
+        suite._id("combinatorial_baseline-data"), controls, suite._id("context") + ".data"
+    )
+    assert coverage_idle[suite._id("combinatorial_baseline-data")]["data"]["status"] == "not_run"
     assert len(queue.calls) == 2
-    controls[(suite._id("forecast-run"), "n_clicks")] = 1
-    controls[(suite._id("forecast-view"), "data")] = forecast_idle[suite._id("forecast-view")][
-        "data"
-    ]
-    forecast_started = post(
-        suite._id("forecast-data"), controls, suite._id("forecast-run") + ".n_clicks"
+    controls[(suite._id("combinatorial_baseline-run"), "n_clicks")] = 1
+    controls[(suite._id("combinatorial_baseline-view"), "data")] = coverage_idle[
+        suite._id("combinatorial_baseline-view")
+    ]["data"]
+    coverage_started = post(
+        suite._id("combinatorial_baseline-data"),
+        controls,
+        suite._id("combinatorial_baseline-run") + ".n_clicks",
     )
     assert len(queue.calls) == 3
     queue.finish(next(iter(queue.jobs)))
-    controls[(suite._id("forecast-view"), "data")] = forecast_started[suite._id("forecast-view")][
-        "data"
-    ]
-    forecast_finished = post(
-        suite._id("forecast-data"), controls, suite._id("tick") + ".n_intervals"
+    controls[(suite._id("combinatorial_baseline-view"), "data")] = coverage_started[
+        suite._id("combinatorial_baseline-view")
+    ]["data"]
+    coverage_finished = post(
+        suite._id("combinatorial_baseline-data"), controls, suite._id("tick") + ".n_intervals"
     )
-    payload = forecast_finished[suite._id("forecast-data")]["data"]
+    payload = coverage_finished[suite._id("combinatorial_baseline-data")]["data"]
     assert payload["status"] == "completed"
-    controls[(suite._id("forecast-data"), "data")] = payload
+    assert payload["result"]["forecast"]["observed"] == payload["result"]["observed"]
+    controls[(suite._id("combinatorial_baseline-data"), "data")] = payload
     profile = post(
-        suite._id("combinatorial-result"), controls, suite._id("forecast-data") + ".data"
+        suite._id("combinatorial-result"),
+        controls,
+        suite._id("combinatorial_baseline-data") + ".data",
     )
-    assert "Needed trials for next strength" in str(profile)
+    assert "Needed random trials for next strength" in str(profile)
     assert "Next · t=2" not in visible_text(profile)
 
     # Dash can batch a button click with a timer tick or a control update. Recompute
@@ -2182,9 +2731,7 @@ def test_dash_http_updates_render_automatic_content_and_one_queued_analysis(
 
     controls[(suite._id("planning-view"), "data")] = complete[suite._id("planning-view")]["data"]
     controls[(suite._id("planning-run"), "n_clicks")] += 1
-    restarting = post(
-        suite._id("planning-data"), controls, suite._id("planning-run") + ".n_clicks"
-    )
+    restarting = post(suite._id("planning-data"), controls, suite._id("planning-run") + ".n_clicks")
     controls[(suite._id("planning-view"), "data")] = restarting[suite._id("planning-view")]["data"]
     controls[(suite._id("planning-cancel"), "n_clicks")] = 1
     calls_before = len(queue.calls)
@@ -2199,9 +2746,10 @@ def test_dash_http_updates_render_automatic_content_and_one_queued_analysis(
     )
     assert not queue.jobs and len(queue.calls) == calls_before
     assert cancelled[suite._id("planning-cancel")]["style"] == {"display": "none"}
-    assert cancelled[suite._id("planning-data")]["data"]["result"] == complete[
-        suite._id("planning-data")
-    ]["data"]["result"]
+    assert (
+        cancelled[suite._id("planning-data")]["data"]["result"]
+        == complete[suite._id("planning-data")]["data"]["result"]
+    )
 
 
 def _planner_call(callback, run, **overrides):
@@ -2318,7 +2866,7 @@ def test_planning_only_starts_on_explicit_button_and_persists_result(callbacks, 
     completed = _planner_call(callback, run, previous=started[6])
     assert completed[0]["status"] == "completed"
     assert completed[0]["result"]["target_complete"]
-    assert "Plan saved" in completed[1]
+    assert completed[1] == ""
     restored = suite.CoverageJobs(tmp_path, queue).read(run.id, "planning")
     assert restored["result"] == completed[0]["result"]
     assert prepare_coverage(run).count == 2
