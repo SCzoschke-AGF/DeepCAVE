@@ -1,0 +1,17 @@
+{
+  "source": "/home/sczoschke/projects/streamingmodel_NonRouterHHs/optuna.db",
+  "studies": [
+    {
+      "family": "xgboost",
+      "study_id": 1,
+      "study_name": "xgboost_data:4897daef3195_average_precision_v1_sampler:random_objective:cv_average_precision_mean_direction:maximize_modelseed:42_cvseed:42",
+      "wall_seconds": 38.30046174582094
+    },
+    {
+      "family": "catboost",
+      "study_id": 6,
+      "study_name": "catboost_data:ccffacbaefb5_phase1_average_precision_v1_sampler:random_objective:cv_average_precision_mean_direction:maximize_modelseed:42_cvseed:42",
+      "wall_seconds": 17.29737561685033
+    }
+  ]
+}

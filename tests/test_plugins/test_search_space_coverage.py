@@ -158,12 +158,12 @@ def test_combinatorial_profile_and_random_reference_are_view_only(callbacks, run
     assert "Trial-count" not in text
     assert "Coverage by resolution and interaction strength" not in text
     assert "Measured trial data" not in text
-    assert "Method & level definitions" in text
+    assert "Method & level definitions" not in text
     assert "Random comparison" not in text
     assert "Parameters ·" not in text
     assert "Random baseline ·" not in text
     strength = selector.options[0]["label"].children[1].children[0]
-    assert "Random strength:" in strength.title
+    assert "title" not in strength.to_plotly_json()["props"]
     assert "Random strength:" not in visible_text(selector.options[0]["label"])
     assert "Selected parameter group" not in text
     assert "Random strength distribution" not in text
@@ -175,12 +175,15 @@ def test_combinatorial_profile_and_random_reference_are_view_only(callbacks, run
     assert "Run combinatorial coverage" in visible_text(other)
     detail = next(c for c in registered if c.__name__ == "combinatorial_detail")
     assert detail([], context, baseline)[0] is None
-    assert "Strength 2 · Coverage gaps" in visible_text(detail([2], context, baseline)[0])
+    assert detail([2], context, baseline)[:2] == (None, [2])
     assert not queue.calls
 
 
 def test_strength_profile_explains_next_strength_and_ranks_missing_groups(callbacks, run):
-    from deepcave.plugins.hyperparameter.combinatorial_views import combinatorial_view
+    from deepcave.plugins.hyperparameter.combinatorial_views import (
+        combinatorial_resolution_detail,
+        combinatorial_view,
+    )
 
     cell = {
         "strength": 2,
@@ -233,15 +236,14 @@ def test_strength_profile_explains_next_strength_and_ranks_missing_groups(callba
     assert isinstance(selector, dcc.Checklist)
     assert selector.value == []
     label = visible_text(selector.options[0]["label"])
-    assert all(
-        text in label for text in ["4 levels", "t = 1 /6", "max. feasible strength = 3", "98.8%"]
-    )
+    assert all(text in label for text in ["4 levels", "t = 1 /6", "98.8%"])
+    assert "max. feasible strength" not in label
     value = selector.options[0]["label"].children[1].children[0]
     assert value.children[0].children == "t = 1"
     assert value.children[0].className == "coverage-strength-badge"
     assert value.children[1].children == "/6"
     assert value.children[1].className == "coverage-strength-total"
-    assert "necessary, not sufficient" in selector.options[0]["label"].children[1].children[1].title
+    assert len(selector.options[0]["label"].children[1].children) == 1
     assert "Random reference:" not in label
     columns = selector.options[0]["label"].children
     assert len(columns) == 7
@@ -253,25 +255,24 @@ def test_strength_profile_explains_next_strength_and_ranks_missing_groups(callba
     assert "repetitions count once" in columns[5].title
     headers = profile.children[0].children[0]
     assert [column.children for column in headers.children] == [
-        "Feature Binning",
-        "Strength",
+        "Parameter resolution",
+        "Achieved strength",
         "Coverage at next strength",
-        "Needed random trials for next strength (prob. 80%)",
-        "Needed minimum trials for next strength",
-        "Nr. observed configurations",
-        "Nr. possible configurations (t=6)",
+        "Random trials to next strength (80%)",
+        "Minimum plan trials",
+        "Observed configurations",
+        "Possible configurations",
     ]
     assert "coverage-benchmark-track" not in str(profile)
     assert "Random 5–95%" not in visible_text(profile)
-    advanced = profile.children[1]
-    assert isinstance(advanced, html.Details)
-    assert advanced.children[0].children == "Method & level definitions"
+    assert len(profile.children) == 1
+    assert "Method & level definitions" not in visible_text(profile)
     assert "Advanced Details" not in visible_text(profile)
-    assert not getattr(advanced, "open", False)
     registered, queue, _ = callbacks
     detail = next(c for c in registered if c.__name__ == "combinatorial_detail")
     entry = {"run_id": run.id, "result": {"observed": result}}
-    diagnosis = detail([4], {"run_id": run.id}, entry)[0]
+    assert detail([4], {"run_id": run.id}, entry)[:2] == (None, [4])
+    diagnosis = combinatorial_resolution_detail(result, 4)
     text = visible_text(diagnosis)
     assert "Strength 2 · Coverage gaps" in text
     assert "2 of 15 parameter groups incomplete" in text
@@ -355,21 +356,24 @@ def test_coverage_array_rows_toggle_close_and_switch_without_starting_jobs(callb
         },
     }
     opened, values, previous = callback([2], context, entry)
-    assert opened.to_plotly_json()["props"]["data-resolution"] == 2
-    assert "Strength 2 · Coverage gaps" in visible_text(opened)
+    assert opened is None
+    assert previous["resolution"] == 2
     assert values == [2]
     switched, values, previous = callback([2, 4], context, entry, previous)
-    assert switched.to_plotly_json()["props"]["data-resolution"] == 4
+    assert switched is None
+    assert previous["resolution"] == 4
     assert values == [4]
     # Normalizing the selected row and refreshing results keep the same detail open.
     refreshed, values, previous = callback(values, context, entry, previous)
-    assert refreshed.to_plotly_json()["props"]["data-resolution"] == 4
+    assert refreshed is None
+    assert previous["resolution"] == 4
     assert values == [4]
     closed, values, previous = callback([], context, entry, previous)
     assert closed is None
     assert values == []
     reopened, values, previous = callback([4], context, entry, previous)
-    assert reopened.to_plotly_json()["props"]["data-resolution"] == 4
+    assert reopened is None
+    assert previous["resolution"] == 4
     other_run, values, _ = callback(
         values, {"run_id": "other"}, {**entry, "run_id": "other"}, previous
     )
@@ -457,7 +461,7 @@ def test_shared_coverage_refresh_updates_measurement_and_baseline_in_one_job(
     assert completed[0]["result"]["forecast"]["observed"] == completed[0]["result"]["observed"]
     assert "Coverage by resolution and interaction strength" not in visible_text(result)
     assert "Method & level definitions" not in visible_text(result)
-    assert "Method & level definitions" in visible_text(explanations)
+    assert explanations == []
     assert len(queue.calls) == 1
 
 
@@ -484,7 +488,11 @@ def test_strength_profile_distinguishes_complete_uncomputed_and_trial_limits(run
     row["observed_strength"] = 2
     row["strength_is_lower_bound"] = False
     label = visible_text(combinatorial_view(result).children[0].children[1].options[0]["label"])
-    assert "All strengths covered" in label
+    assert "All strengths covered" not in label
+    assert (
+        "All strengths covered"
+        in combinatorial_view(result).children[0].children[1].options[0]["label"].children[2].title
+    )
 
 
 def test_normalized_data_and_marginals_are_reused(monkeypatch, run):
@@ -2281,9 +2289,9 @@ def test_overview_compares_defined_and_observed_ranges_with_compact_counts(run):
         "Sampler",
     ]
     details = overview.children[1]
-    assert details.children[0].children[1].children == "2 parameters · 1 continuous · 1 integer"
-    assert details.children[1].children == "No conditional parameters"
-    table = details.children[2]
+    assert isinstance(details, html.Div)
+    assert details.children[0].children == "No conditional parameters"
+    table = details.children[1]
     assert [column["id"] for column in table.columns] == [
         "parameter",
         "type",
@@ -2322,11 +2330,11 @@ def test_overview_only_shows_needed_optional_columns(run, conditional, categoric
     run.get_config = lambda index: configs[index]
     data = prepare_coverage(run)
     details = views._overview(data, compute_univariate_coverage(data), "Random").children[1]
-    table = details.children[2]
+    table = details.children[1]
     columns = [column["id"] for column in table.columns]
     assert ("conditional" in columns) == conditional
     assert ("probabilities" in columns) == categorical
-    assert (details.children[1] is None) == conditional
+    assert (details.children[0] is None) == conditional
     rows = {row["parameter"]: row for row in table.data}
     if conditional:
         assert rows["child"]["conditional"] is True
@@ -2415,11 +2423,26 @@ def test_dash_registers_callbacks_and_layout_contains_no_global_process(monkeypa
     )
     assert "CCM random comparison" not in labels
     assert "Coverage Array" in labels
+    global_layout = next(
+        c for c in components if getattr(c, "className", None) == "coverage-global-layout"
+    )
+    left, right = global_layout.children
+    assert left.className == "coverage-global-left"
+    assert left.children[0].className == "coverage-card coverage-profile-card"
+    assert left.children[1].className == "coverage-planning"
+    assert right.className == "coverage-card coverage-performance"
+    assert suite._id("performance-run") in tab_ids["global"]
     assert "Strength Profile" not in labels
-    for name in ("planning-strength-mode", "planning-strategy"):
+    for name in ("planning-resolution", "planning-strength-mode"):
         control = next(c for c in components if getattr(c, "id", None) == suite._id(name))
-        # These options include component labels, which dbc 1.0 cannot render.
-        assert isinstance(control, dcc.RadioItems)
+        assert isinstance(control, dcc.Dropdown)
+        assert not control.clearable and not control.searchable
+    strategy = next(
+        c for c in components if getattr(c, "id", None) == suite._id("planning-strategy")
+    )
+    assert isinstance(strategy, dcc.RadioItems)
+    assert strategy.value == "minimize_trials"
+    assert not any("Currently achieved" in label for label in labels)
     assert "Selected parameter group" not in labels
     radius_ids = {
         suite._id(name)
@@ -2524,13 +2547,15 @@ def test_dash_registers_callbacks_and_layout_contains_no_global_process(monkeypa
     assert all(suite._id(f"{analysis}-cancel") in ids for analysis in suite.UI_ANALYSES)
     assert "Coverage status" not in labels
     assert suite._id("coverage-status") not in ids
-    assert len(app.callback_map) == 26
+    assert len(app.callback_map) == 28
     assert {callback["callback"].__name__ for callback in app.callback_map.values()} == {
         "automatic",
         "planning_resolution",
         "planning_controls",
         "planning_job",
         "planning_detail",
+        "performance_job",
+        "performance_results",
         "selectors",
         "marginal",
         "scatter",
@@ -2663,7 +2688,7 @@ def test_dash_http_updates_render_automatic_content_and_one_queued_analysis(
     complete = post(suite._id("planning-data"), controls, suite._id("tick") + ".n_intervals")
     assert complete[suite._id("planning-data")]["data"]["result"]["projected_coverage"] == 1
     assert complete[suite._id("planning-run")]["disabled"] is False
-    assert "Projected coverage" in str(complete[suite._id("planning-result")])
+    assert "Planned coverage" in str(complete[suite._id("planning-result")])
 
     controls.update(
         {
@@ -2704,7 +2729,7 @@ def test_dash_http_updates_render_automatic_content_and_one_queued_analysis(
         controls,
         suite._id("combinatorial_baseline-data") + ".data",
     )
-    assert "Needed random trials for next strength" in str(profile)
+    assert "Random trials to next strength" in str(profile)
     assert "Next · t=2" not in visible_text(profile)
 
     # Dash can batch a button click with a timer tick or a control update. Recompute
@@ -2809,30 +2834,25 @@ def test_planning_controls_follow_strategy_goal_and_selected_resolution(callback
     }
     context = {"run_id": run.id}
     entry = {"run_id": run.id, "result": {"observed": result}}
-    budget_style, custom_style, disabled, metrics, options, maximum = callback(
+    budget_style, custom_style, disabled, options, maximum = callback(
         "maximize_coverage", "next", 3, context, entry, None
     )
     assert budget_style == {} and custom_style == {"display": "none"} and disabled
     assert maximum == 3
-    assert "t = 1 / 3" in visible_text(metrics)
-    assert "Next strength (t = 2)" in visible_text(metrics)
-    assert "97.7%" in visible_text(metrics)
-    assert "Based on" not in visible_text(metrics)
-    assert "Reach next strength (t = 2)" in visible_text(options[0]["label"])
-    assert "Reach maximum strength (t = 3)" in visible_text(options[2]["label"])
+    assert options[0]["label"] == "Next · t = 2"
+    assert options[2]["label"] == "Maximum · t = 3"
     hidden = callback("minimize_trials", "custom", 2, context, entry, None)
     assert hidden[:3] == ({"display": "none"}, {}, False)
-    assert "t = 3 / 3" in visible_text(hidden[3])
-    assert "All strengths covered" in visible_text(hidden[3])
+    assert hidden[3][0]["label"] == "Next strength"
+    assert hidden[3][2]["label"] == "Maximum · t = 3"
     # A different run's measurements must never appear in this run's controls.
     missing = callback("maximize_coverage", "maximum", 3, {"run_id": "other"}, entry, None)
-    assert "Awaiting coverage measurements" in visible_text(missing[3])
-    assert "97.7%" not in visible_text(missing[3])
+    assert missing[3][0]["label"] == "Next strength"
+    assert missing[4] is None
     result["rows"][0]["strength_is_lower_bound"] = True
     result["rows"][0]["cells"][0] = {"strength": 2, "status": "trial_limit"}
     censored = callback("maximize_coverage", "next", 3, context, entry, None)
-    assert "t ≥ 1 / 3" in visible_text(censored[3])
-    assert "97.7%" not in visible_text(censored[3])
+    assert censored[3][0]["label"] == "Next · t = 2"
     assert not queue.calls
 
 
@@ -2853,6 +2873,7 @@ def test_planning_only_starts_on_explicit_button_and_persists_result(callbacks, 
         event.triggered_id = suite._id(trigger)
         output = _planner_call(callback, run, clicks=1)
         assert output[0]["status"] == "not_run"
+        assert output[2] == "Compute Plan"
     assert queue.calls == []
     event.triggered_id = suite._id("planning-run")
     started = _planner_call(callback, run, clicks=1)
@@ -2867,6 +2888,7 @@ def test_planning_only_starts_on_explicit_button_and_persists_result(callbacks, 
     assert completed[0]["status"] == "completed"
     assert completed[0]["result"]["target_complete"]
     assert completed[1] == ""
+    assert completed[2] == "Compute Plan"
     restored = suite.CoverageJobs(tmp_path, queue).read(run.id, "planning")
     assert restored["result"] == completed[0]["result"]
     assert prepare_coverage(run).count == 2
@@ -2884,13 +2906,20 @@ def test_planning_settings_and_new_trials_mark_saved_plan_stale(callbacks, run):
     event.triggered_id = suite._id("planning-budget")
     stale = _planner_call(callback, run, budget=5, previous=completed[6])
     assert stale[0]["status"] == "stale"
+    assert stale[1] == ""
+    assert stale[2] == "Update Plan"
     assert stale[0]["result"] == completed[0]["result"]
     assert stale[5] is suite.no_update
+    current = _planner_call(callback, run, previous=stale[6])
+    assert current[0]["status"] == "completed"
+    assert current[1] == ""
+    assert current[2] == "Compute Plan"
     run.history.append(SimpleNamespace(config_id=0, status=Status.SUCCESS, seed=1, budget=1))
     run.latest_change = 2
     event.triggered_id = suite._id("context")
     updated = _planner_call(callback, run)
     assert updated[0]["status"] == "stale"
+    assert updated[2] == "Update Plan"
     assert len(queue.calls) == 1
 
 

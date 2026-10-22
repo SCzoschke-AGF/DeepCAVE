@@ -1,0 +1,113 @@
+{
+  "study_name": "catboost_data:ccffacbaefb5_phase1_average_precision_v1_sampler:random_objective:cv_average_precision_mean_direction:maximize_modelseed:42_cvseed:42",
+  "study_user_attrs": {
+    "cv_split_seed": 42,
+    "data_representation_sha256": "ccffacbaefb5fb3b55c759deb464e6b48e6e776242080f8ebdaf8b9236f33899",
+    "direction": "maximize",
+    "model_family": "catboost",
+    "model_seed": 42,
+    "objective_metric": "cv_average_precision_mean",
+    "sampler": "random"
+  },
+  "direction": "MAXIMIZE",
+  "seed": 42,
+  "sizes": [
+    100,
+    200,
+    500,
+    1000,
+    1600
+  ],
+  "repetitions": 5,
+  "n_folds": 5,
+  "good_fraction": 0.2,
+  "sampling": "SeedSequence([42, fold, repetition]); sorted permutation prefixes",
+  "ties": "training objectives and test scores: stable trial-number order",
+  "full_training_set": "one fit per method/fold; no duplicated repetitions",
+  "tpe": {
+    "adapter": "unchanged OptunaParzenAdapter",
+    "multivariate": true,
+    "weights": "uniform",
+    "prior_weight": 1.0,
+    "consider_prior": true,
+    "consider_magic_clip": true,
+    "consider_endpoints": false,
+    "split": "explicit shared ceil(0.2*n) good IDs; sampler gamma bypassed"
+  },
+  "kde": {
+    "fit": "unchanged fit_kde defaults, bounded_ml",
+    "discrete_initial": 0.5,
+    "timeout_per_group_seconds": 120,
+    "fallback": null
+  },
+  "kde_transforms": {
+    "depth": {
+      "kernel_type": "o",
+      "transform": "ordinal grid index (value-low)/step"
+    },
+    "iterations": {
+      "kernel_type": "o",
+      "transform": "ordinal grid index (value-low)/step"
+    },
+    "l2_leaf_reg": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "learning_rate": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    }
+  },
+  "versions": {
+    "optuna": "3.6.1",
+    "statsmodels": "0.14.6",
+    "numpy": "2.2.6",
+    "scipy": "1.15.3",
+    "matplotlib": "3.9.0"
+  },
+  "python": "3.10.19",
+  "platform": "Linux-6.14.0-34-generic-x86_64-with-glibc2.41",
+  "threads": {
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1"
+  },
+  "script_sha256": "aee73632758ca52cffb3c86e26587060eeb159638d9254a8f43fc430dba2b206",
+  "input_sha256": "38e484f7653fa46923761b604243f57ba75d57fad8518e19dc5e32a67b0d9c18",
+  "reference_oof": "docs/validation/tpe_kde/robustness/catboost/start_0.5/oof_scores.csv",
+  "uncertainty": "descriptive SD only; overlapping folds/repetitions are dependent",
+  "memory": "not measured; no per-method peak-memory claims",
+  "total_trials": 2000,
+  "finite_completed_trials": 2000,
+  "selected_trials": 2000,
+  "activity_audit": {
+    "depth": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"IntDistribution\", \"attributes\": {\"log\": false, \"step\": 1, \"low\": 5, \"high\": 9}}"
+      ]
+    },
+    "iterations": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"IntDistribution\", \"attributes\": {\"log\": false, \"step\": 100, \"low\": 300, \"high\": 1500}}"
+      ]
+    },
+    "l2_leaf_reg": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 1.0, \"high\": 20.0, \"log\": true}}"
+      ]
+    },
+    "learning_rate": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.005, \"high\": 0.08, \"log\": true}}"
+      ]
+    }
+  },
+  "excluded_parameters": [],
+  "constant_parameters": [],
+  "unique_configurations": 2000,
+  "subspace": "strict"
+}

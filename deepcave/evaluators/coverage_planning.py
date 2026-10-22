@@ -9,7 +9,6 @@ from math import prod
 from time import monotonic
 
 import numpy as np
-from ConfigSpace import Configuration
 
 from deepcave.evaluators.combinatorial import RESOLUTIONS, CoverageSpec
 from deepcave.evaluators.coverage import CoverageData, _python
@@ -227,21 +226,13 @@ def generate_coverage_trial_plan(data: CoverageData, options: Dict[str, Any]) ->
     validated = CoverageState(spec, strength)
     materializer = np.random.default_rng(options["seed"])
     trials = []
+    remaining = missing_before
     for point in selected:
-        parameters = spec.materialize(point, materializer)
-        Configuration(spec.configspace, values=parameters).check_valid_configuration()
-        for axis in spec.axes:
-            if axis.step is not None:
-                rank = (parameters[axis.name] - axis.hp.lower) / axis.step
-                if not np.isclose(rank, round(rank), rtol=0, atol=1e-7):
-                    raise ValueError(
-                        f"{axis.name}: proposed value does not respect the step lattice."
-                    )
-        encoded = spec.encode([parameters])[0]
+        parameters, encoded = spec.materialize(point, materializer)
         new = validated.add(encoded)
         if not len(new):
             continue
-        remaining = int(validated.missing.sum())
+        remaining -= len(new)
         closed = []
         for tuple_id in new[:20]:
             group = int(np.searchsorted(validated.offsets, tuple_id, side="right") - 1)
@@ -264,7 +255,6 @@ def generate_coverage_trial_plan(data: CoverageData, options: Dict[str, Any]) ->
                 "closed_combinations": closed,
             }
         )
-    remaining = int(validated.missing.sum())
     definition = spec.serialize()
     space_version = hashlib.sha256(
         json.dumps(

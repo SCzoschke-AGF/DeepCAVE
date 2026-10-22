@@ -142,8 +142,10 @@ class CoverageSpec:
             if axis.size is not None and axis.kind not in ("categorical", "ordinal")
         }
 
-    def materialize(self, point: np.ndarray, rng: np.random.Generator) -> Dict[str, Any]:
-        """Choose legal values within levels without modifying the search-space RNG."""
+    def materialize(
+        self, point: np.ndarray, rng: np.random.Generator
+    ) -> Tuple[Dict[str, Any], np.ndarray]:
+        """Return checked native values and their verified levels, using a local RNG."""
         values = dict(self.constants)
         for axis, size, level in zip(self.axes, self.sizes, point):
             level = int(level)
@@ -161,12 +163,19 @@ class CoverageSpec:
                 value = float(axis.hp.to_value(vector))
             values[axis.name] = value
         Configuration(self.configspace, values=values).check_valid_configuration()
+        for axis in self.axes:
+            if axis.step is not None:
+                rank = (values[axis.name] - axis.hp.lower) / axis.step
+                if not np.isclose(rank, round(rank), rtol=0, atol=1e-7):
+                    raise ValueError(
+                        f"{axis.name}: proposed value does not respect the step lattice."
+                    )
         actual = self.encode([values])[0]
         if not np.array_equal(actual, point):
             raise ValueError(
                 "A proposed configuration cannot realize its intended coverage levels."
             )
-        return values
+        return values, actual
 
     def encode(self, configurations: List[Dict[str, Any]]) -> np.ndarray:
         """Apply the original discretization to concrete configurations."""

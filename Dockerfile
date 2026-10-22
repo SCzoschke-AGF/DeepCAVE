@@ -7,12 +7,22 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY . /app
-
-RUN uv venv --python /usr/local/bin/python /app/.venv \
-    && uv pip install --python /app/.venv/bin/python -e '.[optuna]'
 
 ENV PATH="/app/.venv/bin:${PATH}"
+ENV UV_LINK_MODE=copy
+
+# Keep dependency installation cached when only application code changes.
+COPY requirements.txt .
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv venv --python /usr/local/bin/python /app/.venv \
+    && uv pip install --python /app/.venv/bin/python \
+        -r requirements.txt 'optuna==3.6.1'
+
+COPY . /app
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --python /app/.venv/bin/python \
+        --no-deps --no-build-isolation -e .
+
 EXPOSE 8050
 
 CMD ["uv", "run", "--no-sync", "deepcave", "--config", "configs/docker.py"]

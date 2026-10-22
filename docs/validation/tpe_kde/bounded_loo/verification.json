@@ -1,0 +1,162 @@
+{
+  "input_hash_matches_historical": true,
+  "oof_trials": 2000,
+  "fold_sizes": [
+    400,
+    400,
+    400,
+    400,
+    400
+  ],
+  "historical_score_check": {
+    "tpe_max_absolute_difference": 0.0,
+    "kde_reference_max_absolute_difference": 0.0
+  },
+  "successful_optimizations": 10,
+  "all_bounds_interior": true,
+  "all_loo_likelihoods_improved": true,
+  "all_deciles_verified_40_trials": true,
+  "spearman_verified_independently": true,
+  "native_statsmodels_loo_checks": [
+    {
+      "fold": 0,
+      "group": "good",
+      "stage": "initial",
+      "native_mean_loo_loglikelihood": -9.962788872351936,
+      "absolute_error": 1.7763568394002505e-15
+    },
+    {
+      "fold": 0,
+      "group": "good",
+      "stage": "final",
+      "native_mean_loo_loglikelihood": -9.417353241419262,
+      "absolute_error": 1.7763568394002505e-15
+    },
+    {
+      "fold": 0,
+      "group": "bad",
+      "stage": "initial",
+      "native_mean_loo_loglikelihood": -10.59447895098225,
+      "absolute_error": 3.552713678800501e-15
+    },
+    {
+      "fold": 0,
+      "group": "bad",
+      "stage": "final",
+      "native_mean_loo_loglikelihood": -10.238252380962992,
+      "absolute_error": 1.7763568394002505e-15
+    },
+    {
+      "fold": 1,
+      "group": "good",
+      "stage": "initial",
+      "native_mean_loo_loglikelihood": -10.046870023393652,
+      "absolute_error": 1.7763568394002505e-15
+    },
+    {
+      "fold": 1,
+      "group": "good",
+      "stage": "final",
+      "native_mean_loo_loglikelihood": -9.486682803629325,
+      "absolute_error": 3.552713678800501e-15
+    },
+    {
+      "fold": 1,
+      "group": "bad",
+      "stage": "initial",
+      "native_mean_loo_loglikelihood": -10.606938899504712,
+      "absolute_error": 0.0
+    },
+    {
+      "fold": 1,
+      "group": "bad",
+      "stage": "final",
+      "native_mean_loo_loglikelihood": -10.242937104230755,
+      "absolute_error": 1.7763568394002505e-15
+    },
+    {
+      "fold": 2,
+      "group": "good",
+      "stage": "initial",
+      "native_mean_loo_loglikelihood": -9.94382003273736,
+      "absolute_error": 1.7763568394002505e-15
+    },
+    {
+      "fold": 2,
+      "group": "good",
+      "stage": "final",
+      "native_mean_loo_loglikelihood": -9.416771443146235,
+      "absolute_error": 0.0
+    },
+    {
+      "fold": 2,
+      "group": "bad",
+      "stage": "initial",
+      "native_mean_loo_loglikelihood": -10.604945822562243,
+      "absolute_error": 0.0
+    },
+    {
+      "fold": 2,
+      "group": "bad",
+      "stage": "final",
+      "native_mean_loo_loglikelihood": -10.235957924959312,
+      "absolute_error": 7.105427357601002e-15
+    },
+    {
+      "fold": 3,
+      "group": "good",
+      "stage": "initial",
+      "native_mean_loo_loglikelihood": -10.060876190517028,
+      "absolute_error": 3.552713678800501e-15
+    },
+    {
+      "fold": 3,
+      "group": "good",
+      "stage": "final",
+      "native_mean_loo_loglikelihood": -9.512980238923207,
+      "absolute_error": 1.7763568394002505e-15
+    },
+    {
+      "fold": 3,
+      "group": "bad",
+      "stage": "initial",
+      "native_mean_loo_loglikelihood": -10.556306204394811,
+      "absolute_error": 3.552713678800501e-15
+    },
+    {
+      "fold": 3,
+      "group": "bad",
+      "stage": "final",
+      "native_mean_loo_loglikelihood": -10.207215304916199,
+      "absolute_error": 1.7763568394002505e-15
+    },
+    {
+      "fold": 4,
+      "group": "good",
+      "stage": "initial",
+      "native_mean_loo_loglikelihood": -9.963982439791717,
+      "absolute_error": 1.7763568394002505e-15
+    },
+    {
+      "fold": 4,
+      "group": "good",
+      "stage": "final",
+      "native_mean_loo_loglikelihood": -9.44911174205294,
+      "absolute_error": 3.552713678800501e-15
+    },
+    {
+      "fold": 4,
+      "group": "bad",
+      "stage": "initial",
+      "native_mean_loo_loglikelihood": -10.618074296363307,
+      "absolute_error": 0.0
+    },
+    {
+      "fold": 4,
+      "group": "bad",
+      "stage": "final",
+      "native_mean_loo_loglikelihood": -10.240818829878624,
+      "absolute_error": 3.552713678800501e-15
+    }
+  ]
+}

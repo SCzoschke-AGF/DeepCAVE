@@ -48,8 +48,6 @@ from deepcave.plugins.hyperparameter.combinatorial_groups import (
     missing_tuple_page,
 )
 from deepcave.plugins.hyperparameter.combinatorial_views import (
-    combinatorial_explanations,
-    combinatorial_resolution_detail,
     combinatorial_view,
 )
 from deepcave.plugins.hyperparameter.coverage_planning_views import (
@@ -79,6 +77,10 @@ from deepcave.plugins.hyperparameter.coverage_views import (
     _scatter,
     _table,
     _univariate_rows,
+)
+from deepcave.plugins.hyperparameter.performance_coverage_views import (
+    performance_panel,
+    register_performance_callbacks,
 )
 from deepcave.runs.status import Status
 
@@ -987,6 +989,10 @@ class SearchSpaceCoverage(Plugin):
             planning_panel(),
             html.Div(id=_id("combinatorial-explanations")),
         ]
+        global_view = html.Div(
+            [html.Div(global_view, className="coverage-global-left"), performance_panel()],
+            className="coverage-global-layout",
+        )
         growth = _card(
             "Coverage Growth",
             [
@@ -1159,6 +1165,7 @@ class SearchSpaceCoverage(Plugin):
 
         jobs = CoverageJobs(rc.cache_dir, queue)
         self._register_planning_callbacks(app, jobs, run_handler)
+        register_performance_callbacks(app, jobs, run_handler)
 
         def coverage_array_snapshot(context: Any, random: Any) -> tuple:
             reference = _current(random, context)
@@ -1182,7 +1189,6 @@ class SearchSpaceCoverage(Plugin):
             Output(_id("planning-budget-field"), "style"),
             Output(_id("planning-strength-field"), "style"),
             Output(_id("planning-strength"), "disabled"),
-            Output(_id("planning-coverage"), "children"),
             Output(_id("planning-strength-mode"), "options"),
             Output(_id("planning-strength"), "max"),
             Input(_id("planning-strategy"), "value"),
@@ -1200,12 +1206,11 @@ class SearchSpaceCoverage(Plugin):
             forecast: Any = None,
         ) -> Any:
             result, _ = coverage_array_snapshot(context, random)
-            metrics, options, maximum = planning_coverage(result, resolution)
+            options, maximum = planning_coverage(result, resolution)
             return (
                 {} if strategy == "maximize_coverage" else {"display": "none"},
                 {} if mode == "custom" else {"display": "none"},
                 mode != "custom",
-                metrics,
                 options,
                 maximum,
             )
@@ -1226,8 +1231,8 @@ class SearchSpaceCoverage(Plugin):
             ):
                 forecast = None
             return (
-                combinatorial_view(result, baseline, forecast, include_explanations=False),
-                combinatorial_explanations(result, forecast),
+                combinatorial_view(result, baseline, forecast),
+                [],
             )
 
         @app.callback(  # type: ignore[untyped-decorator]
@@ -1260,7 +1265,7 @@ class SearchSpaceCoverage(Plugin):
             if resolution not in [row["resolution"] for row in (result or {}).get("rows", [])]:
                 resolution = None
             return (
-                combinatorial_resolution_detail(result, resolution),
+                None,
                 [resolution] if resolution is not None else [],
                 {"run_id": run_id, "resolution": resolution},
             )
@@ -1738,7 +1743,7 @@ class SearchSpaceCoverage(Plugin):
                 "not_run": "Generate a plan to improve coverage of the selected run or group.",
                 "running": "Generating coverage plan…",
                 "completed": "",
-                "stale": "This plan uses an earlier study state or different settings. Recompute to update it.",
+                "stale": "",
                 "failed": entry.get("error") or "Planning failed. Retry to generate a new plan.",
             }[status]
             if error:
@@ -1765,7 +1770,7 @@ class SearchSpaceCoverage(Plugin):
                 (
                     "Generating…"
                     if status == "running"
-                    else "Recompute plan" if entry.get("result") else "Generate plan"
+                    else "Update Plan" if status == "stale" else "Compute Plan"
                 ),
                 status == "running" or bool(error),
                 {} if status == "running" else {"display": "none"},

@@ -1,0 +1,226 @@
+{
+  "created_utc": "2026-10-22T23:30:54.743954+00:00",
+  "primary_resolution": 4,
+  "primary_strength": 4,
+  "reference_seed": 20261023,
+  "reference_count": 5000,
+  "rare_occupancy": [
+    1,
+    5
+  ],
+  "views": [
+    [
+      4,
+      2
+    ],
+    [
+      4,
+      3
+    ],
+    [
+      4,
+      4
+    ],
+    [
+      8,
+      2
+    ],
+    [
+      8,
+      3
+    ],
+    [
+      8,
+      4
+    ]
+  ],
+  "selection": "prefer views with 15%-85% missing-seeking reference points in every fold; then minimize mean absolute distance to 50%; ties by resolution, strength",
+  "regular": "no currently missing tuple in this view; can still contain rare occupied tuples",
+  "coverage_seeking": "at least one currently missing tuple; independent one-trial gain",
+  "rare_seeking": "no missing tuple and rare count in upper reference quartile; strict > if tied",
+  "dense_regular": "no missing tuple and rare count in lower reference quartile",
+  "bin_rule": "shared across folds and regular/seeking: min(10, floor(min group n / 20)); omit curves below 3 bins; rare-only subgroups use their own common fold resolution",
+  "design_locked_before": "test objectives, KDE/TPE scores and scoring quality are inspected",
+  "bins": [
+    {
+      "resolution": 4,
+      "strength": 2,
+      "population": "all",
+      "n_bins": 10
+    },
+    {
+      "resolution": 4,
+      "strength": 2,
+      "population": "regular",
+      "n_bins": 0
+    },
+    {
+      "resolution": 4,
+      "strength": 2,
+      "population": "coverage_seeking",
+      "n_bins": 0
+    },
+    {
+      "resolution": 4,
+      "strength": 2,
+      "population": "dense_regular",
+      "n_bins": 10
+    },
+    {
+      "resolution": 4,
+      "strength": 2,
+      "population": "rare_seeking",
+      "n_bins": 0
+    },
+    {
+      "resolution": 4,
+      "strength": 3,
+      "population": "all",
+      "n_bins": 10
+    },
+    {
+      "resolution": 4,
+      "strength": 3,
+      "population": "regular",
+      "n_bins": 0
+    },
+    {
+      "resolution": 4,
+      "strength": 3,
+      "population": "coverage_seeking",
+      "n_bins": 0
+    },
+    {
+      "resolution": 4,
+      "strength": 3,
+      "population": "dense_regular",
+      "n_bins": 10
+    },
+    {
+      "resolution": 4,
+      "strength": 3,
+      "population": "rare_seeking",
+      "n_bins": 0
+    },
+    {
+      "resolution": 4,
+      "strength": 4,
+      "population": "all",
+      "n_bins": 10
+    },
+    {
+      "resolution": 4,
+      "strength": 4,
+      "population": "regular",
+      "n_bins": 5
+    },
+    {
+      "resolution": 4,
+      "strength": 4,
+      "population": "coverage_seeking",
+      "n_bins": 5
+    },
+    {
+      "resolution": 4,
+      "strength": 4,
+      "population": "dense_regular",
+      "n_bins": 0
+    },
+    {
+      "resolution": 4,
+      "strength": 4,
+      "population": "rare_seeking",
+      "n_bins": 3
+    },
+    {
+      "resolution": 8,
+      "strength": 2,
+      "population": "all",
+      "n_bins": 10
+    },
+    {
+      "resolution": 8,
+      "strength": 2,
+      "population": "regular",
+      "n_bins": 0
+    },
+    {
+      "resolution": 8,
+      "strength": 2,
+      "population": "coverage_seeking",
+      "n_bins": 0
+    },
+    {
+      "resolution": 8,
+      "strength": 2,
+      "population": "dense_regular",
+      "n_bins": 10
+    },
+    {
+      "resolution": 8,
+      "strength": 2,
+      "population": "rare_seeking",
+      "n_bins": 0
+    },
+    {
+      "resolution": 8,
+      "strength": 3,
+      "population": "all",
+      "n_bins": 10
+    },
+    {
+      "resolution": 8,
+      "strength": 3,
+      "population": "regular",
+      "n_bins": 0
+    },
+    {
+      "resolution": 8,
+      "strength": 3,
+      "population": "coverage_seeking",
+      "n_bins": 0
+    },
+    {
+      "resolution": 8,
+      "strength": 3,
+      "population": "dense_regular",
+      "n_bins": 0
+    },
+    {
+      "resolution": 8,
+      "strength": 3,
+      "population": "rare_seeking",
+      "n_bins": 0
+    },
+    {
+      "resolution": 8,
+      "strength": 4,
+      "population": "all",
+      "n_bins": 10
+    },
+    {
+      "resolution": 8,
+      "strength": 4,
+      "population": "regular",
+      "n_bins": 0
+    },
+    {
+      "resolution": 8,
+      "strength": 4,
+      "population": "coverage_seeking",
+      "n_bins": 0
+    },
+    {
+      "resolution": 8,
+      "strength": 4,
+      "population": "dense_regular",
+      "n_bins": 0
+    },
+    {
+      "resolution": 8,
+      "strength": 4,
+      "population": "rare_seeking",
+      "n_bins": 0
+    }
+  ]
+}

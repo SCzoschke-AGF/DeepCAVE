@@ -1,0 +1,498 @@
+{
+  "study_name": "xgboost_data:4897daef3195_average_precision_v1_sampler:random_objective:cv_average_precision_mean_direction:maximize_modelseed:42_cvseed:42",
+  "study_user_attrs": {
+    "cv_split_seed": 42,
+    "data_representation_sha256": "4897daef3195ea0e74191f0455e83f19d67285ad6223d148b6e085e0dfb3eae6",
+    "direction": "maximize",
+    "model_family": "xgboost",
+    "model_seed": 42,
+    "objective_metric": "cv_average_precision_mean",
+    "sampler": "random"
+  },
+  "direction": "MAXIMIZE",
+  "seed": 42,
+  "n_folds": 5,
+  "good_fraction": 0.2,
+  "rounding": "ceil",
+  "top_k_ties": "trial number ascending",
+  "grouping": "identical configurations in selected subspace never cross folds",
+  "bandwidth_requested": "normal_reference",
+  "cv_timeout_per_group_seconds": 45,
+  "kde_regularization": "bandwidth floor 1e-8, discrete upper bound 1-1e-8",
+  "tpe": {
+    "multivariate": true,
+    "weights": "uniform",
+    "prior_weight": 1.0,
+    "consider_prior": true,
+    "consider_magic_clip": true,
+    "consider_endpoints": false
+  },
+  "kde_transforms": {
+    "colsample_bytree": {
+      "kernel_type": "c",
+      "transform": "declared bounds to [0,1]"
+    },
+    "gamma": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "learning_rate": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "max_delta_step": {
+      "kernel_type": "o",
+      "transform": "ordinal grid index (value-low)/step"
+    },
+    "max_depth": {
+      "kernel_type": "o",
+      "transform": "ordinal grid index (value-low)/step"
+    },
+    "min_child_weight": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "n_estimators": {
+      "kernel_type": "o",
+      "transform": "ordinal grid index (value-low)/step"
+    },
+    "reg_alpha": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "reg_lambda": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "subsample": {
+      "kernel_type": "c",
+      "transform": "declared bounds to [0,1]"
+    }
+  },
+  "versions": {
+    "optuna": "3.6.1",
+    "statsmodels": "0.14.6",
+    "numpy": "2.2.6",
+    "scipy": "1.15.3",
+    "matplotlib": "3.9.0"
+  },
+  "python": "3.10.19",
+  "platform": "Linux-6.14.0-34-generic-x86_64-with-glibc2.41",
+  "input_sha256": "fed83224d12cdf9fd662b80acec9cb9dbfcd017b83c88169bd138c44021d6d2b",
+  "total_trials": 2000,
+  "finite_completed_trials": 2000,
+  "selected_trials": 2000,
+  "activity_audit": {
+    "colsample_bytree": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.5, \"high\": 1.0, \"log\": false}}"
+      ]
+    },
+    "gamma": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.0001, \"high\": 10.0, \"log\": true}}"
+      ]
+    },
+    "learning_rate": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.005, \"high\": 0.3, \"log\": true}}"
+      ]
+    },
+    "max_delta_step": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"IntDistribution\", \"attributes\": {\"log\": false, \"step\": 1, \"low\": 0, \"high\": 10}}"
+      ]
+    },
+    "max_depth": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"IntDistribution\", \"attributes\": {\"log\": false, \"step\": 1, \"low\": 3, \"high\": 12}}"
+      ]
+    },
+    "min_child_weight": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.5, \"high\": 100.0, \"log\": true}}"
+      ]
+    },
+    "n_estimators": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"IntDistribution\", \"attributes\": {\"log\": false, \"step\": 50, \"low\": 200, \"high\": 2000}}"
+      ]
+    },
+    "reg_alpha": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.0001, \"high\": 10.0, \"log\": true}}"
+      ]
+    },
+    "reg_lambda": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.01, \"high\": 100.0, \"log\": true}}"
+      ]
+    },
+    "subsample": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.5, \"high\": 1.0, \"log\": false}}"
+      ]
+    }
+  },
+  "excluded_parameters": [],
+  "constant_parameters": [],
+  "unique_configurations": 2000,
+  "subspace": "strict",
+  "kde_folds": [
+    {
+      "fold": 0,
+      "n_good": 320,
+      "n_bad": 1280,
+      "good": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "fit_seconds": 9.867292828857899e-05,
+        "warnings": [],
+        "raw_bandwidth": [
+          0.19548760236106125,
+          0.20259195678273093,
+          0.09444613729649977,
+          2.2243137656590686,
+          1.4098954095692273,
+          0.2020016962108394,
+          6.993757300377258,
+          0.1994079037910965,
+          0.20379440494734505,
+          0.20309151544368917
+        ],
+        "bandwidth": [
+          0.19548760236106125,
+          0.20259195678273093,
+          0.09444613729649977,
+          0.99999999,
+          0.99999999,
+          0.2020016962108394,
+          0.99999999,
+          0.1994079037910965,
+          0.20379440494734505,
+          0.20309151544368917
+        ],
+        "regularized": true
+      },
+      "bad": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "fit_seconds": 8.472800254821777e-05,
+        "warnings": [],
+        "raw_bandwidth": [
+          0.18459736651171002,
+          0.1809860405913389,
+          0.17543762599493548,
+          2.0205120427134906,
+          1.9201485099297269,
+          0.17611526967577013,
+          6.940697056760811,
+          0.1847047043146722,
+          0.18152395189121687,
+          0.1810709301280993
+        ],
+        "bandwidth": [
+          0.18459736651171002,
+          0.1809860405913389,
+          0.17543762599493548,
+          0.99999999,
+          0.99999999,
+          0.17611526967577013,
+          0.99999999,
+          0.1847047043146722,
+          0.18152395189121687,
+          0.1810709301280993
+        ],
+        "regularized": true
+      }
+    },
+    {
+      "fold": 1,
+      "n_good": 320,
+      "n_bad": 1280,
+      "good": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "fit_seconds": 7.717893458902836e-05,
+        "warnings": [],
+        "raw_bandwidth": [
+          0.19032667922493254,
+          0.21080989669894423,
+          0.09744249099456782,
+          2.247267908389658,
+          1.3859312502055512,
+          0.203390651227023,
+          7.029243393145317,
+          0.20187327913553843,
+          0.20287520898972236,
+          0.19791446668439333
+        ],
+        "bandwidth": [
+          0.19032667922493254,
+          0.21080989669894423,
+          0.09744249099456782,
+          0.99999999,
+          0.99999999,
+          0.203390651227023,
+          0.99999999,
+          0.20187327913553843,
+          0.20287520898972236,
+          0.19791446668439333
+        ],
+        "regularized": true
+      },
+      "bad": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "fit_seconds": 5.66369853913784e-05,
+        "warnings": [],
+        "raw_bandwidth": [
+          0.1845588483851715,
+          0.1812642430821123,
+          0.17568593633349083,
+          2.0118207875761676,
+          1.9463507228183892,
+          0.17475580066244828,
+          6.835391621786818,
+          0.1856680310077873,
+          0.18067921421433547,
+          0.1807994794740492
+        ],
+        "bandwidth": [
+          0.1845588483851715,
+          0.1812642430821123,
+          0.17568593633349083,
+          0.99999999,
+          0.99999999,
+          0.17475580066244828,
+          0.99999999,
+          0.1856680310077873,
+          0.18067921421433547,
+          0.1807994794740492
+        ],
+        "regularized": true
+      }
+    },
+    {
+      "fold": 2,
+      "n_good": 320,
+      "n_bad": 1280,
+      "good": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "fit_seconds": 8.999998681247234e-05,
+        "warnings": [],
+        "raw_bandwidth": [
+          0.20003840254898508,
+          0.20767877904174625,
+          0.09832689629778932,
+          2.165808244501245,
+          1.3621974389182627,
+          0.20344929506712184,
+          7.09979840271764,
+          0.20064186108076085,
+          0.20648488698289535,
+          0.2004840498055946
+        ],
+        "bandwidth": [
+          0.20003840254898508,
+          0.20767877904174625,
+          0.09832689629778932,
+          0.99999999,
+          0.99999999,
+          0.20344929506712184,
+          0.99999999,
+          0.20064186108076085,
+          0.20648488698289535,
+          0.2004840498055946
+        ],
+        "regularized": true
+      },
+      "bad": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "fit_seconds": 5.939393304288387e-05,
+        "warnings": [],
+        "raw_bandwidth": [
+          0.18491057469292368,
+          0.17988883728008137,
+          0.17787789987079658,
+          2.0252559100397525,
+          1.9244326912693215,
+          0.17749909835060118,
+          6.844887417275212,
+          0.18557628836036846,
+          0.17948212068798883,
+          0.18146601709545998
+        ],
+        "bandwidth": [
+          0.18491057469292368,
+          0.17988883728008137,
+          0.17787789987079658,
+          0.99999999,
+          0.99999999,
+          0.17749909835060118,
+          0.99999999,
+          0.18557628836036846,
+          0.17948212068798883,
+          0.18146601709545998
+        ],
+        "regularized": true
+      }
+    },
+    {
+      "fold": 3,
+      "n_good": 320,
+      "n_bad": 1280,
+      "good": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "fit_seconds": 7.385201752185822e-05,
+        "warnings": [],
+        "raw_bandwidth": [
+          0.19165541956547255,
+          0.20468108414966274,
+          0.10024467667765392,
+          2.2292387590885445,
+          1.409234671918525,
+          0.2066836223376569,
+          6.971491211121499,
+          0.2074931822070035,
+          0.20621733873127343,
+          0.2001008956707404
+        ],
+        "bandwidth": [
+          0.19165541956547255,
+          0.20468108414966274,
+          0.10024467667765392,
+          0.99999999,
+          0.99999999,
+          0.2066836223376569,
+          0.99999999,
+          0.2074931822070035,
+          0.20621733873127343,
+          0.2001008956707404
+        ],
+        "regularized": true
+      },
+      "bad": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "fit_seconds": 6.0774851590394974e-05,
+        "warnings": [],
+        "raw_bandwidth": [
+          0.18156833494941618,
+          0.17923526615555324,
+          0.176763156740408,
+          2.0099568495047975,
+          1.937139535101986,
+          0.1781964069141942,
+          6.899555233501172,
+          0.1846228894440832,
+          0.18105362229579539,
+          0.18144447647616166
+        ],
+        "bandwidth": [
+          0.18156833494941618,
+          0.17923526615555324,
+          0.176763156740408,
+          0.99999999,
+          0.99999999,
+          0.1781964069141942,
+          0.99999999,
+          0.1846228894440832,
+          0.18105362229579539,
+          0.18144447647616166
+        ],
+        "regularized": true
+      }
+    },
+    {
+      "fold": 4,
+      "n_good": 320,
+      "n_bad": 1280,
+      "good": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "fit_seconds": 7.468508556485176e-05,
+        "warnings": [],
+        "raw_bandwidth": [
+          0.19366626508564896,
+          0.21530046342092182,
+          0.09734995271236832,
+          2.2407763832213856,
+          1.3644851628748735,
+          0.20558523119566052,
+          7.11288402171766,
+          0.20212920151035457,
+          0.20318799222555115,
+          0.19750756388014504
+        ],
+        "bandwidth": [
+          0.19366626508564896,
+          0.21530046342092182,
+          0.09734995271236832,
+          0.99999999,
+          0.99999999,
+          0.20558523119566052,
+          0.99999999,
+          0.20212920151035457,
+          0.20318799222555115,
+          0.19750756388014504
+        ],
+        "regularized": true
+      },
+      "bad": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "fit_seconds": 6.081908941268921e-05,
+        "warnings": [],
+        "raw_bandwidth": [
+          0.18534065587328077,
+          0.18128754010517323,
+          0.1748190184090955,
+          2.0181383424435526,
+          1.9454026130203208,
+          0.1787619154248121,
+          6.925378689614797,
+          0.18470806784982427,
+          0.18009432410509454,
+          0.18119140033105596
+        ],
+        "bandwidth": [
+          0.18534065587328077,
+          0.18128754010517323,
+          0.1748190184090955,
+          0.99999999,
+          0.99999999,
+          0.1787619154248121,
+          0.99999999,
+          0.18470806784982427,
+          0.18009432410509454,
+          0.18119140033105596
+        ],
+        "regularized": true
+      }
+    }
+  ]
+}

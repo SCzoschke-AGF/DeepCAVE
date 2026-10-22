@@ -16,6 +16,8 @@
 
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
+import hashlib
+import json
 import math
 from collections import OrderedDict
 from threading import RLock
@@ -142,14 +144,16 @@ def pairwise_configuration_distances(
     condensed = np.empty(n_rows * (n_rows - 1) // 2, dtype=np.float32)
     offset = 0
     for row in range(n_rows - 1):
-        components = normalized_configuration_distance_components(
-            values[row], values[row + 1 :], configspace
-        )[:, indices]
-        count = n_rows - row - 1
-        condensed[offset : offset + count] = np.sqrt(
-            np.sum(np.square(components) * weight_values[np.newaxis, :], axis=1) / denominator
-        ).astype(np.float32)
-        offset += count
+        for start in range(row + 1, n_rows, 2048):
+            stop = min(start + 2048, n_rows)
+            components = normalized_configuration_distance_components(
+                values[row], values[start:stop], configspace
+            )[:, indices]
+            count = stop - start
+            condensed[offset : offset + count] = np.sqrt(
+                np.sum(np.square(components) * weight_values[np.newaxis, :], axis=1) / denominator
+            ).astype(np.float32)
+            offset += count
     return condensed
 
 
@@ -161,6 +165,16 @@ def cached_pairwise_configuration_distances(
     weights: Optional[Mapping[str, float]] = None,
 ) -> np.ndarray:
     """Return a cached condensed vector while retaining at most two large arrays."""
+    # Callers can share results only when the actual metric inputs also match.
+    signature = hashlib.sha256(np.asarray(matrix, dtype=float).tobytes())
+    signature.update(
+        json.dumps(
+            [configspace.to_serialized_dict(), parameter_names, weights, "rashomon-rms-v1"],
+            sort_keys=True,
+            default=str,
+        ).encode()
+    )
+    cache_key = (*cache_key, signature.hexdigest())
     with _DISTANCE_CACHE_LOCK:
         cached = _DISTANCE_CACHE.get(cache_key)
         if cached is not None:

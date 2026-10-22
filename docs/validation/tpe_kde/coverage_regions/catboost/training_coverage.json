@@ -1,0 +1,6994 @@
+[
+  {
+    "fold": 0,
+    "resolution": 4,
+    "strength": 2,
+    "parameter_groups": 6,
+    "total_tuples": 96,
+    "missing_tuples": 0,
+    "coverage": 1.0,
+    "reference_missing_fraction": 0.0,
+    "reference_missing_count_mean": 0.0,
+    "rare_limit": 5,
+    "rare_lower_quartile": 0,
+    "rare_upper_quartile": 0,
+    "reference_covered_count": 5000,
+    "discretization": {
+      "resolution": 4,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 8]"
+            },
+            {
+              "label": "L4",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 500]"
+            },
+            {
+              "label": "L2",
+              "range": "[600, 800]"
+            },
+            {
+              "label": "L3",
+              "range": "[900, 1200]"
+            },
+            {
+              "label": "L4",
+              "range": "[1300, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            3,
+            6,
+            10,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 2.11474252688)"
+            },
+            {
+              "label": "L2",
+              "range": "[2.11474252688, 4.472135955)"
+            },
+            {
+              "label": "L3",
+              "range": "[4.472135955, 9.45741609003)"
+            },
+            {
+              "label": "L4",
+              "range": "[9.45741609003, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            2.114742526881128,
+            4.472135954999579,
+            9.457416090031758,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.01)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.01, 0.02)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.02, 0.04)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.04, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.010000000000000004,
+            0.02,
+            0.03999999999999999,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      4,
+      2,
+      2,
+      0,
+      0,
+      1,
+      3,
+      2,
+      0,
+      1,
+      4,
+      2,
+      5,
+      0,
+      2,
+      2,
+      5,
+      2,
+      1,
+      3,
+      4,
+      1,
+      1,
+      0,
+      1,
+      1,
+      2,
+      2,
+      1,
+      2,
+      1,
+      1,
+      1,
+      2,
+      0,
+      1,
+      0,
+      0,
+      2,
+      0,
+      0,
+      2,
+      0,
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      2,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      3,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+    ]
+  },
+  {
+    "fold": 0,
+    "resolution": 4,
+    "strength": 3,
+    "parameter_groups": 4,
+    "total_tuples": 256,
+    "missing_tuples": 0,
+    "coverage": 1.0,
+    "reference_missing_fraction": 0.0,
+    "reference_missing_count_mean": 0.0,
+    "rare_limit": 5,
+    "rare_lower_quartile": 0,
+    "rare_upper_quartile": 0,
+    "reference_covered_count": 5000,
+    "discretization": {
+      "resolution": 4,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 8]"
+            },
+            {
+              "label": "L4",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 500]"
+            },
+            {
+              "label": "L2",
+              "range": "[600, 800]"
+            },
+            {
+              "label": "L3",
+              "range": "[900, 1200]"
+            },
+            {
+              "label": "L4",
+              "range": "[1300, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            3,
+            6,
+            10,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 2.11474252688)"
+            },
+            {
+              "label": "L2",
+              "range": "[2.11474252688, 4.472135955)"
+            },
+            {
+              "label": "L3",
+              "range": "[4.472135955, 9.45741609003)"
+            },
+            {
+              "label": "L4",
+              "range": "[9.45741609003, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            2.114742526881128,
+            4.472135954999579,
+            9.457416090031758,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.01)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.01, 0.02)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.02, 0.04)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.04, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.010000000000000004,
+            0.02,
+            0.03999999999999999,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      2,
+      4,
+      5,
+      9,
+      10,
+      13,
+      12,
+      17,
+      15,
+      9,
+      15,
+      17,
+      11,
+      19,
+      12,
+      3,
+      6,
+      1,
+      4,
+      4,
+      4,
+      4,
+      4,
+      5,
+      6,
+      6,
+      3,
+      6,
+      3,
+      1,
+      0,
+      4,
+      1,
+      6,
+      1,
+      4,
+      2,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      1
+    ]
+  },
+  {
+    "fold": 0,
+    "resolution": 4,
+    "strength": 4,
+    "parameter_groups": 1,
+    "total_tuples": 256,
+    "missing_tuples": 2,
+    "coverage": 0.9921875,
+    "reference_missing_fraction": 0.005,
+    "reference_missing_count_mean": 0.005,
+    "rare_limit": 5,
+    "rare_lower_quartile": 0,
+    "rare_upper_quartile": 1,
+    "reference_covered_count": 4975,
+    "discretization": {
+      "resolution": 4,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 8]"
+            },
+            {
+              "label": "L4",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 500]"
+            },
+            {
+              "label": "L2",
+              "range": "[600, 800]"
+            },
+            {
+              "label": "L3",
+              "range": "[900, 1200]"
+            },
+            {
+              "label": "L4",
+              "range": "[1300, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            3,
+            6,
+            10,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 2.11474252688)"
+            },
+            {
+              "label": "L2",
+              "range": "[2.11474252688, 4.472135955)"
+            },
+            {
+              "label": "L3",
+              "range": "[4.472135955, 9.45741609003)"
+            },
+            {
+              "label": "L4",
+              "range": "[9.45741609003, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            2.114742526881128,
+            4.472135954999579,
+            9.457416090031758,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.01)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.01, 0.02)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.02, 0.04)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.04, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.010000000000000004,
+            0.02,
+            0.03999999999999999,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      2,
+      3,
+      17,
+      34,
+      39,
+      37,
+      22,
+      22,
+      18,
+      14,
+      17,
+      13,
+      3,
+      4,
+      5,
+      4,
+      1,
+      1
+    ]
+  },
+  {
+    "fold": 0,
+    "resolution": 8,
+    "strength": 2,
+    "parameter_groups": 6,
+    "total_tuples": 312,
+    "missing_tuples": 0,
+    "coverage": 1.0,
+    "reference_missing_fraction": 0.0,
+    "reference_missing_count_mean": 0.0,
+    "rare_limit": 5,
+    "rare_lower_quartile": 0,
+    "rare_upper_quartile": 0,
+    "reference_covered_count": 5000,
+    "discretization": {
+      "resolution": 8,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 7]"
+            },
+            {
+              "label": "L4",
+              "range": "[8, 8]"
+            },
+            {
+              "label": "L5",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 400]"
+            },
+            {
+              "label": "L2",
+              "range": "[500, 500]"
+            },
+            {
+              "label": "L3",
+              "range": "[600, 700]"
+            },
+            {
+              "label": "L4",
+              "range": "[800, 800]"
+            },
+            {
+              "label": "L5",
+              "range": "[900, 1000]"
+            },
+            {
+              "label": "L6",
+              "range": "[1100, 1200]"
+            },
+            {
+              "label": "L7",
+              "range": "[1300, 1300]"
+            },
+            {
+              "label": "L8",
+              "range": "[1400, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            2,
+            3,
+            5,
+            6,
+            8,
+            10,
+            11,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 1.45421543345)"
+            },
+            {
+              "label": "L2",
+              "range": "[1.45421543345, 2.11474252688)"
+            },
+            {
+              "label": "L3",
+              "range": "[2.11474252688, 3.07529122036)"
+            },
+            {
+              "label": "L4",
+              "range": "[3.07529122036, 4.472135955)"
+            },
+            {
+              "label": "L5",
+              "range": "[4.472135955, 6.50344912624)"
+            },
+            {
+              "label": "L6",
+              "range": "[6.50344912624, 9.45741609003)"
+            },
+            {
+              "label": "L7",
+              "range": "[9.45741609003, 13.7531204387)"
+            },
+            {
+              "label": "L8",
+              "range": "[13.7531204387, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            1.4542154334489537,
+            2.114742526881128,
+            3.0752912203613754,
+            4.472135954999579,
+            6.503449126242363,
+            9.457416090031758,
+            13.75312043867264,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.00707106781187)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.00707106781187, 0.01)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.01, 0.0141421356237)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.0141421356237, 0.02)"
+            },
+            {
+              "label": "L5",
+              "range": "[0.02, 0.0282842712475)"
+            },
+            {
+              "label": "L6",
+              "range": "[0.0282842712475, 0.04)"
+            },
+            {
+              "label": "L7",
+              "range": "[0.04, 0.0565685424949)"
+            },
+            {
+              "label": "L8",
+              "range": "[0.0565685424949, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.007071067811865478,
+            0.010000000000000004,
+            0.014142135623730958,
+            0.02,
+            0.028284271247461905,
+            0.03999999999999999,
+            0.05656854249492379,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      4,
+      1,
+      4,
+      5,
+      2,
+      4,
+      4,
+      10,
+      9,
+      9,
+      9,
+      8,
+      9,
+      8,
+      10,
+      9,
+      8,
+      13,
+      8,
+      10,
+      15,
+      11,
+      10,
+      6,
+      11,
+      6,
+      8,
+      10,
+      11,
+      12,
+      8,
+      6,
+      3,
+      7,
+      5,
+      9,
+      3,
+      3,
+      2,
+      4,
+      2,
+      4,
+      1,
+      1,
+      1,
+      2,
+      1,
+      0,
+      1,
+      0,
+      2,
+      0,
+      1
+    ]
+  },
+  {
+    "fold": 0,
+    "resolution": 8,
+    "strength": 3,
+    "parameter_groups": 4,
+    "total_tuples": 1472,
+    "missing_tuples": 35,
+    "coverage": 0.9762228260869565,
+    "reference_missing_fraction": 0.0582,
+    "reference_missing_count_mean": 0.0614,
+    "rare_limit": 5,
+    "rare_lower_quartile": 2,
+    "rare_upper_quartile": 3,
+    "reference_covered_count": 4709,
+    "discretization": {
+      "resolution": 8,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 7]"
+            },
+            {
+              "label": "L4",
+              "range": "[8, 8]"
+            },
+            {
+              "label": "L5",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 400]"
+            },
+            {
+              "label": "L2",
+              "range": "[500, 500]"
+            },
+            {
+              "label": "L3",
+              "range": "[600, 700]"
+            },
+            {
+              "label": "L4",
+              "range": "[800, 800]"
+            },
+            {
+              "label": "L5",
+              "range": "[900, 1000]"
+            },
+            {
+              "label": "L6",
+              "range": "[1100, 1200]"
+            },
+            {
+              "label": "L7",
+              "range": "[1300, 1300]"
+            },
+            {
+              "label": "L8",
+              "range": "[1400, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            2,
+            3,
+            5,
+            6,
+            8,
+            10,
+            11,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 1.45421543345)"
+            },
+            {
+              "label": "L2",
+              "range": "[1.45421543345, 2.11474252688)"
+            },
+            {
+              "label": "L3",
+              "range": "[2.11474252688, 3.07529122036)"
+            },
+            {
+              "label": "L4",
+              "range": "[3.07529122036, 4.472135955)"
+            },
+            {
+              "label": "L5",
+              "range": "[4.472135955, 6.50344912624)"
+            },
+            {
+              "label": "L6",
+              "range": "[6.50344912624, 9.45741609003)"
+            },
+            {
+              "label": "L7",
+              "range": "[9.45741609003, 13.7531204387)"
+            },
+            {
+              "label": "L8",
+              "range": "[13.7531204387, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            1.4542154334489537,
+            2.114742526881128,
+            3.0752912203613754,
+            4.472135954999579,
+            6.503449126242363,
+            9.457416090031758,
+            13.75312043867264,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.00707106781187)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.00707106781187, 0.01)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.01, 0.0141421356237)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.0141421356237, 0.02)"
+            },
+            {
+              "label": "L5",
+              "range": "[0.02, 0.0282842712475)"
+            },
+            {
+              "label": "L6",
+              "range": "[0.0282842712475, 0.04)"
+            },
+            {
+              "label": "L7",
+              "range": "[0.04, 0.0565685424949)"
+            },
+            {
+              "label": "L8",
+              "range": "[0.0565685424949, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.007071067811865478,
+            0.010000000000000004,
+            0.014142135623730958,
+            0.02,
+            0.028284271247461905,
+            0.03999999999999999,
+            0.05656854249492379,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      35,
+      124,
+      225,
+      237,
+      229,
+      178,
+      160,
+      116,
+      74,
+      50,
+      19,
+      10,
+      5,
+      6,
+      3,
+      1
+    ]
+  },
+  {
+    "fold": 0,
+    "resolution": 8,
+    "strength": 4,
+    "parameter_groups": 1,
+    "total_tuples": 2560,
+    "missing_tuples": 1401,
+    "coverage": 0.452734375,
+    "reference_missing_fraction": 0.527,
+    "reference_missing_count_mean": 0.527,
+    "rare_limit": 5,
+    "rare_lower_quartile": 1,
+    "rare_upper_quartile": 1,
+    "reference_covered_count": 2365,
+    "discretization": {
+      "resolution": 8,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 7]"
+            },
+            {
+              "label": "L4",
+              "range": "[8, 8]"
+            },
+            {
+              "label": "L5",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 400]"
+            },
+            {
+              "label": "L2",
+              "range": "[500, 500]"
+            },
+            {
+              "label": "L3",
+              "range": "[600, 700]"
+            },
+            {
+              "label": "L4",
+              "range": "[800, 800]"
+            },
+            {
+              "label": "L5",
+              "range": "[900, 1000]"
+            },
+            {
+              "label": "L6",
+              "range": "[1100, 1200]"
+            },
+            {
+              "label": "L7",
+              "range": "[1300, 1300]"
+            },
+            {
+              "label": "L8",
+              "range": "[1400, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            2,
+            3,
+            5,
+            6,
+            8,
+            10,
+            11,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 1.45421543345)"
+            },
+            {
+              "label": "L2",
+              "range": "[1.45421543345, 2.11474252688)"
+            },
+            {
+              "label": "L3",
+              "range": "[2.11474252688, 3.07529122036)"
+            },
+            {
+              "label": "L4",
+              "range": "[3.07529122036, 4.472135955)"
+            },
+            {
+              "label": "L5",
+              "range": "[4.472135955, 6.50344912624)"
+            },
+            {
+              "label": "L6",
+              "range": "[6.50344912624, 9.45741609003)"
+            },
+            {
+              "label": "L7",
+              "range": "[9.45741609003, 13.7531204387)"
+            },
+            {
+              "label": "L8",
+              "range": "[13.7531204387, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            1.4542154334489537,
+            2.114742526881128,
+            3.0752912203613754,
+            4.472135954999579,
+            6.503449126242363,
+            9.457416090031758,
+            13.75312043867264,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.00707106781187)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.00707106781187, 0.01)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.01, 0.0141421356237)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.0141421356237, 0.02)"
+            },
+            {
+              "label": "L5",
+              "range": "[0.02, 0.0282842712475)"
+            },
+            {
+              "label": "L6",
+              "range": "[0.0282842712475, 0.04)"
+            },
+            {
+              "label": "L7",
+              "range": "[0.04, 0.0565685424949)"
+            },
+            {
+              "label": "L8",
+              "range": "[0.0565685424949, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.007071067811865478,
+            0.010000000000000004,
+            0.014142135623730958,
+            0.02,
+            0.028284271247461905,
+            0.03999999999999999,
+            0.05656854249492379,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      1401,
+      807,
+      279,
+      58,
+      14,
+      1
+    ]
+  },
+  {
+    "fold": 1,
+    "resolution": 4,
+    "strength": 2,
+    "parameter_groups": 6,
+    "total_tuples": 96,
+    "missing_tuples": 0,
+    "coverage": 1.0,
+    "reference_missing_fraction": 0.0,
+    "reference_missing_count_mean": 0.0,
+    "rare_limit": 5,
+    "rare_lower_quartile": 0,
+    "rare_upper_quartile": 0,
+    "reference_covered_count": 5000,
+    "discretization": {
+      "resolution": 4,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 8]"
+            },
+            {
+              "label": "L4",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 500]"
+            },
+            {
+              "label": "L2",
+              "range": "[600, 800]"
+            },
+            {
+              "label": "L3",
+              "range": "[900, 1200]"
+            },
+            {
+              "label": "L4",
+              "range": "[1300, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            3,
+            6,
+            10,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 2.11474252688)"
+            },
+            {
+              "label": "L2",
+              "range": "[2.11474252688, 4.472135955)"
+            },
+            {
+              "label": "L3",
+              "range": "[4.472135955, 9.45741609003)"
+            },
+            {
+              "label": "L4",
+              "range": "[9.45741609003, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            2.114742526881128,
+            4.472135954999579,
+            9.457416090031758,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.01)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.01, 0.02)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.02, 0.04)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.04, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.010000000000000004,
+            0.02,
+            0.03999999999999999,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      1,
+      0,
+      1,
+      0,
+      2,
+      1,
+      0,
+      2,
+      1,
+      1,
+      2,
+      2,
+      0,
+      3,
+      1,
+      1,
+      1,
+      0,
+      5,
+      1,
+      3,
+      4,
+      2,
+      2,
+      4,
+      1,
+      3,
+      1,
+      2,
+      2,
+      1,
+      0,
+      4,
+      2,
+      3,
+      3,
+      2,
+      0,
+      1,
+      2,
+      0,
+      0,
+      3,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      3,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      1,
+      1,
+      0,
+      0,
+      1,
+      0,
+      2,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+    ]
+  },
+  {
+    "fold": 1,
+    "resolution": 4,
+    "strength": 3,
+    "parameter_groups": 4,
+    "total_tuples": 256,
+    "missing_tuples": 0,
+    "coverage": 1.0,
+    "reference_missing_fraction": 0.0,
+    "reference_missing_count_mean": 0.0,
+    "rare_limit": 5,
+    "rare_lower_quartile": 0,
+    "rare_upper_quartile": 0,
+    "reference_covered_count": 5000,
+    "discretization": {
+      "resolution": 4,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 8]"
+            },
+            {
+              "label": "L4",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 500]"
+            },
+            {
+              "label": "L2",
+              "range": "[600, 800]"
+            },
+            {
+              "label": "L3",
+              "range": "[900, 1200]"
+            },
+            {
+              "label": "L4",
+              "range": "[1300, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            3,
+            6,
+            10,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 2.11474252688)"
+            },
+            {
+              "label": "L2",
+              "range": "[2.11474252688, 4.472135955)"
+            },
+            {
+              "label": "L3",
+              "range": "[4.472135955, 9.45741609003)"
+            },
+            {
+              "label": "L4",
+              "range": "[9.45741609003, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            2.114742526881128,
+            4.472135954999579,
+            9.457416090031758,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.01)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.01, 0.02)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.02, 0.04)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.04, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.010000000000000004,
+            0.02,
+            0.03999999999999999,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      2,
+      5,
+      10,
+      10,
+      10,
+      9,
+      16,
+      18,
+      11,
+      14,
+      13,
+      16,
+      13,
+      12,
+      8,
+      10,
+      8,
+      2,
+      8,
+      3,
+      4,
+      11,
+      2,
+      2,
+      4,
+      3,
+      6,
+      2,
+      4,
+      1,
+      2,
+      1,
+      2,
+      2,
+      1,
+      2,
+      2,
+      1,
+      3,
+      0,
+      1
+    ]
+  },
+  {
+    "fold": 1,
+    "resolution": 4,
+    "strength": 4,
+    "parameter_groups": 1,
+    "total_tuples": 256,
+    "missing_tuples": 3,
+    "coverage": 0.98828125,
+    "reference_missing_fraction": 0.0072,
+    "reference_missing_count_mean": 0.0072,
+    "rare_limit": 5,
+    "rare_lower_quartile": 0,
+    "rare_upper_quartile": 1,
+    "reference_covered_count": 4964,
+    "discretization": {
+      "resolution": 4,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 8]"
+            },
+            {
+              "label": "L4",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 500]"
+            },
+            {
+              "label": "L2",
+              "range": "[600, 800]"
+            },
+            {
+              "label": "L3",
+              "range": "[900, 1200]"
+            },
+            {
+              "label": "L4",
+              "range": "[1300, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            3,
+            6,
+            10,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 2.11474252688)"
+            },
+            {
+              "label": "L2",
+              "range": "[2.11474252688, 4.472135955)"
+            },
+            {
+              "label": "L3",
+              "range": "[4.472135955, 9.45741609003)"
+            },
+            {
+              "label": "L4",
+              "range": "[9.45741609003, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            2.114742526881128,
+            4.472135954999579,
+            9.457416090031758,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.01)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.01, 0.02)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.02, 0.04)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.04, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.010000000000000004,
+            0.02,
+            0.03999999999999999,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      3,
+      4,
+      16,
+      28,
+      35,
+      34,
+      32,
+      28,
+      20,
+      11,
+      14,
+      12,
+      6,
+      7,
+      4,
+      0,
+      2
+    ]
+  },
+  {
+    "fold": 1,
+    "resolution": 8,
+    "strength": 2,
+    "parameter_groups": 6,
+    "total_tuples": 312,
+    "missing_tuples": 0,
+    "coverage": 1.0,
+    "reference_missing_fraction": 0.0,
+    "reference_missing_count_mean": 0.0,
+    "rare_limit": 5,
+    "rare_lower_quartile": 0,
+    "rare_upper_quartile": 0,
+    "reference_covered_count": 5000,
+    "discretization": {
+      "resolution": 8,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 7]"
+            },
+            {
+              "label": "L4",
+              "range": "[8, 8]"
+            },
+            {
+              "label": "L5",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 400]"
+            },
+            {
+              "label": "L2",
+              "range": "[500, 500]"
+            },
+            {
+              "label": "L3",
+              "range": "[600, 700]"
+            },
+            {
+              "label": "L4",
+              "range": "[800, 800]"
+            },
+            {
+              "label": "L5",
+              "range": "[900, 1000]"
+            },
+            {
+              "label": "L6",
+              "range": "[1100, 1200]"
+            },
+            {
+              "label": "L7",
+              "range": "[1300, 1300]"
+            },
+            {
+              "label": "L8",
+              "range": "[1400, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            2,
+            3,
+            5,
+            6,
+            8,
+            10,
+            11,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 1.45421543345)"
+            },
+            {
+              "label": "L2",
+              "range": "[1.45421543345, 2.11474252688)"
+            },
+            {
+              "label": "L3",
+              "range": "[2.11474252688, 3.07529122036)"
+            },
+            {
+              "label": "L4",
+              "range": "[3.07529122036, 4.472135955)"
+            },
+            {
+              "label": "L5",
+              "range": "[4.472135955, 6.50344912624)"
+            },
+            {
+              "label": "L6",
+              "range": "[6.50344912624, 9.45741609003)"
+            },
+            {
+              "label": "L7",
+              "range": "[9.45741609003, 13.7531204387)"
+            },
+            {
+              "label": "L8",
+              "range": "[13.7531204387, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            1.4542154334489537,
+            2.114742526881128,
+            3.0752912203613754,
+            4.472135954999579,
+            6.503449126242363,
+            9.457416090031758,
+            13.75312043867264,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.00707106781187)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.00707106781187, 0.01)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.01, 0.0141421356237)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.0141421356237, 0.02)"
+            },
+            {
+              "label": "L5",
+              "range": "[0.02, 0.0282842712475)"
+            },
+            {
+              "label": "L6",
+              "range": "[0.0282842712475, 0.04)"
+            },
+            {
+              "label": "L7",
+              "range": "[0.04, 0.0565685424949)"
+            },
+            {
+              "label": "L8",
+              "range": "[0.0565685424949, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.007071067811865478,
+            0.010000000000000004,
+            0.014142135623730958,
+            0.02,
+            0.028284271247461905,
+            0.03999999999999999,
+            0.05656854249492379,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      4,
+      3,
+      8,
+      9,
+      5,
+      3,
+      8,
+      11,
+      4,
+      7,
+      9,
+      8,
+      11,
+      15,
+      9,
+      10,
+      10,
+      18,
+      14,
+      11,
+      13,
+      7,
+      7,
+      9,
+      11,
+      9,
+      6,
+      7,
+      5,
+      5,
+      6,
+      11,
+      4,
+      6,
+      2,
+      4,
+      1,
+      3,
+      2,
+      4,
+      2,
+      2,
+      3,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+    ]
+  },
+  {
+    "fold": 1,
+    "resolution": 8,
+    "strength": 3,
+    "parameter_groups": 4,
+    "total_tuples": 1472,
+    "missing_tuples": 38,
+    "coverage": 0.9741847826086957,
+    "reference_missing_fraction": 0.06,
+    "reference_missing_count_mean": 0.0612,
+    "rare_limit": 5,
+    "rare_lower_quartile": 2,
+    "rare_upper_quartile": 3,
+    "reference_covered_count": 4700,
+    "discretization": {
+      "resolution": 8,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 7]"
+            },
+            {
+              "label": "L4",
+              "range": "[8, 8]"
+            },
+            {
+              "label": "L5",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 400]"
+            },
+            {
+              "label": "L2",
+              "range": "[500, 500]"
+            },
+            {
+              "label": "L3",
+              "range": "[600, 700]"
+            },
+            {
+              "label": "L4",
+              "range": "[800, 800]"
+            },
+            {
+              "label": "L5",
+              "range": "[900, 1000]"
+            },
+            {
+              "label": "L6",
+              "range": "[1100, 1200]"
+            },
+            {
+              "label": "L7",
+              "range": "[1300, 1300]"
+            },
+            {
+              "label": "L8",
+              "range": "[1400, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            2,
+            3,
+            5,
+            6,
+            8,
+            10,
+            11,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 1.45421543345)"
+            },
+            {
+              "label": "L2",
+              "range": "[1.45421543345, 2.11474252688)"
+            },
+            {
+              "label": "L3",
+              "range": "[2.11474252688, 3.07529122036)"
+            },
+            {
+              "label": "L4",
+              "range": "[3.07529122036, 4.472135955)"
+            },
+            {
+              "label": "L5",
+              "range": "[4.472135955, 6.50344912624)"
+            },
+            {
+              "label": "L6",
+              "range": "[6.50344912624, 9.45741609003)"
+            },
+            {
+              "label": "L7",
+              "range": "[9.45741609003, 13.7531204387)"
+            },
+            {
+              "label": "L8",
+              "range": "[13.7531204387, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            1.4542154334489537,
+            2.114742526881128,
+            3.0752912203613754,
+            4.472135954999579,
+            6.503449126242363,
+            9.457416090031758,
+            13.75312043867264,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.00707106781187)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.00707106781187, 0.01)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.01, 0.0141421356237)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.0141421356237, 0.02)"
+            },
+            {
+              "label": "L5",
+              "range": "[0.02, 0.0282842712475)"
+            },
+            {
+              "label": "L6",
+              "range": "[0.0282842712475, 0.04)"
+            },
+            {
+              "label": "L7",
+              "range": "[0.04, 0.0565685424949)"
+            },
+            {
+              "label": "L8",
+              "range": "[0.0565685424949, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.007071067811865478,
+            0.010000000000000004,
+            0.014142135623730958,
+            0.02,
+            0.028284271247461905,
+            0.03999999999999999,
+            0.05656854249492379,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      38,
+      113,
+      210,
+      245,
+      249,
+      188,
+      152,
+      108,
+      84,
+      42,
+      21,
+      8,
+      8,
+      2,
+      2,
+      2
+    ]
+  },
+  {
+    "fold": 1,
+    "resolution": 8,
+    "strength": 4,
+    "parameter_groups": 1,
+    "total_tuples": 2560,
+    "missing_tuples": 1381,
+    "coverage": 0.460546875,
+    "reference_missing_fraction": 0.5228,
+    "reference_missing_count_mean": 0.5228,
+    "rare_limit": 5,
+    "rare_lower_quartile": 1,
+    "rare_upper_quartile": 1,
+    "reference_covered_count": 2386,
+    "discretization": {
+      "resolution": 8,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 7]"
+            },
+            {
+              "label": "L4",
+              "range": "[8, 8]"
+            },
+            {
+              "label": "L5",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 400]"
+            },
+            {
+              "label": "L2",
+              "range": "[500, 500]"
+            },
+            {
+              "label": "L3",
+              "range": "[600, 700]"
+            },
+            {
+              "label": "L4",
+              "range": "[800, 800]"
+            },
+            {
+              "label": "L5",
+              "range": "[900, 1000]"
+            },
+            {
+              "label": "L6",
+              "range": "[1100, 1200]"
+            },
+            {
+              "label": "L7",
+              "range": "[1300, 1300]"
+            },
+            {
+              "label": "L8",
+              "range": "[1400, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            2,
+            3,
+            5,
+            6,
+            8,
+            10,
+            11,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 1.45421543345)"
+            },
+            {
+              "label": "L2",
+              "range": "[1.45421543345, 2.11474252688)"
+            },
+            {
+              "label": "L3",
+              "range": "[2.11474252688, 3.07529122036)"
+            },
+            {
+              "label": "L4",
+              "range": "[3.07529122036, 4.472135955)"
+            },
+            {
+              "label": "L5",
+              "range": "[4.472135955, 6.50344912624)"
+            },
+            {
+              "label": "L6",
+              "range": "[6.50344912624, 9.45741609003)"
+            },
+            {
+              "label": "L7",
+              "range": "[9.45741609003, 13.7531204387)"
+            },
+            {
+              "label": "L8",
+              "range": "[13.7531204387, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            1.4542154334489537,
+            2.114742526881128,
+            3.0752912203613754,
+            4.472135954999579,
+            6.503449126242363,
+            9.457416090031758,
+            13.75312043867264,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.00707106781187)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.00707106781187, 0.01)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.01, 0.0141421356237)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.0141421356237, 0.02)"
+            },
+            {
+              "label": "L5",
+              "range": "[0.02, 0.0282842712475)"
+            },
+            {
+              "label": "L6",
+              "range": "[0.0282842712475, 0.04)"
+            },
+            {
+              "label": "L7",
+              "range": "[0.04, 0.0565685424949)"
+            },
+            {
+              "label": "L8",
+              "range": "[0.0565685424949, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.007071067811865478,
+            0.010000000000000004,
+            0.014142135623730958,
+            0.02,
+            0.028284271247461905,
+            0.03999999999999999,
+            0.05656854249492379,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      1381,
+      838,
+      275,
+      54,
+      10,
+      2
+    ]
+  },
+  {
+    "fold": 2,
+    "resolution": 4,
+    "strength": 2,
+    "parameter_groups": 6,
+    "total_tuples": 96,
+    "missing_tuples": 0,
+    "coverage": 1.0,
+    "reference_missing_fraction": 0.0,
+    "reference_missing_count_mean": 0.0,
+    "rare_limit": 5,
+    "rare_lower_quartile": 0,
+    "rare_upper_quartile": 0,
+    "reference_covered_count": 5000,
+    "discretization": {
+      "resolution": 4,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 8]"
+            },
+            {
+              "label": "L4",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 500]"
+            },
+            {
+              "label": "L2",
+              "range": "[600, 800]"
+            },
+            {
+              "label": "L3",
+              "range": "[900, 1200]"
+            },
+            {
+              "label": "L4",
+              "range": "[1300, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            3,
+            6,
+            10,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 2.11474252688)"
+            },
+            {
+              "label": "L2",
+              "range": "[2.11474252688, 4.472135955)"
+            },
+            {
+              "label": "L3",
+              "range": "[4.472135955, 9.45741609003)"
+            },
+            {
+              "label": "L4",
+              "range": "[9.45741609003, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            2.114742526881128,
+            4.472135954999579,
+            9.457416090031758,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.01)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.01, 0.02)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.02, 0.04)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.04, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.010000000000000004,
+            0.02,
+            0.03999999999999999,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      2,
+      3,
+      3,
+      2,
+      2,
+      3,
+      3,
+      0,
+      2,
+      2,
+      0,
+      1,
+      1,
+      1,
+      1,
+      2,
+      3,
+      2,
+      7,
+      3,
+      1,
+      2,
+      1,
+      1,
+      4,
+      1,
+      1,
+      4,
+      1,
+      3,
+      2,
+      1,
+      0,
+      0,
+      3,
+      0,
+      0,
+      1,
+      0,
+      2,
+      2,
+      1,
+      1,
+      1,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+    ]
+  },
+  {
+    "fold": 2,
+    "resolution": 4,
+    "strength": 3,
+    "parameter_groups": 4,
+    "total_tuples": 256,
+    "missing_tuples": 0,
+    "coverage": 1.0,
+    "reference_missing_fraction": 0.0,
+    "reference_missing_count_mean": 0.0,
+    "rare_limit": 5,
+    "rare_lower_quartile": 0,
+    "rare_upper_quartile": 0,
+    "reference_covered_count": 5000,
+    "discretization": {
+      "resolution": 4,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 8]"
+            },
+            {
+              "label": "L4",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 500]"
+            },
+            {
+              "label": "L2",
+              "range": "[600, 800]"
+            },
+            {
+              "label": "L3",
+              "range": "[900, 1200]"
+            },
+            {
+              "label": "L4",
+              "range": "[1300, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            3,
+            6,
+            10,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 2.11474252688)"
+            },
+            {
+              "label": "L2",
+              "range": "[2.11474252688, 4.472135955)"
+            },
+            {
+              "label": "L3",
+              "range": "[4.472135955, 9.45741609003)"
+            },
+            {
+              "label": "L4",
+              "range": "[9.45741609003, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            2.114742526881128,
+            4.472135954999579,
+            9.457416090031758,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.01)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.01, 0.02)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.02, 0.04)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.04, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.010000000000000004,
+            0.02,
+            0.03999999999999999,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      5,
+      6,
+      9,
+      6,
+      14,
+      11,
+      13,
+      17,
+      10,
+      15,
+      12,
+      11,
+      13,
+      12,
+      13,
+      6,
+      9,
+      9,
+      6,
+      2,
+      4,
+      7,
+      4,
+      7,
+      5,
+      1,
+      3,
+      1,
+      7,
+      2,
+      3,
+      2,
+      0,
+      2,
+      1,
+      1,
+      0,
+      2,
+      2,
+      0,
+      2
+    ]
+  },
+  {
+    "fold": 2,
+    "resolution": 4,
+    "strength": 4,
+    "parameter_groups": 1,
+    "total_tuples": 256,
+    "missing_tuples": 1,
+    "coverage": 0.99609375,
+    "reference_missing_fraction": 0.0032,
+    "reference_missing_count_mean": 0.0032,
+    "rare_limit": 5,
+    "rare_lower_quartile": 0,
+    "rare_upper_quartile": 1,
+    "reference_covered_count": 4984,
+    "discretization": {
+      "resolution": 4,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 8]"
+            },
+            {
+              "label": "L4",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 500]"
+            },
+            {
+              "label": "L2",
+              "range": "[600, 800]"
+            },
+            {
+              "label": "L3",
+              "range": "[900, 1200]"
+            },
+            {
+              "label": "L4",
+              "range": "[1300, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            3,
+            6,
+            10,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 2.11474252688)"
+            },
+            {
+              "label": "L2",
+              "range": "[2.11474252688, 4.472135955)"
+            },
+            {
+              "label": "L3",
+              "range": "[4.472135955, 9.45741609003)"
+            },
+            {
+              "label": "L4",
+              "range": "[9.45741609003, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            2.114742526881128,
+            4.472135954999579,
+            9.457416090031758,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.01)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.01, 0.02)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.02, 0.04)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.04, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.010000000000000004,
+            0.02,
+            0.03999999999999999,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      1,
+      4,
+      18,
+      32,
+      33,
+      35,
+      33,
+      22,
+      22,
+      10,
+      15,
+      11,
+      6,
+      4,
+      7,
+      2,
+      1
+    ]
+  },
+  {
+    "fold": 2,
+    "resolution": 8,
+    "strength": 2,
+    "parameter_groups": 6,
+    "total_tuples": 312,
+    "missing_tuples": 0,
+    "coverage": 1.0,
+    "reference_missing_fraction": 0.0,
+    "reference_missing_count_mean": 0.0,
+    "rare_limit": 5,
+    "rare_lower_quartile": 0,
+    "rare_upper_quartile": 0,
+    "reference_covered_count": 5000,
+    "discretization": {
+      "resolution": 8,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 7]"
+            },
+            {
+              "label": "L4",
+              "range": "[8, 8]"
+            },
+            {
+              "label": "L5",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 400]"
+            },
+            {
+              "label": "L2",
+              "range": "[500, 500]"
+            },
+            {
+              "label": "L3",
+              "range": "[600, 700]"
+            },
+            {
+              "label": "L4",
+              "range": "[800, 800]"
+            },
+            {
+              "label": "L5",
+              "range": "[900, 1000]"
+            },
+            {
+              "label": "L6",
+              "range": "[1100, 1200]"
+            },
+            {
+              "label": "L7",
+              "range": "[1300, 1300]"
+            },
+            {
+              "label": "L8",
+              "range": "[1400, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            2,
+            3,
+            5,
+            6,
+            8,
+            10,
+            11,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 1.45421543345)"
+            },
+            {
+              "label": "L2",
+              "range": "[1.45421543345, 2.11474252688)"
+            },
+            {
+              "label": "L3",
+              "range": "[2.11474252688, 3.07529122036)"
+            },
+            {
+              "label": "L4",
+              "range": "[3.07529122036, 4.472135955)"
+            },
+            {
+              "label": "L5",
+              "range": "[4.472135955, 6.50344912624)"
+            },
+            {
+              "label": "L6",
+              "range": "[6.50344912624, 9.45741609003)"
+            },
+            {
+              "label": "L7",
+              "range": "[9.45741609003, 13.7531204387)"
+            },
+            {
+              "label": "L8",
+              "range": "[13.7531204387, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            1.4542154334489537,
+            2.114742526881128,
+            3.0752912203613754,
+            4.472135954999579,
+            6.503449126242363,
+            9.457416090031758,
+            13.75312043867264,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.00707106781187)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.00707106781187, 0.01)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.01, 0.0141421356237)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.0141421356237, 0.02)"
+            },
+            {
+              "label": "L5",
+              "range": "[0.02, 0.0282842712475)"
+            },
+            {
+              "label": "L6",
+              "range": "[0.0282842712475, 0.04)"
+            },
+            {
+              "label": "L7",
+              "range": "[0.04, 0.0565685424949)"
+            },
+            {
+              "label": "L8",
+              "range": "[0.0565685424949, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.007071067811865478,
+            0.010000000000000004,
+            0.014142135623730958,
+            0.02,
+            0.028284271247461905,
+            0.03999999999999999,
+            0.05656854249492379,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      2,
+      2,
+      1,
+      0,
+      3,
+      10,
+      3,
+      5,
+      10,
+      6,
+      7,
+      8,
+      9,
+      8,
+      9,
+      10,
+      13,
+      9,
+      7,
+      10,
+      10,
+      15,
+      13,
+      10,
+      11,
+      8,
+      8,
+      8,
+      8,
+      14,
+      9,
+      8,
+      7,
+      5,
+      3,
+      6,
+      1,
+      6,
+      5,
+      1,
+      2,
+      5,
+      4,
+      1,
+      4,
+      2,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0,
+      1
+    ]
+  },
+  {
+    "fold": 2,
+    "resolution": 8,
+    "strength": 3,
+    "parameter_groups": 4,
+    "total_tuples": 1472,
+    "missing_tuples": 42,
+    "coverage": 0.9714673913043478,
+    "reference_missing_fraction": 0.057,
+    "reference_missing_count_mean": 0.0612,
+    "rare_limit": 5,
+    "rare_lower_quartile": 2,
+    "rare_upper_quartile": 3,
+    "reference_covered_count": 4715,
+    "discretization": {
+      "resolution": 8,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 7]"
+            },
+            {
+              "label": "L4",
+              "range": "[8, 8]"
+            },
+            {
+              "label": "L5",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 400]"
+            },
+            {
+              "label": "L2",
+              "range": "[500, 500]"
+            },
+            {
+              "label": "L3",
+              "range": "[600, 700]"
+            },
+            {
+              "label": "L4",
+              "range": "[800, 800]"
+            },
+            {
+              "label": "L5",
+              "range": "[900, 1000]"
+            },
+            {
+              "label": "L6",
+              "range": "[1100, 1200]"
+            },
+            {
+              "label": "L7",
+              "range": "[1300, 1300]"
+            },
+            {
+              "label": "L8",
+              "range": "[1400, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            2,
+            3,
+            5,
+            6,
+            8,
+            10,
+            11,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 1.45421543345)"
+            },
+            {
+              "label": "L2",
+              "range": "[1.45421543345, 2.11474252688)"
+            },
+            {
+              "label": "L3",
+              "range": "[2.11474252688, 3.07529122036)"
+            },
+            {
+              "label": "L4",
+              "range": "[3.07529122036, 4.472135955)"
+            },
+            {
+              "label": "L5",
+              "range": "[4.472135955, 6.50344912624)"
+            },
+            {
+              "label": "L6",
+              "range": "[6.50344912624, 9.45741609003)"
+            },
+            {
+              "label": "L7",
+              "range": "[9.45741609003, 13.7531204387)"
+            },
+            {
+              "label": "L8",
+              "range": "[13.7531204387, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            1.4542154334489537,
+            2.114742526881128,
+            3.0752912203613754,
+            4.472135954999579,
+            6.503449126242363,
+            9.457416090031758,
+            13.75312043867264,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.00707106781187)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.00707106781187, 0.01)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.01, 0.0141421356237)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.0141421356237, 0.02)"
+            },
+            {
+              "label": "L5",
+              "range": "[0.02, 0.0282842712475)"
+            },
+            {
+              "label": "L6",
+              "range": "[0.0282842712475, 0.04)"
+            },
+            {
+              "label": "L7",
+              "range": "[0.04, 0.0565685424949)"
+            },
+            {
+              "label": "L8",
+              "range": "[0.0565685424949, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.007071067811865478,
+            0.010000000000000004,
+            0.014142135623730958,
+            0.02,
+            0.028284271247461905,
+            0.03999999999999999,
+            0.05656854249492379,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      42,
+      114,
+      213,
+      245,
+      222,
+      193,
+      158,
+      126,
+      76,
+      42,
+      20,
+      7,
+      7,
+      5,
+      1,
+      0,
+      1
+    ]
+  },
+  {
+    "fold": 2,
+    "resolution": 8,
+    "strength": 4,
+    "parameter_groups": 1,
+    "total_tuples": 2560,
+    "missing_tuples": 1357,
+    "coverage": 0.46992187500000004,
+    "reference_missing_fraction": 0.5016,
+    "reference_missing_count_mean": 0.5016,
+    "rare_limit": 5,
+    "rare_lower_quartile": 1,
+    "rare_upper_quartile": 1,
+    "reference_covered_count": 2492,
+    "discretization": {
+      "resolution": 8,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 7]"
+            },
+            {
+              "label": "L4",
+              "range": "[8, 8]"
+            },
+            {
+              "label": "L5",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 400]"
+            },
+            {
+              "label": "L2",
+              "range": "[500, 500]"
+            },
+            {
+              "label": "L3",
+              "range": "[600, 700]"
+            },
+            {
+              "label": "L4",
+              "range": "[800, 800]"
+            },
+            {
+              "label": "L5",
+              "range": "[900, 1000]"
+            },
+            {
+              "label": "L6",
+              "range": "[1100, 1200]"
+            },
+            {
+              "label": "L7",
+              "range": "[1300, 1300]"
+            },
+            {
+              "label": "L8",
+              "range": "[1400, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            2,
+            3,
+            5,
+            6,
+            8,
+            10,
+            11,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 1.45421543345)"
+            },
+            {
+              "label": "L2",
+              "range": "[1.45421543345, 2.11474252688)"
+            },
+            {
+              "label": "L3",
+              "range": "[2.11474252688, 3.07529122036)"
+            },
+            {
+              "label": "L4",
+              "range": "[3.07529122036, 4.472135955)"
+            },
+            {
+              "label": "L5",
+              "range": "[4.472135955, 6.50344912624)"
+            },
+            {
+              "label": "L6",
+              "range": "[6.50344912624, 9.45741609003)"
+            },
+            {
+              "label": "L7",
+              "range": "[9.45741609003, 13.7531204387)"
+            },
+            {
+              "label": "L8",
+              "range": "[13.7531204387, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            1.4542154334489537,
+            2.114742526881128,
+            3.0752912203613754,
+            4.472135954999579,
+            6.503449126242363,
+            9.457416090031758,
+            13.75312043867264,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.00707106781187)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.00707106781187, 0.01)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.01, 0.0141421356237)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.0141421356237, 0.02)"
+            },
+            {
+              "label": "L5",
+              "range": "[0.02, 0.0282842712475)"
+            },
+            {
+              "label": "L6",
+              "range": "[0.0282842712475, 0.04)"
+            },
+            {
+              "label": "L7",
+              "range": "[0.04, 0.0565685424949)"
+            },
+            {
+              "label": "L8",
+              "range": "[0.0565685424949, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.007071067811865478,
+            0.010000000000000004,
+            0.014142135623730958,
+            0.02,
+            0.028284271247461905,
+            0.03999999999999999,
+            0.05656854249492379,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      1357,
+      881,
+      261,
+      49,
+      10,
+      2
+    ]
+  },
+  {
+    "fold": 3,
+    "resolution": 4,
+    "strength": 2,
+    "parameter_groups": 6,
+    "total_tuples": 96,
+    "missing_tuples": 0,
+    "coverage": 1.0,
+    "reference_missing_fraction": 0.0,
+    "reference_missing_count_mean": 0.0,
+    "rare_limit": 5,
+    "rare_lower_quartile": 0,
+    "rare_upper_quartile": 0,
+    "reference_covered_count": 5000,
+    "discretization": {
+      "resolution": 4,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 8]"
+            },
+            {
+              "label": "L4",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 500]"
+            },
+            {
+              "label": "L2",
+              "range": "[600, 800]"
+            },
+            {
+              "label": "L3",
+              "range": "[900, 1200]"
+            },
+            {
+              "label": "L4",
+              "range": "[1300, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            3,
+            6,
+            10,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 2.11474252688)"
+            },
+            {
+              "label": "L2",
+              "range": "[2.11474252688, 4.472135955)"
+            },
+            {
+              "label": "L3",
+              "range": "[4.472135955, 9.45741609003)"
+            },
+            {
+              "label": "L4",
+              "range": "[9.45741609003, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            2.114742526881128,
+            4.472135954999579,
+            9.457416090031758,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.01)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.01, 0.02)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.02, 0.04)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.04, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.010000000000000004,
+            0.02,
+            0.03999999999999999,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      2,
+      0,
+      1,
+      1,
+      3,
+      2,
+      1,
+      1,
+      0,
+      0,
+      2,
+      1,
+      0,
+      1,
+      0,
+      2,
+      2,
+      8,
+      2,
+      3,
+      1,
+      3,
+      3,
+      1,
+      1,
+      3,
+      4,
+      1,
+      4,
+      1,
+      2,
+      3,
+      3,
+      0,
+      0,
+      3,
+      4,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      2,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      1,
+      2,
+      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1
+    ]
+  },
+  {
+    "fold": 3,
+    "resolution": 4,
+    "strength": 3,
+    "parameter_groups": 4,
+    "total_tuples": 256,
+    "missing_tuples": 0,
+    "coverage": 1.0,
+    "reference_missing_fraction": 0.0,
+    "reference_missing_count_mean": 0.0,
+    "rare_limit": 5,
+    "rare_lower_quartile": 0,
+    "rare_upper_quartile": 0,
+    "reference_covered_count": 5000,
+    "discretization": {
+      "resolution": 4,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 8]"
+            },
+            {
+              "label": "L4",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 500]"
+            },
+            {
+              "label": "L2",
+              "range": "[600, 800]"
+            },
+            {
+              "label": "L3",
+              "range": "[900, 1200]"
+            },
+            {
+              "label": "L4",
+              "range": "[1300, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            3,
+            6,
+            10,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 2.11474252688)"
+            },
+            {
+              "label": "L2",
+              "range": "[2.11474252688, 4.472135955)"
+            },
+            {
+              "label": "L3",
+              "range": "[4.472135955, 9.45741609003)"
+            },
+            {
+              "label": "L4",
+              "range": "[9.45741609003, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            2.114742526881128,
+            4.472135954999579,
+            9.457416090031758,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.01)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.01, 0.02)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.02, 0.04)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.04, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.010000000000000004,
+            0.02,
+            0.03999999999999999,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      2,
+      3,
+      3,
+      4,
+      7,
+      8,
+      3,
+      11,
+      11,
+      23,
+      21,
+      15,
+      17,
+      10,
+      11,
+      14,
+      11,
+      5,
+      6,
+      2,
+      5,
+      4,
+      6,
+      5,
+      1,
+      4,
+      5,
+      3,
+      3,
+      7,
+      6,
+      2,
+      1,
+      3,
+      2,
+      1,
+      4,
+      0,
+      0,
+      1,
+      0,
+      1,
+      2,
+      0,
+      0,
+      0,
+      1
+    ]
+  },
+  {
+    "fold": 3,
+    "resolution": 4,
+    "strength": 4,
+    "parameter_groups": 1,
+    "total_tuples": 256,
+    "missing_tuples": 1,
+    "coverage": 0.99609375,
+    "reference_missing_fraction": 0.0032,
+    "reference_missing_count_mean": 0.0032,
+    "rare_limit": 5,
+    "rare_lower_quartile": 0,
+    "rare_upper_quartile": 1,
+    "reference_covered_count": 4984,
+    "discretization": {
+      "resolution": 4,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 8]"
+            },
+            {
+              "label": "L4",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 500]"
+            },
+            {
+              "label": "L2",
+              "range": "[600, 800]"
+            },
+            {
+              "label": "L3",
+              "range": "[900, 1200]"
+            },
+            {
+              "label": "L4",
+              "range": "[1300, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            3,
+            6,
+            10,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 2.11474252688)"
+            },
+            {
+              "label": "L2",
+              "range": "[2.11474252688, 4.472135955)"
+            },
+            {
+              "label": "L3",
+              "range": "[4.472135955, 9.45741609003)"
+            },
+            {
+              "label": "L4",
+              "range": "[9.45741609003, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            2.114742526881128,
+            4.472135954999579,
+            9.457416090031758,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.01)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.01, 0.02)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.02, 0.04)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.04, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.010000000000000004,
+            0.02,
+            0.03999999999999999,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      1,
+      8,
+      14,
+      29,
+      34,
+      34,
+      32,
+      27,
+      17,
+      18,
+      11,
+      14,
+      7,
+      5,
+      1,
+      0,
+      3,
+      1
+    ]
+  },
+  {
+    "fold": 3,
+    "resolution": 8,
+    "strength": 2,
+    "parameter_groups": 6,
+    "total_tuples": 312,
+    "missing_tuples": 0,
+    "coverage": 1.0,
+    "reference_missing_fraction": 0.0,
+    "reference_missing_count_mean": 0.0,
+    "rare_limit": 5,
+    "rare_lower_quartile": 0,
+    "rare_upper_quartile": 0,
+    "reference_covered_count": 5000,
+    "discretization": {
+      "resolution": 8,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 7]"
+            },
+            {
+              "label": "L4",
+              "range": "[8, 8]"
+            },
+            {
+              "label": "L5",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 400]"
+            },
+            {
+              "label": "L2",
+              "range": "[500, 500]"
+            },
+            {
+              "label": "L3",
+              "range": "[600, 700]"
+            },
+            {
+              "label": "L4",
+              "range": "[800, 800]"
+            },
+            {
+              "label": "L5",
+              "range": "[900, 1000]"
+            },
+            {
+              "label": "L6",
+              "range": "[1100, 1200]"
+            },
+            {
+              "label": "L7",
+              "range": "[1300, 1300]"
+            },
+            {
+              "label": "L8",
+              "range": "[1400, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            2,
+            3,
+            5,
+            6,
+            8,
+            10,
+            11,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 1.45421543345)"
+            },
+            {
+              "label": "L2",
+              "range": "[1.45421543345, 2.11474252688)"
+            },
+            {
+              "label": "L3",
+              "range": "[2.11474252688, 3.07529122036)"
+            },
+            {
+              "label": "L4",
+              "range": "[3.07529122036, 4.472135955)"
+            },
+            {
+              "label": "L5",
+              "range": "[4.472135955, 6.50344912624)"
+            },
+            {
+              "label": "L6",
+              "range": "[6.50344912624, 9.45741609003)"
+            },
+            {
+              "label": "L7",
+              "range": "[9.45741609003, 13.7531204387)"
+            },
+            {
+              "label": "L8",
+              "range": "[13.7531204387, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            1.4542154334489537,
+            2.114742526881128,
+            3.0752912203613754,
+            4.472135954999579,
+            6.503449126242363,
+            9.457416090031758,
+            13.75312043867264,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.00707106781187)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.00707106781187, 0.01)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.01, 0.0141421356237)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.0141421356237, 0.02)"
+            },
+            {
+              "label": "L5",
+              "range": "[0.02, 0.0282842712475)"
+            },
+            {
+              "label": "L6",
+              "range": "[0.0282842712475, 0.04)"
+            },
+            {
+              "label": "L7",
+              "range": "[0.04, 0.0565685424949)"
+            },
+            {
+              "label": "L8",
+              "range": "[0.0565685424949, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.007071067811865478,
+            0.010000000000000004,
+            0.014142135623730958,
+            0.02,
+            0.028284271247461905,
+            0.03999999999999999,
+            0.05656854249492379,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      4,
+      0,
+      4,
+      3,
+      7,
+      8,
+      7,
+      4,
+      11,
+      10,
+      6,
+      6,
+      8,
+      11,
+      8,
+      12,
+      13,
+      6,
+      9,
+      15,
+      8,
+      9,
+      9,
+      8,
+      12,
+      12,
+      9,
+      9,
+      7,
+      8,
+      11,
+      4,
+      7,
+      7,
+      5,
+      2,
+      5,
+      3,
+      1,
+      6,
+      4,
+      3,
+      0,
+      2,
+      3,
+      0,
+      1,
+      0,
+      2,
+      1,
+      0,
+      1,
+      0,
+      0,
+      1
+    ]
+  },
+  {
+    "fold": 3,
+    "resolution": 8,
+    "strength": 3,
+    "parameter_groups": 4,
+    "total_tuples": 1472,
+    "missing_tuples": 40,
+    "coverage": 0.9728260869565217,
+    "reference_missing_fraction": 0.065,
+    "reference_missing_count_mean": 0.0688,
+    "rare_limit": 5,
+    "rare_lower_quartile": 2,
+    "rare_upper_quartile": 3,
+    "reference_covered_count": 4675,
+    "discretization": {
+      "resolution": 8,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 7]"
+            },
+            {
+              "label": "L4",
+              "range": "[8, 8]"
+            },
+            {
+              "label": "L5",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 400]"
+            },
+            {
+              "label": "L2",
+              "range": "[500, 500]"
+            },
+            {
+              "label": "L3",
+              "range": "[600, 700]"
+            },
+            {
+              "label": "L4",
+              "range": "[800, 800]"
+            },
+            {
+              "label": "L5",
+              "range": "[900, 1000]"
+            },
+            {
+              "label": "L6",
+              "range": "[1100, 1200]"
+            },
+            {
+              "label": "L7",
+              "range": "[1300, 1300]"
+            },
+            {
+              "label": "L8",
+              "range": "[1400, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            2,
+            3,
+            5,
+            6,
+            8,
+            10,
+            11,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 1.45421543345)"
+            },
+            {
+              "label": "L2",
+              "range": "[1.45421543345, 2.11474252688)"
+            },
+            {
+              "label": "L3",
+              "range": "[2.11474252688, 3.07529122036)"
+            },
+            {
+              "label": "L4",
+              "range": "[3.07529122036, 4.472135955)"
+            },
+            {
+              "label": "L5",
+              "range": "[4.472135955, 6.50344912624)"
+            },
+            {
+              "label": "L6",
+              "range": "[6.50344912624, 9.45741609003)"
+            },
+            {
+              "label": "L7",
+              "range": "[9.45741609003, 13.7531204387)"
+            },
+            {
+              "label": "L8",
+              "range": "[13.7531204387, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            1.4542154334489537,
+            2.114742526881128,
+            3.0752912203613754,
+            4.472135954999579,
+            6.503449126242363,
+            9.457416090031758,
+            13.75312043867264,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.00707106781187)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.00707106781187, 0.01)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.01, 0.0141421356237)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.0141421356237, 0.02)"
+            },
+            {
+              "label": "L5",
+              "range": "[0.02, 0.0282842712475)"
+            },
+            {
+              "label": "L6",
+              "range": "[0.0282842712475, 0.04)"
+            },
+            {
+              "label": "L7",
+              "range": "[0.04, 0.0565685424949)"
+            },
+            {
+              "label": "L8",
+              "range": "[0.0565685424949, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.007071067811865478,
+            0.010000000000000004,
+            0.014142135623730958,
+            0.02,
+            0.028284271247461905,
+            0.03999999999999999,
+            0.05656854249492379,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      40,
+      128,
+      205,
+      239,
+      236,
+      194,
+      157,
+      115,
+      60,
+      35,
+      31,
+      15,
+      9,
+      6,
+      2
+    ]
+  },
+  {
+    "fold": 3,
+    "resolution": 8,
+    "strength": 4,
+    "parameter_groups": 1,
+    "total_tuples": 2560,
+    "missing_tuples": 1378,
+    "coverage": 0.46171874999999996,
+    "reference_missing_fraction": 0.506,
+    "reference_missing_count_mean": 0.506,
+    "rare_limit": 5,
+    "rare_lower_quartile": 1,
+    "rare_upper_quartile": 1,
+    "reference_covered_count": 2470,
+    "discretization": {
+      "resolution": 8,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 7]"
+            },
+            {
+              "label": "L4",
+              "range": "[8, 8]"
+            },
+            {
+              "label": "L5",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 400]"
+            },
+            {
+              "label": "L2",
+              "range": "[500, 500]"
+            },
+            {
+              "label": "L3",
+              "range": "[600, 700]"
+            },
+            {
+              "label": "L4",
+              "range": "[800, 800]"
+            },
+            {
+              "label": "L5",
+              "range": "[900, 1000]"
+            },
+            {
+              "label": "L6",
+              "range": "[1100, 1200]"
+            },
+            {
+              "label": "L7",
+              "range": "[1300, 1300]"
+            },
+            {
+              "label": "L8",
+              "range": "[1400, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            2,
+            3,
+            5,
+            6,
+            8,
+            10,
+            11,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 1.45421543345)"
+            },
+            {
+              "label": "L2",
+              "range": "[1.45421543345, 2.11474252688)"
+            },
+            {
+              "label": "L3",
+              "range": "[2.11474252688, 3.07529122036)"
+            },
+            {
+              "label": "L4",
+              "range": "[3.07529122036, 4.472135955)"
+            },
+            {
+              "label": "L5",
+              "range": "[4.472135955, 6.50344912624)"
+            },
+            {
+              "label": "L6",
+              "range": "[6.50344912624, 9.45741609003)"
+            },
+            {
+              "label": "L7",
+              "range": "[9.45741609003, 13.7531204387)"
+            },
+            {
+              "label": "L8",
+              "range": "[13.7531204387, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            1.4542154334489537,
+            2.114742526881128,
+            3.0752912203613754,
+            4.472135954999579,
+            6.503449126242363,
+            9.457416090031758,
+            13.75312043867264,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.00707106781187)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.00707106781187, 0.01)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.01, 0.0141421356237)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.0141421356237, 0.02)"
+            },
+            {
+              "label": "L5",
+              "range": "[0.02, 0.0282842712475)"
+            },
+            {
+              "label": "L6",
+              "range": "[0.0282842712475, 0.04)"
+            },
+            {
+              "label": "L7",
+              "range": "[0.04, 0.0565685424949)"
+            },
+            {
+              "label": "L8",
+              "range": "[0.0565685424949, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.007071067811865478,
+            0.010000000000000004,
+            0.014142135623730958,
+            0.02,
+            0.028284271247461905,
+            0.03999999999999999,
+            0.05656854249492379,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      1378,
+      844,
+      274,
+      50,
+      12,
+      2
+    ]
+  },
+  {
+    "fold": 4,
+    "resolution": 4,
+    "strength": 2,
+    "parameter_groups": 6,
+    "total_tuples": 96,
+    "missing_tuples": 0,
+    "coverage": 1.0,
+    "reference_missing_fraction": 0.0,
+    "reference_missing_count_mean": 0.0,
+    "rare_limit": 5,
+    "rare_lower_quartile": 0,
+    "rare_upper_quartile": 0,
+    "reference_covered_count": 5000,
+    "discretization": {
+      "resolution": 4,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 8]"
+            },
+            {
+              "label": "L4",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 500]"
+            },
+            {
+              "label": "L2",
+              "range": "[600, 800]"
+            },
+            {
+              "label": "L3",
+              "range": "[900, 1200]"
+            },
+            {
+              "label": "L4",
+              "range": "[1300, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            3,
+            6,
+            10,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 2.11474252688)"
+            },
+            {
+              "label": "L2",
+              "range": "[2.11474252688, 4.472135955)"
+            },
+            {
+              "label": "L3",
+              "range": "[4.472135955, 9.45741609003)"
+            },
+            {
+              "label": "L4",
+              "range": "[9.45741609003, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            2.114742526881128,
+            4.472135954999579,
+            9.457416090031758,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.01)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.01, 0.02)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.02, 0.04)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.04, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.010000000000000004,
+            0.02,
+            0.03999999999999999,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      1,
+      1,
+      0,
+      1,
+      3,
+      0,
+      1,
+      1,
+      1,
+      4,
+      1,
+      0,
+      0,
+      3,
+      2,
+      0,
+      2,
+      1,
+      2,
+      1,
+      5,
+      0,
+      3,
+      2,
+      3,
+      4,
+      2,
+      0,
+      0,
+      3,
+      3,
+      3,
+      1,
+      2,
+      2,
+      1,
+      2,
+      2,
+      3,
+      3,
+      0,
+      2,
+      1,
+      0,
+      0,
+      0,
+      2,
+      1,
+      0,
+      0,
+      0,
+      2,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0,
+      0,
+      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      1,
+      0,
+      1,
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+    ]
+  },
+  {
+    "fold": 4,
+    "resolution": 4,
+    "strength": 3,
+    "parameter_groups": 4,
+    "total_tuples": 256,
+    "missing_tuples": 0,
+    "coverage": 1.0,
+    "reference_missing_fraction": 0.0,
+    "reference_missing_count_mean": 0.0,
+    "rare_limit": 5,
+    "rare_lower_quartile": 0,
+    "rare_upper_quartile": 0,
+    "reference_covered_count": 5000,
+    "discretization": {
+      "resolution": 4,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 8]"
+            },
+            {
+              "label": "L4",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 500]"
+            },
+            {
+              "label": "L2",
+              "range": "[600, 800]"
+            },
+            {
+              "label": "L3",
+              "range": "[900, 1200]"
+            },
+            {
+              "label": "L4",
+              "range": "[1300, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            3,
+            6,
+            10,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 2.11474252688)"
+            },
+            {
+              "label": "L2",
+              "range": "[2.11474252688, 4.472135955)"
+            },
+            {
+              "label": "L3",
+              "range": "[4.472135955, 9.45741609003)"
+            },
+            {
+              "label": "L4",
+              "range": "[9.45741609003, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            2.114742526881128,
+            4.472135954999579,
+            9.457416090031758,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.01)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.01, 0.02)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.02, 0.04)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.04, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.010000000000000004,
+            0.02,
+            0.03999999999999999,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      3,
+      1,
+      5,
+      8,
+      8,
+      11,
+      22,
+      7,
+      12,
+      12,
+      20,
+      11,
+      20,
+      11,
+      9,
+      11,
+      7,
+      6,
+      2,
+      4,
+      3,
+      2,
+      7,
+      7,
+      6,
+      4,
+      4,
+      6,
+      1,
+      4,
+      1,
+      4,
+      3,
+      2,
+      2,
+      1,
+      2,
+      1,
+      1,
+      1,
+      1,
+      0,
+      1
+    ]
+  },
+  {
+    "fold": 4,
+    "resolution": 4,
+    "strength": 4,
+    "parameter_groups": 1,
+    "total_tuples": 256,
+    "missing_tuples": 3,
+    "coverage": 0.98828125,
+    "reference_missing_fraction": 0.009,
+    "reference_missing_count_mean": 0.009,
+    "rare_limit": 5,
+    "rare_lower_quartile": 0,
+    "rare_upper_quartile": 1,
+    "reference_covered_count": 4955,
+    "discretization": {
+      "resolution": 4,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 8]"
+            },
+            {
+              "label": "L4",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 500]"
+            },
+            {
+              "label": "L2",
+              "range": "[600, 800]"
+            },
+            {
+              "label": "L3",
+              "range": "[900, 1200]"
+            },
+            {
+              "label": "L4",
+              "range": "[1300, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            3,
+            6,
+            10,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 2.11474252688)"
+            },
+            {
+              "label": "L2",
+              "range": "[2.11474252688, 4.472135955)"
+            },
+            {
+              "label": "L3",
+              "range": "[4.472135955, 9.45741609003)"
+            },
+            {
+              "label": "L4",
+              "range": "[9.45741609003, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            2.114742526881128,
+            4.472135954999579,
+            9.457416090031758,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.01)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.01, 0.02)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.02, 0.04)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.04, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.010000000000000004,
+            0.02,
+            0.03999999999999999,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      3,
+      9,
+      10,
+      24,
+      41,
+      38,
+      28,
+      25,
+      15,
+      14,
+      17,
+      14,
+      9,
+      5,
+      2,
+      1,
+      1
+    ]
+  },
+  {
+    "fold": 4,
+    "resolution": 8,
+    "strength": 2,
+    "parameter_groups": 6,
+    "total_tuples": 312,
+    "missing_tuples": 0,
+    "coverage": 1.0,
+    "reference_missing_fraction": 0.0,
+    "reference_missing_count_mean": 0.0,
+    "rare_limit": 5,
+    "rare_lower_quartile": 0,
+    "rare_upper_quartile": 0,
+    "reference_covered_count": 5000,
+    "discretization": {
+      "resolution": 8,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 7]"
+            },
+            {
+              "label": "L4",
+              "range": "[8, 8]"
+            },
+            {
+              "label": "L5",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 400]"
+            },
+            {
+              "label": "L2",
+              "range": "[500, 500]"
+            },
+            {
+              "label": "L3",
+              "range": "[600, 700]"
+            },
+            {
+              "label": "L4",
+              "range": "[800, 800]"
+            },
+            {
+              "label": "L5",
+              "range": "[900, 1000]"
+            },
+            {
+              "label": "L6",
+              "range": "[1100, 1200]"
+            },
+            {
+              "label": "L7",
+              "range": "[1300, 1300]"
+            },
+            {
+              "label": "L8",
+              "range": "[1400, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            2,
+            3,
+            5,
+            6,
+            8,
+            10,
+            11,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 1.45421543345)"
+            },
+            {
+              "label": "L2",
+              "range": "[1.45421543345, 2.11474252688)"
+            },
+            {
+              "label": "L3",
+              "range": "[2.11474252688, 3.07529122036)"
+            },
+            {
+              "label": "L4",
+              "range": "[3.07529122036, 4.472135955)"
+            },
+            {
+              "label": "L5",
+              "range": "[4.472135955, 6.50344912624)"
+            },
+            {
+              "label": "L6",
+              "range": "[6.50344912624, 9.45741609003)"
+            },
+            {
+              "label": "L7",
+              "range": "[9.45741609003, 13.7531204387)"
+            },
+            {
+              "label": "L8",
+              "range": "[13.7531204387, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            1.4542154334489537,
+            2.114742526881128,
+            3.0752912203613754,
+            4.472135954999579,
+            6.503449126242363,
+            9.457416090031758,
+            13.75312043867264,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.00707106781187)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.00707106781187, 0.01)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.01, 0.0141421356237)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.0141421356237, 0.02)"
+            },
+            {
+              "label": "L5",
+              "range": "[0.02, 0.0282842712475)"
+            },
+            {
+              "label": "L6",
+              "range": "[0.0282842712475, 0.04)"
+            },
+            {
+              "label": "L7",
+              "range": "[0.04, 0.0565685424949)"
+            },
+            {
+              "label": "L8",
+              "range": "[0.0565685424949, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.007071067811865478,
+            0.010000000000000004,
+            0.014142135623730958,
+            0.02,
+            0.028284271247461905,
+            0.03999999999999999,
+            0.05656854249492379,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      1,
+      2,
+      1,
+      4,
+      6,
+      2,
+      6,
+      10,
+      4,
+      6,
+      4,
+      8,
+      10,
+      12,
+      9,
+      9,
+      10,
+      11,
+      9,
+      7,
+      16,
+      14,
+      9,
+      9,
+      17,
+      8,
+      6,
+      13,
+      7,
+      5,
+      7,
+      4,
+      8,
+      4,
+      7,
+      6,
+      7,
+      6,
+      3,
+      2,
+      2,
+      4,
+      4,
+      1,
+      2,
+      1,
+      2,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1
+    ]
+  },
+  {
+    "fold": 4,
+    "resolution": 8,
+    "strength": 3,
+    "parameter_groups": 4,
+    "total_tuples": 1472,
+    "missing_tuples": 36,
+    "coverage": 0.9755434782608695,
+    "reference_missing_fraction": 0.055,
+    "reference_missing_count_mean": 0.059,
+    "rare_limit": 5,
+    "rare_lower_quartile": 2,
+    "rare_upper_quartile": 3,
+    "reference_covered_count": 4725,
+    "discretization": {
+      "resolution": 8,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 7]"
+            },
+            {
+              "label": "L4",
+              "range": "[8, 8]"
+            },
+            {
+              "label": "L5",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 400]"
+            },
+            {
+              "label": "L2",
+              "range": "[500, 500]"
+            },
+            {
+              "label": "L3",
+              "range": "[600, 700]"
+            },
+            {
+              "label": "L4",
+              "range": "[800, 800]"
+            },
+            {
+              "label": "L5",
+              "range": "[900, 1000]"
+            },
+            {
+              "label": "L6",
+              "range": "[1100, 1200]"
+            },
+            {
+              "label": "L7",
+              "range": "[1300, 1300]"
+            },
+            {
+              "label": "L8",
+              "range": "[1400, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            2,
+            3,
+            5,
+            6,
+            8,
+            10,
+            11,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 1.45421543345)"
+            },
+            {
+              "label": "L2",
+              "range": "[1.45421543345, 2.11474252688)"
+            },
+            {
+              "label": "L3",
+              "range": "[2.11474252688, 3.07529122036)"
+            },
+            {
+              "label": "L4",
+              "range": "[3.07529122036, 4.472135955)"
+            },
+            {
+              "label": "L5",
+              "range": "[4.472135955, 6.50344912624)"
+            },
+            {
+              "label": "L6",
+              "range": "[6.50344912624, 9.45741609003)"
+            },
+            {
+              "label": "L7",
+              "range": "[9.45741609003, 13.7531204387)"
+            },
+            {
+              "label": "L8",
+              "range": "[13.7531204387, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            1.4542154334489537,
+            2.114742526881128,
+            3.0752912203613754,
+            4.472135954999579,
+            6.503449126242363,
+            9.457416090031758,
+            13.75312043867264,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.00707106781187)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.00707106781187, 0.01)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.01, 0.0141421356237)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.0141421356237, 0.02)"
+            },
+            {
+              "label": "L5",
+              "range": "[0.02, 0.0282842712475)"
+            },
+            {
+              "label": "L6",
+              "range": "[0.0282842712475, 0.04)"
+            },
+            {
+              "label": "L7",
+              "range": "[0.04, 0.0565685424949)"
+            },
+            {
+              "label": "L8",
+              "range": "[0.0565685424949, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.007071067811865478,
+            0.010000000000000004,
+            0.014142135623730958,
+            0.02,
+            0.028284271247461905,
+            0.03999999999999999,
+            0.05656854249492379,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      36,
+      121,
+      228,
+      243,
+      214,
+      184,
+      166,
+      111,
+      68,
+      51,
+      25,
+      11,
+      13,
+      0,
+      0,
+      1
+    ]
+  },
+  {
+    "fold": 4,
+    "resolution": 8,
+    "strength": 4,
+    "parameter_groups": 1,
+    "total_tuples": 2560,
+    "missing_tuples": 1374,
+    "coverage": 0.46328125,
+    "reference_missing_fraction": 0.5076,
+    "reference_missing_count_mean": 0.5076,
+    "rare_limit": 5,
+    "rare_lower_quartile": 1,
+    "rare_upper_quartile": 1,
+    "reference_covered_count": 2462,
+    "discretization": {
+      "resolution": 8,
+      "parameters": [
+        {
+          "name": "depth",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[5, 5]"
+            },
+            {
+              "label": "L2",
+              "range": "[6, 6]"
+            },
+            {
+              "label": "L3",
+              "range": "[7, 7]"
+            },
+            {
+              "label": "L4",
+              "range": "[8, 8]"
+            },
+            {
+              "label": "L5",
+              "range": "[9, 9]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "lower": 5,
+          "step": 1.0
+        },
+        {
+          "name": "iterations",
+          "type": "integer",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[300, 400]"
+            },
+            {
+              "label": "L2",
+              "range": "[500, 500]"
+            },
+            {
+              "label": "L3",
+              "range": "[600, 700]"
+            },
+            {
+              "label": "L4",
+              "range": "[800, 800]"
+            },
+            {
+              "label": "L5",
+              "range": "[900, 1000]"
+            },
+            {
+              "label": "L6",
+              "range": "[1100, 1200]"
+            },
+            {
+              "label": "L7",
+              "range": "[1300, 1300]"
+            },
+            {
+              "label": "L8",
+              "range": "[1400, 1500]"
+            }
+          ],
+          "rank_edges": [
+            0,
+            2,
+            3,
+            5,
+            6,
+            8,
+            10,
+            11,
+            13
+          ],
+          "lower": 300,
+          "step": 100.0
+        },
+        {
+          "name": "l2_leaf_reg",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[1, 1.45421543345)"
+            },
+            {
+              "label": "L2",
+              "range": "[1.45421543345, 2.11474252688)"
+            },
+            {
+              "label": "L3",
+              "range": "[2.11474252688, 3.07529122036)"
+            },
+            {
+              "label": "L4",
+              "range": "[3.07529122036, 4.472135955)"
+            },
+            {
+              "label": "L5",
+              "range": "[4.472135955, 6.50344912624)"
+            },
+            {
+              "label": "L6",
+              "range": "[6.50344912624, 9.45741609003)"
+            },
+            {
+              "label": "L7",
+              "range": "[9.45741609003, 13.7531204387)"
+            },
+            {
+              "label": "L8",
+              "range": "[13.7531204387, 20]"
+            }
+          ],
+          "edges": [
+            1.0,
+            1.4542154334489537,
+            2.114742526881128,
+            3.0752912203613754,
+            4.472135954999579,
+            6.503449126242363,
+            9.457416090031758,
+            13.75312043867264,
+            20.0
+          ]
+        },
+        {
+          "name": "learning_rate",
+          "type": "continuous",
+          "levels": [
+            {
+              "label": "L1",
+              "range": "[0.005, 0.00707106781187)"
+            },
+            {
+              "label": "L2",
+              "range": "[0.00707106781187, 0.01)"
+            },
+            {
+              "label": "L3",
+              "range": "[0.01, 0.0141421356237)"
+            },
+            {
+              "label": "L4",
+              "range": "[0.0141421356237, 0.02)"
+            },
+            {
+              "label": "L5",
+              "range": "[0.02, 0.0282842712475)"
+            },
+            {
+              "label": "L6",
+              "range": "[0.0282842712475, 0.04)"
+            },
+            {
+              "label": "L7",
+              "range": "[0.04, 0.0565685424949)"
+            },
+            {
+              "label": "L8",
+              "range": "[0.0565685424949, 0.08]"
+            }
+          ],
+          "edges": [
+            0.005,
+            0.007071067811865478,
+            0.010000000000000004,
+            0.014142135623730958,
+            0.02,
+            0.028284271247461905,
+            0.03999999999999999,
+            0.05656854249492379,
+            0.08
+          ]
+        }
+      ],
+      "constants": {}
+    },
+    "occupancy_histogram": [
+      1374,
+      854,
+      261,
+      60,
+      11
+    ]
+  }
+]

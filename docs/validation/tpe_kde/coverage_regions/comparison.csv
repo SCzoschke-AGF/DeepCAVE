@@ -1,0 +1,7 @@
+study,population,phase,kde_spearman,tpe_spearman,n_evaluated,n_prepared,resolution,strength
+xgboost,regular,retrospective,0.8573663224567596,0.6298398720463332,1350,0,4,4
+xgboost,coverage_seeking,retrospective,0.8227987191584196,0.6034014623799607,650,0,4,4
+xgboost,coverage_seeking,prospective_not_executed,,,0,25,4,4
+catboost,regular,retrospective,0.9193211384733779,0.9162814270423135,896,0,8,4
+catboost,coverage_seeking,retrospective,0.9241797735453007,0.9063919385094902,1104,0,8,4
+catboost,coverage_seeking,prospective_not_executed,,,0,25,8,4

@@ -299,56 +299,19 @@ def _overview(data: CoverageData, marginals: List[Dict], sampler: str) -> Any:
         _metric("Parameters", info["parameters"]),
         _metric("Sampler", sampler),
     ]
-    description = " · ".join(
-        [f"{info['parameters']} parameters"]
-        + [f"{count} {kind}" for kind, count in info["types"].items() if count]
-    )
     return html.Div(
         [
             html.Div(metrics, className="coverage-metric-grid"),
-            html.Details(
+            html.Div(
                 [
-                    html.Summary(
-                        [
-                            html.Span(
-                                [
-                                    "Search-space definition",
-                                    html.Small(
-                                        [
-                                            html.Span(
-                                                "Show definition",
-                                                className="coverage-search-space-show",
-                                            ),
-                                            html.Span(
-                                                "Hide definition",
-                                                className="coverage-search-space-hide",
-                                            ),
-                                        ],
-                                        className="coverage-search-space-action",
-                                    ),
-                                ],
-                                className="coverage-search-space-title",
-                            ),
-                            html.Small(description, className="coverage-search-space-description"),
-                        ]
-                    ),
                     (
                         html.P("No conditional parameters", className="coverage-search-space-note")
                         if not info["conditional"]
                         else None
                     ),
                     _definition_table(marginals),
-                    html.P(
-                        "Only successful trials contribute. Failed and pruned trials are excluded. "
-                        "Repeated successful configurations remain in the history. "
-                        "Inactive parameters are excluded from marginals."
-                    ),
-                    html.P(
-                        "Trial statuses: "
-                        + ", ".join(f"{name}: {n}" for name, n in info["statuses"].items() if n)
-                    ),
                 ],
-                className="coverage-details coverage-search-space",
+                className="coverage-search-space",
             ),
         ]
     )

@@ -1,0 +1,26 @@
+{
+  "xgboost": {
+    "training_samples_checked": 105,
+    "test_configurations_per_sample": 400,
+    "method_evaluations_checked": 210,
+    "decile_means_checked": 2100,
+    "paired_comparisons_checked": 105,
+    "stability_pairs_checked": 400,
+    "max_spearman_error": 0.0,
+    "max_decile_mean_error": 0.0,
+    "historical_input_and_versions_match": true,
+    "max_historical_score_difference": 0.0
+  },
+  "catboost": {
+    "training_samples_checked": 105,
+    "test_configurations_per_sample": 400,
+    "method_evaluations_checked": 210,
+    "decile_means_checked": 2100,
+    "paired_comparisons_checked": 105,
+    "stability_pairs_checked": 400,
+    "max_spearman_error": 0.0,
+    "max_decile_mean_error": 0.0,
+    "historical_input_and_versions_match": true,
+    "max_historical_score_difference": 0.0
+  }
+}

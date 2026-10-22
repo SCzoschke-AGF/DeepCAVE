@@ -1,0 +1,3616 @@
+{
+  "source": "/home/sczoschke/projects/streamingmodel_NonRouterHHs/optuna.db",
+  "studies": [
+    {
+      "study_id": 1,
+      "study_name": "xgboost_data:4897daef3195_average_precision_v1_sampler:random_objective:cv_average_precision_mean_direction:maximize_modelseed:42_cvseed:42",
+      "sampler": "random",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 2000
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.005,
+              "high": 0.3,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 10
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 3,
+              "high": 12
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 200,
+              "high": 2000
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.01,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 2000
+        }
+      ]
+    },
+    {
+      "study_id": 2,
+      "study_name": "xgboost_data:9f95beb69903_average_precision_v1_sampler:random_objective:cv_average_precision_mean_direction:maximize_modelseed:42_cvseed:42",
+      "sampler": "random",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 2000
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.005,
+              "high": 0.3,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 10
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 3,
+              "high": 12
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 200,
+              "high": 2000
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.01,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 2000
+        }
+      ]
+    },
+    {
+      "study_id": 3,
+      "study_name": "xgboost_data:9f95beb69903_average_precision_v1_sampler:tpe_objective:cv_average_precision_mean_direction:maximize_modelseed:42_cvseed:42",
+      "sampler": "tpe",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 511,
+        "FAIL": 1
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.7,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 11
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 20.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 11
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.003,
+              "high": 0.05,
+              "log": true
+            }
+          },
+          "complete_active_trials": 11
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.005,
+              "high": 0.3,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 10
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 11
+            }
+          },
+          "complete_active_trials": 11
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 3,
+              "high": 12
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 6,
+              "high": 13
+            }
+          },
+          "complete_active_trials": 11
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 2.5,
+              "high": 175.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 11
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 200,
+              "high": 2000
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 50,
+              "high": 1600
+            }
+          },
+          "complete_active_trials": 11
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 511
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.01,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.01,
+              "high": 120.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 11
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.465,
+              "high": 0.93,
+              "log": false
+            }
+          },
+          "complete_active_trials": 11
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 500
+        }
+      ]
+    },
+    {
+      "study_id": 4,
+      "study_name": "xgboost_data:4897daef3195_average_precision_v1_sampler:tpe_objective:cv_average_precision_mean_direction:maximize_modelseed:42_cvseed:42",
+      "sampler": "tpe",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 500
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.005,
+              "high": 0.3,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 10
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 3,
+              "high": 12
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 200,
+              "high": 2000
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.01,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 500
+        }
+      ]
+    },
+    {
+      "study_id": 5,
+      "study_name": "tabpfn_data:ccffacbaefb5_phase1_average_precision_v1_sampler:random_objective:cv_average_precision_mean_direction:maximize_modelseed:42_cvseed:42",
+      "sampler": "random",
+      "model_family": "tabpfn",
+      "trial_states": {
+        "COMPLETE": 13,
+        "FAIL": 1
+      },
+      "space": [
+        {
+          "parameter": "average_before_softmax",
+          "distribution": {
+            "name": "CategoricalDistribution",
+            "attributes": {
+              "choices": [
+                false,
+                true
+              ]
+            }
+          },
+          "complete_active_trials": 13
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 4,
+              "low": 4,
+              "high": 16
+            }
+          },
+          "complete_active_trials": 13
+        }
+      ]
+    },
+    {
+      "study_id": 6,
+      "study_name": "catboost_data:ccffacbaefb5_phase1_average_precision_v1_sampler:random_objective:cv_average_precision_mean_direction:maximize_modelseed:42_cvseed:42",
+      "sampler": "random",
+      "model_family": "catboost",
+      "trial_states": {
+        "COMPLETE": 2000
+      },
+      "space": [
+        {
+          "parameter": "depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 5,
+              "high": 9
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "iterations",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 100,
+              "low": 300,
+              "high": 1500
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "l2_leaf_reg",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 1.0,
+              "high": 20.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.005,
+              "high": 0.08,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        }
+      ]
+    },
+    {
+      "study_id": 7,
+      "study_name": "xgboost_data:9f95beb69903_average_precision_v1_sampler:random_objective:cv_average_precision_mean_direction:maximize_modelseed:42_cvseed:42_spacev2",
+      "sampler": "random",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 2000
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.7,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 20.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.003,
+              "high": 0.05,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 11
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 6,
+              "high": 13
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 2.5,
+              "high": 175.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 50,
+              "high": 1600
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.01,
+              "high": 120.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.465,
+              "high": 0.93,
+              "log": false
+            }
+          },
+          "complete_active_trials": 2000
+        }
+      ]
+    },
+    {
+      "study_id": 8,
+      "study_name": "xgboost_data:9f95beb69903_average_precision_v1_sampler:random_objective:cv_average_precision_mean_direction:maximize_modelseed:42_cvseed:42_spaceV3",
+      "sampler": "random",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 2000
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.7,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 20.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.003,
+              "high": 0.0127394744468,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 10
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 7,
+              "high": 11
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 30.0138952213,
+              "high": 193.785109034,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 750,
+              "high": 1800
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0961795366038,
+              "high": 120.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.689595,
+              "high": 0.95511,
+              "log": false
+            }
+          },
+          "complete_active_trials": 2000
+        }
+      ]
+    },
+    {
+      "study_id": 9,
+      "study_name": "xgboost_data:9f95beb69903_average_precision_v1_sampler:tpe_objective:cv_average_precision_mean_direction:maximize_modelseed:42_cvseed:42_spaceV3",
+      "sampler": "tpe",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 500
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.7,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 20.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.003,
+              "high": 0.0127394744468,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 10
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 7,
+              "high": 11
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 30.0138952213,
+              "high": 193.785109034,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 750,
+              "high": 1800
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0961795366038,
+              "high": 120.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.689595,
+              "high": 0.95511,
+              "log": false
+            }
+          },
+          "complete_active_trials": 500
+        }
+      ]
+    },
+    {
+      "study_id": 10,
+      "study_name": "xgboost_data:9f95beb69903_average_precision_v1_sampler:tpe_objective:cv_average_precision_mean_modelseed:42_cvseed:42_spaceV1.5",
+      "sampler": "tpe",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 500
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.005,
+              "high": 0.3,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 10
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 3,
+              "high": 12
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 200,
+              "high": 2000
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.01,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 500
+        }
+      ]
+    },
+    {
+      "study_id": 11,
+      "study_name": "xgboost_data:04b65282c458_average_precision_v1_sampler:tpe_objective:cv_average_precision_mean_modelseed:42_cvseed:42_spaceV1.5_incl-LiveNonLive",
+      "sampler": "tpe",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 500
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.005,
+              "high": 0.3,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 10
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 3,
+              "high": 12
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 200,
+              "high": 2000
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.01,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 500
+        }
+      ]
+    },
+    {
+      "study_id": 12,
+      "study_name": "xgboost_data:c0951b4048da_average_precision_v1_sampler:tpe_objective:cv_average_precision_mean_modelseed:42_cvseed:42_spaceV1.5_incl-Sender",
+      "sampler": "tpe",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 500
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.005,
+              "high": 0.3,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 10
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 3,
+              "high": 12
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 200,
+              "high": 2000
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.01,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 500
+        }
+      ]
+    },
+    {
+      "study_id": 13,
+      "study_name": "xgboost_data:ec96b9dcb51b_average_precision_v1_sampler:tpe_objective:cv_average_precision_mean_modelseed:42_cvseed:42_spaceV1.5_incl-ausstrahlungszeit",
+      "sampler": "tpe",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 500
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.005,
+              "high": 0.3,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 10
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 3,
+              "high": 12
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 200,
+              "high": 2000
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.01,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 500
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 500
+        }
+      ]
+    },
+    {
+      "study_id": 14,
+      "study_name": "xgboost_data:ee42054dd995_average_precision_v1_sampler:random_objective:cv_average_precision_mean_modelseed:42_cvseed:42_spaceV4",
+      "sampler": "random",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 2000
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.005,
+              "high": 0.3,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 10
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 3,
+              "high": 12
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 400,
+              "high": 2000
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.01,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 2000
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 2000
+        }
+      ]
+    },
+    {
+      "study_id": 15,
+      "study_name": "xgboost_data:53efbfbb213d_dataset260918_sampler:random_objective:cv_average_precision_mean_modelseed:42_cvseed:42_V1",
+      "sampler": "random",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 1232,
+        "FAIL": 1
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 1232
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1232
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.005,
+              "high": 0.3,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1232
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 10
+            }
+          },
+          "complete_active_trials": 1232
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 3,
+              "high": 12
+            }
+          },
+          "complete_active_trials": 1232
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1232
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 400,
+              "high": 2000
+            }
+          },
+          "complete_active_trials": 1232
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1232
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.01,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1232
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 1232
+        }
+      ]
+    },
+    {
+      "study_id": 16,
+      "study_name": "xgboost_data:297407be9464_dataset260918_sampler:random_objective:cv_average_precision_mean_modelseed:42_cvseed:42_V1_30sOverlap",
+      "sampler": "random",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 1000
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.005,
+              "high": 0.3,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 10
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 3,
+              "high": 12
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 400,
+              "high": 2000
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.01,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 1000
+        }
+      ]
+    },
+    {
+      "study_id": 17,
+      "study_name": "catboost_data:df71ea5beb4e_dataset260918_sampler:random_objective:cv_average_precision_mean_modelseed:42_cvseed:42_V1_30sOverlap",
+      "sampler": "random",
+      "model_family": "catboost",
+      "trial_states": {
+        "COMPLETE": 1000
+      },
+      "space": [
+        {
+          "parameter": "depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 5,
+              "high": 9
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "iterations",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 100,
+              "low": 300,
+              "high": 1500
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "l2_leaf_reg",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 1.0,
+              "high": 20.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.005,
+              "high": 0.08,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        }
+      ]
+    },
+    {
+      "study_id": 20,
+      "study_name": "tabpfn_data:df71ea5beb4e_tabpfn-3.5_sampler:random_objective:cv_average_precision_mean_modelseed:42_cvseed:42_V1_30sOverlap",
+      "sampler": "random",
+      "model_family": "tabpfn",
+      "trial_states": {
+        "COMPLETE": 1,
+        "FAIL": 1
+      },
+      "space": [
+        {
+          "parameter": "average_before_softmax",
+          "distribution": {
+            "name": "CategoricalDistribution",
+            "attributes": {
+              "choices": [
+                false
+              ]
+            }
+          },
+          "complete_active_trials": 1
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 4,
+              "low": 8,
+              "high": 8
+            }
+          },
+          "complete_active_trials": 1
+        }
+      ]
+    },
+    {
+      "study_id": 21,
+      "study_name": "tabpfn_data:df71ea5beb4e_tabpfn-3.5_sampler:random_objective:cv_average_precision_mean_modelseed:42_cvseed:42_config:bfab1033177d_V1_30sOverlap",
+      "sampler": "random",
+      "model_family": "tabpfn",
+      "trial_states": {
+        "COMPLETE": 1
+      },
+      "space": [
+        {
+          "parameter": "average_before_softmax",
+          "distribution": {
+            "name": "CategoricalDistribution",
+            "attributes": {
+              "choices": [
+                true
+              ]
+            }
+          },
+          "complete_active_trials": 1
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 4,
+              "low": 8,
+              "high": 8
+            }
+          },
+          "complete_active_trials": 1
+        }
+      ]
+    },
+    {
+      "study_id": 22,
+      "study_name": "tabpfn_data:ccffacbaefb5_phase1_average_precision_v1_sampler:tpe_objective:cv_average_precision_mean_direction:maximize_modelseed:42_cvseed:42",
+      "sampler": "tpe",
+      "model_family": "tabpfn",
+      "trial_states": {
+        "COMPLETE": 7,
+        "FAIL": 2
+      },
+      "space": [
+        {
+          "parameter": "average_before_softmax",
+          "distribution": {
+            "name": "CategoricalDistribution",
+            "attributes": {
+              "choices": [
+                false,
+                true
+              ]
+            }
+          },
+          "complete_active_trials": 7
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 4,
+              "low": 8,
+              "high": 16
+            }
+          },
+          "complete_active_trials": 7
+        }
+      ]
+    },
+    {
+      "study_id": 23,
+      "study_name": "xgboost_data:f89296519e08_dataset260923_sampler:random_objective:cv_average_precision_mean_modelseed:42_cvseed:42_config:b08f90ea01e8_ad_features_v1.0",
+      "sampler": "random",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 1000
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.005,
+              "high": 0.3,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 10
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 3,
+              "high": 12
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 400,
+              "high": 2000
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.01,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 1000
+        }
+      ]
+    },
+    {
+      "study_id": 26,
+      "study_name": "xgboost_data:abe3f5d894be_dataset260923_sampler:random_objective:cv_average_precision_mean_modelseed:42_cvseed:42_config:8a3e2c771d4b_sendung_usage_v1.0",
+      "sampler": "random",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 1000
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.005,
+              "high": 0.3,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 10
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 3,
+              "high": 12
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 400,
+              "high": 2000
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.01,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 1000
+        }
+      ]
+    },
+    {
+      "study_id": 27,
+      "study_name": "tabpfn_data:5b285e69d5da_dataset260923_sampler:grid_objective:cv_average_precision_mean_modelseed:42_cvseed:42_config:cd4c2cdc041c_sendung_usage_v1.0",
+      "sampler": "grid",
+      "model_family": "tabpfn",
+      "trial_states": {
+        "COMPLETE": 4
+      },
+      "space": [
+        {
+          "parameter": "average_before_softmax",
+          "distribution": {
+            "name": "CategoricalDistribution",
+            "attributes": {
+              "choices": [
+                true,
+                false
+              ]
+            }
+          },
+          "complete_active_trials": 4
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "CategoricalDistribution",
+            "attributes": {
+              "choices": [
+                8,
+                12
+              ]
+            }
+          },
+          "complete_active_trials": 4
+        }
+      ]
+    },
+    {
+      "study_id": 29,
+      "study_name": "xgboost_data:5ab0ab47a4a1__sampler:random_objective:cv_average_precision_mean_modelseed:42_cvseed:42_config:8a3e2c771d4b_prepared_folds",
+      "sampler": "random",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 1000
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.005,
+              "high": 0.3,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 10
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 3,
+              "high": 12
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 400,
+              "high": 2000
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.01,
+              "high": 100.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.5,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 1000
+        }
+      ]
+    },
+    {
+      "study_id": 30,
+      "study_name": "xgb_20260927-0038_random_ssp-opt-ap-1_data:20260924T005634Z-843c",
+      "sampler": "random",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 1000
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.442,
+              "high": 0.769,
+              "log": false
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.00298485299461,
+              "high": 0.018,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 12
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 10,
+              "high": 16
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 8.6,
+              "high": 200.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 400,
+              "high": 2000
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.148593564229,
+              "high": 325.087297385,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.82,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 1000
+        }
+      ]
+    },
+    {
+      "study_id": 31,
+      "study_name": "tabpfn_20260927-1922_grid_tab-compar_data:20260924T005634Z-2ad3",
+      "sampler": "grid",
+      "model_family": "tabpfn",
+      "trial_states": {
+        "COMPLETE": 4
+      },
+      "space": [
+        {
+          "parameter": "average_before_softmax",
+          "distribution": {
+            "name": "CategoricalDistribution",
+            "attributes": {
+              "choices": [
+                true,
+                false
+              ]
+            }
+          },
+          "complete_active_trials": 4
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "CategoricalDistribution",
+            "attributes": {
+              "choices": [
+                8,
+                12
+              ]
+            }
+          },
+          "complete_active_trials": 4
+        }
+      ]
+    },
+    {
+      "study_id": 32,
+      "study_name": "xgb_20260928-1226_random_opt-2_data:20260924T005634Z-843c",
+      "sampler": "random",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 1000
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.409627,
+              "high": 0.669592,
+              "log": false
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.00262735119402,
+              "high": 0.00864748635307,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 12
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 13,
+              "high": 17
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 14.0,
+              "high": 200.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 300,
+              "high": 2000
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.148593564229,
+              "high": 325.087297385,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.82,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 1000
+        }
+      ]
+    },
+    {
+      "study_id": 33,
+      "study_name": "xgb_20260929-1507_random_opt-ap-3_data:20260924T005634Z-843c",
+      "sampler": "random",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 1000
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.35555428,
+              "high": 0.538829605,
+              "log": false
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.00307842496139,
+              "high": 0.0086474863531,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 12
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 15,
+              "high": 19
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 14.0,
+              "high": 200.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 650,
+              "high": 2000
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.148593564229,
+              "high": 38.3248090767,
+              "log": true
+            }
+          },
+          "complete_active_trials": 1000
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.82,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 1000
+        }
+      ]
+    },
+    {
+      "study_id": 34,
+      "study_name": "xgb_20261001-0021_random_opt-ap-4_data:20260924T005634Z-843c",
+      "sampler": "random",
+      "model_family": "xgboost",
+      "trial_states": {
+        "COMPLETE": 381,
+        "FAIL": 1
+      },
+      "space": [
+        {
+          "parameter": "colsample_bytree",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.35555428,
+              "high": 0.538829605,
+              "log": false
+            }
+          },
+          "complete_active_trials": 381
+        },
+        {
+          "parameter": "gamma",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 381
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0030784249614,
+              "high": 0.00726244779143,
+              "log": true
+            }
+          },
+          "complete_active_trials": 381
+        },
+        {
+          "parameter": "max_delta_step",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 0,
+              "high": 12
+            }
+          },
+          "complete_active_trials": 381
+        },
+        {
+          "parameter": "max_depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 16,
+              "high": 24
+            }
+          },
+          "complete_active_trials": 381
+        },
+        {
+          "parameter": "min_child_weight",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 14.0,
+              "high": 200.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 381
+        },
+        {
+          "parameter": "n_estimators",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 50,
+              "low": 1000,
+              "high": 2000
+            }
+          },
+          "complete_active_trials": 381
+        },
+        {
+          "parameter": "reg_alpha",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0001,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 381
+        },
+        {
+          "parameter": "reg_lambda",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 2.43997805309,
+              "high": 56.8453676961,
+              "log": true
+            }
+          },
+          "complete_active_trials": 381
+        },
+        {
+          "parameter": "subsample",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.88498,
+              "high": 1.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 381
+        }
+      ]
+    },
+    {
+      "study_id": 37,
+      "study_name": "cat_20261002-0931_random_opt-ap-v0_data:20260924T005634Z-2ad3",
+      "sampler": "random",
+      "model_family": "catboost",
+      "trial_states": {
+        "COMPLETE": 793,
+        "RUNNING": 1
+      },
+      "space": [
+        {
+          "parameter": "bagging_temperature",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0,
+              "high": 5.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 793
+        },
+        {
+          "parameter": "depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 5,
+              "high": 10
+            }
+          },
+          "complete_active_trials": 793
+        },
+        {
+          "parameter": "iterations",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 100,
+              "low": 500,
+              "high": 2000
+            }
+          },
+          "complete_active_trials": 793
+        },
+        {
+          "parameter": "l2_leaf_reg",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 1.0,
+              "high": 30.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 793
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.005,
+              "high": 0.08,
+              "log": true
+            }
+          },
+          "complete_active_trials": 793
+        },
+        {
+          "parameter": "random_strength",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.01,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 793
+        }
+      ]
+    },
+    {
+      "study_id": 38,
+      "study_name": "cat_20261006-2021_random_opt-ap-v1_data:20260924T005634Z-2ad3",
+      "sampler": "random",
+      "model_family": "catboost",
+      "trial_states": {
+        "COMPLETE": 377,
+        "FAIL": 8,
+        "RUNNING": 1
+      },
+      "space": [
+        {
+          "parameter": "bagging_temperature",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.0,
+              "high": 2.0,
+              "log": false
+            }
+          },
+          "complete_active_trials": 377
+        },
+        {
+          "parameter": "depth",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 1,
+              "low": 10,
+              "high": 15
+            }
+          },
+          "complete_active_trials": 377
+        },
+        {
+          "parameter": "iterations",
+          "distribution": {
+            "name": "IntDistribution",
+            "attributes": {
+              "log": false,
+              "step": 100,
+              "low": 1100,
+              "high": 2300
+            }
+          },
+          "complete_active_trials": 377
+        },
+        {
+          "parameter": "l2_leaf_reg",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 10.0343260973,
+              "high": 55.7130998515,
+              "log": true
+            }
+          },
+          "complete_active_trials": 377
+        },
+        {
+          "parameter": "learning_rate",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.005,
+              "high": 0.08,
+              "log": true
+            }
+          },
+          "complete_active_trials": 377
+        },
+        {
+          "parameter": "random_strength",
+          "distribution": {
+            "name": "FloatDistribution",
+            "attributes": {
+              "step": null,
+              "low": 0.01,
+              "high": 10.0,
+              "log": true
+            }
+          },
+          "complete_active_trials": 377
+        }
+      ]
+    }
+  ]
+}

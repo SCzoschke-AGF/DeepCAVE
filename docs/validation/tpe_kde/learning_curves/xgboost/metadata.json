@@ -1,0 +1,173 @@
+{
+  "study_name": "xgboost_data:4897daef3195_average_precision_v1_sampler:random_objective:cv_average_precision_mean_direction:maximize_modelseed:42_cvseed:42",
+  "study_user_attrs": {
+    "cv_split_seed": 42,
+    "data_representation_sha256": "4897daef3195ea0e74191f0455e83f19d67285ad6223d148b6e085e0dfb3eae6",
+    "direction": "maximize",
+    "model_family": "xgboost",
+    "model_seed": 42,
+    "objective_metric": "cv_average_precision_mean",
+    "sampler": "random"
+  },
+  "direction": "MAXIMIZE",
+  "seed": 42,
+  "sizes": [
+    100,
+    200,
+    500,
+    1000,
+    1600
+  ],
+  "repetitions": 5,
+  "n_folds": 5,
+  "good_fraction": 0.2,
+  "sampling": "SeedSequence([42, fold, repetition]); sorted permutation prefixes",
+  "ties": "training objectives and test scores: stable trial-number order",
+  "full_training_set": "one fit per method/fold; no duplicated repetitions",
+  "tpe": {
+    "adapter": "unchanged OptunaParzenAdapter",
+    "multivariate": true,
+    "weights": "uniform",
+    "prior_weight": 1.0,
+    "consider_prior": true,
+    "consider_magic_clip": true,
+    "consider_endpoints": false,
+    "split": "explicit shared ceil(0.2*n) good IDs; sampler gamma bypassed"
+  },
+  "kde": {
+    "fit": "unchanged fit_kde defaults, bounded_ml",
+    "discrete_initial": 0.5,
+    "timeout_per_group_seconds": 120,
+    "fallback": null
+  },
+  "kde_transforms": {
+    "colsample_bytree": {
+      "kernel_type": "c",
+      "transform": "declared bounds to [0,1]"
+    },
+    "gamma": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "learning_rate": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "max_delta_step": {
+      "kernel_type": "o",
+      "transform": "ordinal grid index (value-low)/step"
+    },
+    "max_depth": {
+      "kernel_type": "o",
+      "transform": "ordinal grid index (value-low)/step"
+    },
+    "min_child_weight": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "n_estimators": {
+      "kernel_type": "o",
+      "transform": "ordinal grid index (value-low)/step"
+    },
+    "reg_alpha": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "reg_lambda": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "subsample": {
+      "kernel_type": "c",
+      "transform": "declared bounds to [0,1]"
+    }
+  },
+  "versions": {
+    "optuna": "3.6.1",
+    "statsmodels": "0.14.6",
+    "numpy": "2.2.6",
+    "scipy": "1.15.3",
+    "matplotlib": "3.9.0"
+  },
+  "python": "3.10.19",
+  "platform": "Linux-6.14.0-34-generic-x86_64-with-glibc2.41",
+  "threads": {
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1"
+  },
+  "script_sha256": "aee73632758ca52cffb3c86e26587060eeb159638d9254a8f43fc430dba2b206",
+  "input_sha256": "fed83224d12cdf9fd662b80acec9cb9dbfcd017b83c88169bd138c44021d6d2b",
+  "reference_oof": "docs/validation/tpe_kde/robustness/xgboost/start_0.5/oof_scores.csv",
+  "uncertainty": "descriptive SD only; overlapping folds/repetitions are dependent",
+  "memory": "not measured; no per-method peak-memory claims",
+  "total_trials": 2000,
+  "finite_completed_trials": 2000,
+  "selected_trials": 2000,
+  "activity_audit": {
+    "colsample_bytree": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.5, \"high\": 1.0, \"log\": false}}"
+      ]
+    },
+    "gamma": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.0001, \"high\": 10.0, \"log\": true}}"
+      ]
+    },
+    "learning_rate": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.005, \"high\": 0.3, \"log\": true}}"
+      ]
+    },
+    "max_delta_step": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"IntDistribution\", \"attributes\": {\"log\": false, \"step\": 1, \"low\": 0, \"high\": 10}}"
+      ]
+    },
+    "max_depth": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"IntDistribution\", \"attributes\": {\"log\": false, \"step\": 1, \"low\": 3, \"high\": 12}}"
+      ]
+    },
+    "min_child_weight": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.5, \"high\": 100.0, \"log\": true}}"
+      ]
+    },
+    "n_estimators": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"IntDistribution\", \"attributes\": {\"log\": false, \"step\": 50, \"low\": 200, \"high\": 2000}}"
+      ]
+    },
+    "reg_alpha": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.0001, \"high\": 10.0, \"log\": true}}"
+      ]
+    },
+    "reg_lambda": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.01, \"high\": 100.0, \"log\": true}}"
+      ]
+    },
+    "subsample": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.5, \"high\": 1.0, \"log\": false}}"
+      ]
+    }
+  },
+  "excluded_parameters": [],
+  "constant_parameters": [],
+  "unique_configurations": 2000,
+  "subspace": "strict"
+}

@@ -1,0 +1,24 @@
+{
+  "xgboost": {
+    "oof_configurations": 2000,
+    "coverage_rows_recounted": 12000,
+    "fold_population_method_metrics_checked": 300,
+    "score_bin_means_checked": 1030,
+    "method_pairs_checked": 150,
+    "prospective_candidates_checked": 512,
+    "selected_candidates_checked": 25,
+    "max_spearman_error": 0.0,
+    "max_historical_score_difference": 0.0
+  },
+  "catboost": {
+    "oof_configurations": 2000,
+    "coverage_rows_recounted": 12000,
+    "fold_population_method_metrics_checked": 300,
+    "score_bin_means_checked": 1440,
+    "method_pairs_checked": 150,
+    "prospective_candidates_checked": 512,
+    "selected_candidates_checked": 25,
+    "max_spearman_error": 0.0,
+    "max_historical_score_difference": 0.0
+  }
+}

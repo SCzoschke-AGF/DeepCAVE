@@ -175,6 +175,23 @@ def test_normal_sampling_levels_use_the_same_cdf_for_generation_and_analysis():
     assert_coverage_trajectory(data, plan)
 
 
+def test_materialization_rejects_values_outside_the_step_lattice(monkeypatch):
+    space = ConfigurationSpace()
+    space.add(UniformFloatHyperparameter("stepped", 0.1, 0.9, meta={"step": 0.2}))
+    spec = planner.CoverageSpec(normalize_configurations(space, []), 2)
+    # Legal according to ConfigSpace's continuous bounds, but outside our step lattice.
+    monkeypatch.setattr(spec.axes[0], "values_at", lambda ranks: [0.4] * len(ranks))
+    with pytest.raises(ValueError, match="step lattice"):
+        spec.materialize(np.array([0]), np.random.default_rng(0))
+
+
+def test_materialization_rejects_values_that_encode_to_different_levels(monkeypatch):
+    spec = planner.CoverageSpec(binary_data([]), 2)
+    monkeypatch.setattr(spec, "encode", lambda values: np.array([[1, 1, 1]]))
+    with pytest.raises(ValueError, match="intended coverage levels"):
+        spec.materialize(np.array([0, 0, 0]), np.random.default_rng(0))
+
+
 def test_failed_and_pruned_trials_do_not_close_gaps_and_duplicates_add_no_coverage():
     data = binary_data([(0, 0, 0), (0, 1, 1), (1, 0, 1), (1, 1, 0)])
     values = data.values + [data.values[0]]

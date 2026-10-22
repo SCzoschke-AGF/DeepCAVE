@@ -1,0 +1,180 @@
+{
+  "description": "Diagnostic likelihood evaluations only; no refit or change to optimizer bounds. All other bandwidths fixed at fitted start=0.5 solution. Endpoint zero uses native Wang-Ryzin kernel, avoiding log(0) in optimizer.",
+  "catboost_bad_depth": [
+    {
+      "fold": 0,
+      "group": "bad",
+      "depth_gradient_of_negative_mean_loglikelihood": 0.04672810133279193,
+      "projected_gradient_inf_norm": 1.1729544293626049e-06,
+      "endpoint_0_mean_loo_gain_with_other_bandwidths_fixed": 4.672739706279572e-08,
+      "max_absolute_score_change_at_endpoint_0": 6.382894854262133e-05,
+      "score_ranking_spearman_at_endpoint_0": 0.9999999999999999,
+      "fixed_other_bandwidth_sweep": [
+        {
+          "depth_bandwidth": 0,
+          "mean_loo_loglikelihood": -4.43059111683827
+        },
+        {
+          "depth_bandwidth": 1e-06,
+          "mean_loo_loglikelihood": -4.430591163565667
+        },
+        {
+          "depth_bandwidth": 1e-05,
+          "mean_loo_loglikelihood": -4.430591584175664
+        },
+        {
+          "depth_bandwidth": 0.0001,
+          "mean_loo_loglikelihood": -4.430595796553102
+        },
+        {
+          "depth_bandwidth": 0.001,
+          "mean_loo_loglikelihood": -4.430638546425546
+        },
+        {
+          "depth_bandwidth": 0.01,
+          "mean_loo_loglikelihood": -4.4311271569933695
+        }
+      ]
+    },
+    {
+      "fold": 1,
+      "group": "bad",
+      "depth_gradient_of_negative_mean_loglikelihood": 0.04412598808966095,
+      "projected_gradient_inf_norm": 6.259721790691231e-06,
+      "endpoint_0_mean_loo_gain_with_other_bandwidths_fixed": 4.412527143671241e-08,
+      "max_absolute_score_change_at_endpoint_0": 4.637074700575283e-05,
+      "score_ranking_spearman_at_endpoint_0": 0.9999999999999999,
+      "fixed_other_bandwidth_sweep": [
+        {
+          "depth_bandwidth": 0,
+          "mean_loo_loglikelihood": -4.437547439395575
+        },
+        {
+          "depth_bandwidth": 1e-06,
+          "mean_loo_loglikelihood": -4.437547483520847
+        },
+        {
+          "depth_bandwidth": 1e-05,
+          "mean_loo_loglikelihood": -4.437547880712671
+        },
+        {
+          "depth_bandwidth": 0.0001,
+          "mean_loo_loglikelihood": -4.437551859001232
+        },
+        {
+          "depth_bandwidth": 0.001,
+          "mean_loo_loglikelihood": -4.43759227771694
+        },
+        {
+          "depth_bandwidth": 0.01,
+          "mean_loo_loglikelihood": -4.438058920043841
+        }
+      ]
+    },
+    {
+      "fold": 2,
+      "group": "bad",
+      "depth_gradient_of_negative_mean_loglikelihood": 0.04452189159905229,
+      "projected_gradient_inf_norm": 5.429596012795912e-07,
+      "endpoint_0_mean_loo_gain_with_other_bandwidths_fixed": 4.452117163822322e-08,
+      "max_absolute_score_change_at_endpoint_0": 4.104134646709667e-05,
+      "score_ranking_spearman_at_endpoint_0": 0.9999999999999999,
+      "fixed_other_bandwidth_sweep": [
+        {
+          "depth_bandwidth": 0,
+          "mean_loo_loglikelihood": -4.442123839698207
+        },
+        {
+          "depth_bandwidth": 1e-06,
+          "mean_loo_loglikelihood": -4.442123884219378
+        },
+        {
+          "depth_bandwidth": 1e-05,
+          "mean_loo_loglikelihood": -4.442124284974865
+        },
+        {
+          "depth_bandwidth": 0.0001,
+          "mean_loo_loglikelihood": -4.4421282989590445
+        },
+        {
+          "depth_bandwidth": 0.001,
+          "mean_loo_loglikelihood": -4.442169080340297
+        },
+        {
+          "depth_bandwidth": 0.01,
+          "mean_loo_loglikelihood": -4.4426397529564206
+        }
+      ]
+    },
+    {
+      "fold": 3,
+      "group": "bad",
+      "depth_gradient_of_negative_mean_loglikelihood": 0.06000829310805533,
+      "projected_gradient_inf_norm": 5.556023531472221e-06,
+      "endpoint_0_mean_loo_gain_with_other_bandwidths_fixed": 6.000767260871953e-08,
+      "max_absolute_score_change_at_endpoint_0": 3.147361130473314e-05,
+      "score_ranking_spearman_at_endpoint_0": 0.9999999999999999,
+      "fixed_other_bandwidth_sweep": [
+        {
+          "depth_bandwidth": 0,
+          "mean_loo_loglikelihood": -4.467174043436233
+        },
+        {
+          "depth_bandwidth": 1e-06,
+          "mean_loo_loglikelihood": -4.467174103443906
+        },
+        {
+          "depth_bandwidth": 1e-05,
+          "mean_loo_loglikelihood": -4.467174643568772
+        },
+        {
+          "depth_bandwidth": 0.0001,
+          "mean_loo_loglikelihood": -4.467180050341753
+        },
+        {
+          "depth_bandwidth": 0.001,
+          "mean_loo_loglikelihood": -4.467234669803202
+        },
+        {
+          "depth_bandwidth": 0.01,
+          "mean_loo_loglikelihood": -4.46783537159514
+        }
+      ]
+    },
+    {
+      "fold": 4,
+      "group": "bad",
+      "depth_gradient_of_negative_mean_loglikelihood": 0.03539909385936124,
+      "projected_gradient_inf_norm": 6.447659005592854e-07,
+      "endpoint_0_mean_loo_gain_with_other_bandwidths_fixed": 3.539817416964297e-08,
+      "max_absolute_score_change_at_endpoint_0": 8.72086216787693e-05,
+      "score_ranking_spearman_at_endpoint_0": 0.9999999999999999,
+      "fixed_other_bandwidth_sweep": [
+        {
+          "depth_bandwidth": 0,
+          "mean_loo_loglikelihood": -4.4403027336651935
+        },
+        {
+          "depth_bandwidth": 1e-06,
+          "mean_loo_loglikelihood": -4.440302769063368
+        },
+        {
+          "depth_bandwidth": 1e-05,
+          "mean_loo_loglikelihood": -4.440303087729453
+        },
+        {
+          "depth_bandwidth": 0.0001,
+          "mean_loo_loglikelihood": -4.440306282550737
+        },
+        {
+          "depth_bandwidth": 0.001,
+          "mean_loo_loglikelihood": -4.44033904132421
+        },
+        {
+          "depth_bandwidth": 0.01,
+          "mean_loo_loglikelihood": -4.44074303334524
+        }
+      ]
+    }
+  ]
+}

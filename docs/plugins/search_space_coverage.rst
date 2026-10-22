@@ -51,7 +51,31 @@ Five internal tabs keep each question in its own view:
   are included. Elite selection spans the run; only jointly active trials appear
   in the selected plot. Layer changes do not change coverage calculations or
   start worker jobs. Trial tooltips remain disabled; cell hover shows density or performance.
-* **Global** starts with **Combinatorial Coverage**: a measured resolution/strength
+* **Global** places **Performance-aware Coverage** to the right of the existing
+  Coverage Array and Improve Coverage panels (stacked on narrow screens). It uses
+  **Main Objective** from the sidebar. Its own **Refresh** starts an independent
+  worker job; changing the objective never starts a job or changes the left panels.
+  All successful trials with a finite selected score and compatible configurations,
+  at all budgets, enter the analysis, including duplicate configurations.
+  The existing Rashomon importance-weighted **RMS** distance is reused unchanged,
+  including logarithmic, categorical and inactive-parameter handling. Its global
+  fANOVA main-effect weights are fitted to successful trials at the highest budget,
+  with 16 trees and seed 0. The panel exposes the weights and their provenance;
+  unavailable weights produce an explanation instead of an unweighted fallback.
+  Every unique trial pair enters the computation. Small studies show every pair;
+  larger studies show a full-count 2D density histogram. Median and P90 lines join
+  empirical distance-quantile groups, merging equal distances. Pair summaries also
+  retain mean, P95 and the fraction strictly above the relevance threshold.
+  The nearest-neighbor table uses one leave-one-out observation per valid trial,
+  grouped independently by nearest-neighbor distance quantiles. Distance ties
+  select the lowest trial ID, then history row. Identical configurations can be
+  neighbors at distance zero. The editable threshold defaults to 0.01 in the raw
+  units of the selected objective. Exact threshold changes use cached sorted
+  differences without recalculating configuration distances. Cache inputs include
+  trial/configuration content, objective, normalization and importance weights.
+  These diagnostics describe dependent observed pairs, potentially including
+  evaluation noise; they provide no calibrated predictions for unseen configurations.
+* The left **Global** column starts with **Combinatorial Coverage**: a measured resolution/strength
   **Coverage Array** for 2, 3, 4, and 8 levels. Each resolution shows the achieved
   strength and coverage at the next strength, so near-complete interactions remain
   visible even when the strict strength is low. Every combination of every group

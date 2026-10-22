@@ -1,0 +1,82 @@
+[
+  {
+    "fold": 0,
+    "n_train": 1600,
+    "repetition": 0,
+    "method": "tpe",
+    "max_absolute_difference": 0.0,
+    "matches": true
+  },
+  {
+    "fold": 0,
+    "n_train": 1600,
+    "repetition": 0,
+    "method": "kde_optimized",
+    "max_absolute_difference": 0.0,
+    "matches": true
+  },
+  {
+    "fold": 1,
+    "n_train": 1600,
+    "repetition": 0,
+    "method": "tpe",
+    "max_absolute_difference": 0.0,
+    "matches": true
+  },
+  {
+    "fold": 1,
+    "n_train": 1600,
+    "repetition": 0,
+    "method": "kde_optimized",
+    "max_absolute_difference": 0.0,
+    "matches": true
+  },
+  {
+    "fold": 2,
+    "n_train": 1600,
+    "repetition": 0,
+    "method": "tpe",
+    "max_absolute_difference": 0.0,
+    "matches": true
+  },
+  {
+    "fold": 2,
+    "n_train": 1600,
+    "repetition": 0,
+    "method": "kde_optimized",
+    "max_absolute_difference": 0.0,
+    "matches": true
+  },
+  {
+    "fold": 3,
+    "n_train": 1600,
+    "repetition": 0,
+    "method": "tpe",
+    "max_absolute_difference": 0.0,
+    "matches": true
+  },
+  {
+    "fold": 3,
+    "n_train": 1600,
+    "repetition": 0,
+    "method": "kde_optimized",
+    "max_absolute_difference": 0.0,
+    "matches": true
+  },
+  {
+    "fold": 4,
+    "n_train": 1600,
+    "repetition": 0,
+    "method": "tpe",
+    "max_absolute_difference": 0.0,
+    "matches": true
+  },
+  {
+    "fold": 4,
+    "n_train": 1600,
+    "repetition": 0,
+    "method": "kde_optimized",
+    "max_absolute_difference": 0.0,
+    "matches": true
+  }
+]

@@ -1,0 +1,463 @@
+{
+  "study_name": "xgboost_data:4897daef3195_average_precision_v1_sampler:random_objective:cv_average_precision_mean_direction:maximize_modelseed:42_cvseed:42",
+  "study_user_attrs": {
+    "cv_split_seed": 42,
+    "data_representation_sha256": "4897daef3195ea0e74191f0455e83f19d67285ad6223d148b6e085e0dfb3eae6",
+    "direction": "maximize",
+    "model_family": "xgboost",
+    "model_seed": 42,
+    "objective_metric": "cv_average_precision_mean",
+    "sampler": "random"
+  },
+  "direction": "MAXIMIZE",
+  "seed": 42,
+  "n_folds": 5,
+  "good_fraction": 0.2,
+  "rounding": "ceil",
+  "top_k_ties": "trial number ascending",
+  "grouping": "identical configurations in selected subspace never cross folds",
+  "evaluated_folds": [
+    0
+  ],
+  "scored_trials": 400,
+  "reference_oof": "docs/validation/tpe_kde/full_normal_reference/oof_scores.csv",
+  "historical_score_check": {
+    "tpe_max_absolute_difference": 0.0,
+    "kde_reference_max_absolute_difference": 0.0
+  },
+  "optimizer": {
+    "method": "L-BFGS-B",
+    "objective": "exact mean negative LOO log density",
+    "jacobian": "analytic",
+    "continuous_coordinates": "log bandwidth",
+    "continuous_bounds": [
+      1e-06,
+      10.0
+    ],
+    "discrete_bounds": [
+      1e-06,
+      0.999999
+    ],
+    "discrete_initial": 0.5,
+    "maxiter": 200,
+    "ftol": 1e-10,
+    "gtol": 1e-05,
+    "timeout_per_group_seconds": 120.0,
+    "fallback": "none"
+  },
+  "reference_regularization": "unchanged: floor 1e-8, discrete upper bound 1-1e-8",
+  "deciles": "ascending fold-local score ranks, stable trial-number tie break; array_split",
+  "tpe": {
+    "multivariate": true,
+    "weights": "uniform",
+    "prior_weight": 1.0,
+    "consider_prior": true,
+    "consider_magic_clip": true,
+    "consider_endpoints": false
+  },
+  "kde_transforms": {
+    "colsample_bytree": {
+      "kernel_type": "c",
+      "transform": "declared bounds to [0,1]"
+    },
+    "gamma": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "learning_rate": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "max_delta_step": {
+      "kernel_type": "o",
+      "transform": "ordinal grid index (value-low)/step"
+    },
+    "max_depth": {
+      "kernel_type": "o",
+      "transform": "ordinal grid index (value-low)/step"
+    },
+    "min_child_weight": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "n_estimators": {
+      "kernel_type": "o",
+      "transform": "ordinal grid index (value-low)/step"
+    },
+    "reg_alpha": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "reg_lambda": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "subsample": {
+      "kernel_type": "c",
+      "transform": "declared bounds to [0,1]"
+    }
+  },
+  "versions": {
+    "optuna": "3.6.1",
+    "statsmodels": "0.14.6",
+    "numpy": "2.2.6",
+    "scipy": "1.15.3",
+    "matplotlib": "3.9.0"
+  },
+  "python": "3.10.19",
+  "platform": "Linux-6.14.0-34-generic-x86_64-with-glibc2.41",
+  "input_sha256": "fed83224d12cdf9fd662b80acec9cb9dbfcd017b83c88169bd138c44021d6d2b",
+  "total_trials": 2000,
+  "finite_completed_trials": 2000,
+  "selected_trials": 2000,
+  "activity_audit": {
+    "colsample_bytree": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.5, \"high\": 1.0, \"log\": false}}"
+      ]
+    },
+    "gamma": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.0001, \"high\": 10.0, \"log\": true}}"
+      ]
+    },
+    "learning_rate": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.005, \"high\": 0.3, \"log\": true}}"
+      ]
+    },
+    "max_delta_step": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"IntDistribution\", \"attributes\": {\"log\": false, \"step\": 1, \"low\": 0, \"high\": 10}}"
+      ]
+    },
+    "max_depth": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"IntDistribution\", \"attributes\": {\"log\": false, \"step\": 1, \"low\": 3, \"high\": 12}}"
+      ]
+    },
+    "min_child_weight": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.5, \"high\": 100.0, \"log\": true}}"
+      ]
+    },
+    "n_estimators": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"IntDistribution\", \"attributes\": {\"log\": false, \"step\": 50, \"low\": 200, \"high\": 2000}}"
+      ]
+    },
+    "reg_alpha": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.0001, \"high\": 10.0, \"log\": true}}"
+      ]
+    },
+    "reg_lambda": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.01, \"high\": 100.0, \"log\": true}}"
+      ]
+    },
+    "subsample": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.5, \"high\": 1.0, \"log\": false}}"
+      ]
+    }
+  },
+  "excluded_parameters": [],
+  "constant_parameters": [],
+  "unique_configurations": 2000,
+  "subspace": "strict",
+  "kde_folds": [
+    {
+      "fold": 0,
+      "method": "kde_reference",
+      "n_good": 320,
+      "n_bad": 1280,
+      "good": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.19548760236106125,
+          0.20259195678273093,
+          0.09444613729649977,
+          2.2243137656590686,
+          1.4098954095692273,
+          0.2020016962108394,
+          6.993757300377258,
+          0.1994079037910965,
+          0.20379440494734505,
+          0.20309151544368917
+        ],
+        "bandwidth": [
+          0.19548760236106125,
+          0.20259195678273093,
+          0.09444613729649977,
+          0.99999999,
+          0.99999999,
+          0.2020016962108394,
+          0.99999999,
+          0.1994079037910965,
+          0.20379440494734505,
+          0.20309151544368917
+        ],
+        "regularized": true,
+        "fit_seconds": 0.00011499295942485332
+      },
+      "bad": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.18459736651171002,
+          0.1809860405913389,
+          0.17543762599493548,
+          2.0205120427134906,
+          1.9201485099297269,
+          0.17611526967577013,
+          6.940697056760811,
+          0.1847047043146722,
+          0.18152395189121687,
+          0.1810709301280993
+        ],
+        "bandwidth": [
+          0.18459736651171002,
+          0.1809860405913389,
+          0.17543762599493548,
+          0.99999999,
+          0.99999999,
+          0.17611526967577013,
+          0.99999999,
+          0.1847047043146722,
+          0.18152395189121687,
+          0.1810709301280993
+        ],
+        "regularized": true,
+        "fit_seconds": 8.132611401379108e-05
+      }
+    },
+    {
+      "fold": 0,
+      "method": "kde_optimized",
+      "n_good": 320,
+      "n_bad": 1280,
+      "good": {
+        "requested": "bounded_ml",
+        "used": "bounded_ml",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.19548760236106125,
+          0.20259195678273093,
+          0.09444613729649977,
+          2.2243137656590686,
+          1.4098954095692273,
+          0.2020016962108394,
+          6.993757300377258,
+          0.1994079037910965,
+          0.20379440494734505,
+          0.20309151544368917
+        ],
+        "success": true,
+        "status": 0,
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "iterations": 17,
+        "evaluations": 22,
+        "optimization_verified": true,
+        "initial_bandwidth": [
+          0.19548760236106125,
+          0.20259195678273093,
+          0.09444613729649977,
+          0.5,
+          0.5,
+          0.2020016962108394,
+          0.5,
+          0.1994079037910965,
+          0.20379440494734505,
+          0.20309151544368917
+        ],
+        "bandwidth": [
+          0.21396407075951546,
+          0.2588631870599824,
+          0.08465368794483713,
+          0.6098765630610113,
+          0.5022926105722569,
+          0.18237684472179327,
+          0.831007736040225,
+          0.2363701280977134,
+          0.21288507616196176,
+          0.23389035318732712
+        ],
+        "lower_bounds": [
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06
+        ],
+        "upper_bounds": [
+          10.0,
+          10.0,
+          10.0,
+          0.999999,
+          0.999999,
+          10.0,
+          0.999999,
+          10.0,
+          10.0,
+          10.0
+        ],
+        "initial_mean_loo_loglikelihood": -9.962788872351938,
+        "final_mean_loo_loglikelihood": -9.41735324141926,
+        "initial_sum_loo_loglikelihood": -3188.09243915262,
+        "final_sum_loo_loglikelihood": -3013.5530372541634,
+        "mean_loo_loglikelihood_gain": 0.545435630932678,
+        "bandwidth_changed": true,
+        "post_fit_clipping": false,
+        "gradient_inf_norm": 9.286953227771733e-06,
+        "at_lower_bound": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "at_upper_bound": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "fit_seconds": 0.052780258003622293
+      },
+      "bad": {
+        "requested": "bounded_ml",
+        "used": "bounded_ml",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.18459736651171002,
+          0.1809860405913389,
+          0.17543762599493548,
+          2.0205120427134906,
+          1.9201485099297269,
+          0.17611526967577013,
+          6.940697056760811,
+          0.1847047043146722,
+          0.18152395189121687,
+          0.1810709301280993
+        ],
+        "success": true,
+        "status": 0,
+        "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH",
+        "iterations": 18,
+        "evaluations": 21,
+        "optimization_verified": true,
+        "initial_bandwidth": [
+          0.18459736651171002,
+          0.1809860405913389,
+          0.17543762599493548,
+          0.5,
+          0.5,
+          0.17611526967577013,
+          0.5,
+          0.1847047043146722,
+          0.18152395189121687,
+          0.1810709301280993
+        ],
+        "bandwidth": [
+          0.18421856624917327,
+          0.18979570239756732,
+          0.16390148871272203,
+          0.6110482537969419,
+          0.5114792696575093,
+          0.18374624717333282,
+          0.8284682490466742,
+          0.191979695937634,
+          0.1770919043922758,
+          0.1939218587888104
+        ],
+        "lower_bounds": [
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06
+        ],
+        "upper_bounds": [
+          10.0,
+          10.0,
+          10.0,
+          0.999999,
+          0.999999,
+          10.0,
+          0.999999,
+          10.0,
+          10.0,
+          10.0
+        ],
+        "initial_mean_loo_loglikelihood": -10.594478950982246,
+        "final_mean_loo_loglikelihood": -10.23825238096299,
+        "initial_sum_loo_loglikelihood": -13560.933057257276,
+        "final_sum_loo_loglikelihood": -13104.963047632627,
+        "mean_loo_loglikelihood_gain": 0.3562265700192562,
+        "bandwidth_changed": true,
+        "post_fit_clipping": false,
+        "gradient_inf_norm": 1.746205112962418e-05,
+        "at_lower_bound": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "at_upper_bound": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "fit_seconds": 1.4142615201417357
+      }
+    }
+  ]
+}

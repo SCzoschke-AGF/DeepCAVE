@@ -5,6 +5,8 @@ from typing import Any, Dict
 import json
 from itertools import combinations
 from math import prod
+from numbers import Integral, Real
+from urllib.parse import quote
 
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
@@ -19,190 +21,161 @@ def strength_options(next_strength: Any = None, maximum: Any = None) -> list:
     """Describe coverage goals using the selected resolution's measured strengths."""
     return [
         {
-            "label": html.Span(
-                [html.Strong(label)],
-                className="coverage-planning-choice",
-            ),
+            "label": label,
             "value": value,
         }
         for value, label in (
             (
                 "next",
-                "Reach next strength" + (f" (t = {next_strength})" if next_strength else ""),
+                "Next" + (f" · t = {next_strength}" if next_strength else " strength"),
             ),
-            ("custom", "Reach custom strength"),
+            ("custom", "Custom · t ="),
             (
                 "maximum",
-                "Reach maximum strength" + (f" (t = {maximum})" if maximum else ""),
+                "Maximum" + (f" · t = {maximum}" if maximum else " strength"),
             ),
         )
     ]
 
 
 def planning_coverage(result: Any, resolution: Any) -> tuple:
-    """Reuse observed coverage without triggering a new calculation."""
+    """Derive target strength options without triggering a new calculation."""
     row = next(
         (row for row in (result or {}).get("rows", []) if row["resolution"] == resolution),
         None,
     )
     maximum = len(result["parameters"]) if result else None
     next_strength = None
-    achieved, coverage = "—", "—"
-    next_label = "Next strength"
     if row:
         strength = row["observed_strength"]
-        sign = "≥" if row["strength_is_lower_bound"] else "="
-        achieved = f"t {sign} {strength} / {maximum}"
         if strength < maximum:
             next_strength = strength + 1
-            next_label = f"Next strength (t = {next_strength})"
-            cell = next((cell for cell in row["cells"] if cell["strength"] == next_strength), None)
-            if cell and cell["status"] == "computed":
-                coverage = f"{cell['coverage']:.1%}"
-        else:
-            coverage = "All strengths covered"
-    return (
-        html.Div(
-            [
-                html.Div([html.Small("Achieved strength"), html.Strong(achieved)]),
-                html.Div([html.Small(next_label), html.Strong(coverage)]),
-                (
-                    html.Span(
-                        "Awaiting coverage measurements", className="coverage-planning-caption"
-                    )
-                    if not row
-                    else None
-                ),
-            ],
-            className="coverage-planning-metrics",
-        ),
-        strength_options(next_strength, maximum),
-        maximum,
-    )
+    return strength_options(next_strength, maximum), maximum
 
 
 def planning_panel() -> Any:
     """Keep all planning controls mounted without submitting a job."""
-    controls = html.Div(
+    target_settings = html.Details(
         [
-            html.H4("Improve Coverage"),
+            html.Summary(
+                [
+                    html.Span("1", className="coverage-planning-step"),
+                    html.H5("Target Settings"),
+                ]
+            ),
             html.Div(
                 [
-                    html.Section(
+                    html.Div(
                         [
-                            html.H5("1. Choose parameter resolution"),
-                            html.P("Choose how parameter values are discretized."),
-                            dbc.RadioItems(
+                            dbc.Label("Parameter resolution", html_for=_id("planning-resolution")),
+                            dcc.Dropdown(
                                 id=_id("planning-resolution"),
                                 options=[{"label": f"{r} levels", "value": r} for r in RESOLUTIONS],
                                 value=2,
-                                inline=True,
-                                className="coverage-planning-resolution",
+                                clearable=False,
+                                searchable=False,
+                                className="coverage-planning-select",
                                 **_PERSISTENCE,
-                            ),
-                            html.Div(
-                                id=_id("planning-coverage"), children=planning_coverage(None, 2)[0]
                             ),
                         ],
-                        className="coverage-planning-section coverage-planning-resolution-section",
+                        className="coverage-planning-field",
                     ),
-                    html.Section(
+                    html.Div(
                         [
-                            html.H5("2. Choose coverage goal"),
-                            dcc.RadioItems(
-                                id=_id("planning-strength-mode"),
-                                options=strength_options(),
-                                value="next",
-                                labelStyle={"display": "flex"},
-                                className="coverage-planning-options",
-                                **_PERSISTENCE,
-                            ),
+                            dbc.Label("Target strength", html_for=_id("planning-strength-mode")),
                             html.Div(
                                 [
-                                    dbc.Label("Custom strength", html_for=_id("planning-strength")),
-                                    dbc.Input(
-                                        id=_id("planning-strength"),
-                                        type="number",
-                                        value=2,
-                                        min=1,
-                                        step=1,
-                                        disabled=True,
+                                    dcc.Dropdown(
+                                        id=_id("planning-strength-mode"),
+                                        options=strength_options(),
+                                        value="next",
+                                        clearable=False,
+                                        searchable=False,
+                                        className="coverage-planning-select",
                                         **_PERSISTENCE,
                                     ),
+                                    html.Div(
+                                        [
+                                            dbc.Label(
+                                                "Custom strength",
+                                                html_for=_id("planning-strength"),
+                                                className="visually-hidden",
+                                            ),
+                                            dbc.Input(
+                                                id=_id("planning-strength"),
+                                                type="number",
+                                                value=2,
+                                                min=1,
+                                                step=1,
+                                                disabled=True,
+                                                **_PERSISTENCE,
+                                            ),
+                                        ],
+                                        id=_id("planning-strength-field"),
+                                        style={"display": "none"},
+                                        className="coverage-planning-custom-strength",
+                                    ),
                                 ],
-                                id=_id("planning-strength-field"),
-                                style={"display": "none"},
-                                className="coverage-planning-field",
+                                className="coverage-planning-target",
                             ),
                         ],
-                        className="coverage-planning-section coverage-planning-goal",
+                        className="coverage-planning-field",
                     ),
                 ],
                 className="coverage-planning-top",
             ),
-            html.Section(
+        ],
+        open=True,
+        className="coverage-planning-section coverage-planning-settings",
+    )
+    strategy = html.Section(
+        [
+            html.H5("Optimization goal"),
+            dcc.RadioItems(
+                id=_id("planning-strategy"),
+                options=[
+                    {
+                        "label": "Minimize trials to reach target",
+                        "value": "minimize_trials",
+                    },
+                    {
+                        "label": "Maximize coverage within trial budget",
+                        "value": "maximize_coverage",
+                    },
+                ],
+                value="minimize_trials",
+                labelStyle={"display": "flex"},
+                className="coverage-planning-options",
+                **_PERSISTENCE,
+            ),
+            html.Div(
                 [
-                    html.H5("3. Determine concrete missing configurations to optimize coverage"),
-                    dcc.RadioItems(
-                        id=_id("planning-strategy"),
-                        options=[
-                            {
-                                "label": html.Span(
-                                    [
-                                        html.Strong(
-                                            "Find minimum trials required to reach the coverage goal"
-                                        ),
-                                        html.Small(
-                                            "Find a small set of configurations to reach the coverage goal."
-                                        ),
-                                    ],
-                                    className="coverage-planning-choice",
-                                ),
-                                "value": "minimize_trials",
-                            },
-                            {
-                                "label": html.Span(
-                                    [
-                                        html.Strong("Optimize coverage with a fix trial budget"),
-                                        html.Small(
-                                            "Get the largest coverage improvement for a fixed budget."
-                                        ),
-                                    ],
-                                    className="coverage-planning-choice",
-                                ),
-                                "value": "maximize_coverage",
-                            },
-                        ],
-                        value="maximize_coverage",
-                        labelStyle={"display": "flex"},
-                        className="coverage-planning-options",
+                    dbc.Label(
+                        "Additional trial budget (required)",
+                        html_for=_id("planning-budget"),
+                    ),
+                    dbc.Input(
+                        id=_id("planning-budget"),
+                        type="number",
+                        value=10,
+                        min=1,
+                        max=1000,
+                        step=1,
                         **_PERSISTENCE,
                     ),
-                    html.Div(
-                        [
-                            dbc.Label(
-                                "Additional trial budget (required)",
-                                html_for=_id("planning-budget"),
-                            ),
-                            dbc.Input(
-                                id=_id("planning-budget"),
-                                type="number",
-                                value=10,
-                                min=1,
-                                max=1000,
-                                step=1,
-                                **_PERSISTENCE,
-                            ),
-                        ],
-                        id=_id("planning-budget-field"),
-                        className="coverage-planning-field",
-                    ),
                 ],
-                className="coverage-planning-section coverage-planning-strategy",
+                id=_id("planning-budget-field"),
+                style={"display": "none"},
+                className="coverage-planning-field",
             ),
-            html.Details(
+        ],
+        className="coverage-planning-section coverage-planning-strategy",
+    )
+    advanced = html.Details(
+        [
+            html.Summary([html.Span("☷", **{"aria-hidden": "true"}), " Advanced"]),
+            html.Div(
                 [
-                    html.Summary("Advanced settings"),
                     dbc.Label("Search time (seconds)", html_for=_id("planning-timeout")),
                     dbc.Input(
                         id=_id("planning-timeout"),
@@ -223,32 +196,95 @@ def planning_panel() -> Any:
                         **_PERSISTENCE,
                     ),
                     html.Small(
-                        "Large strengths may exceed the planning limits. Search results are heuristic."
+                        "Large strengths may exceed the planning limits. "
+                        "Search results are heuristic."
                     ),
                 ],
-                className="coverage-planning-advanced",
+                className="coverage-planning-advanced-content",
             ),
-            html.Div(id=_id("planning-status"), role="status", className="mb-2"),
-            dbc.Button("Generate plan", id=_id("planning-run"), n_clicks=0, size="sm"),
-            dbc.Button(
-                "Cancel",
-                id=_id("planning-cancel"),
-                n_clicks=0,
-                size="sm",
-                color="secondary",
-                outline=True,
-                className="ms-2",
-                style={"display": "none"},
+        ],
+        className="coverage-planning-advanced",
+    )
+    actions = html.Section(
+        [
+            html.Div(
+                [
+                    dbc.Button(
+                        "Compute Plan",
+                        id=_id("planning-run"),
+                        n_clicks=0,
+                        size="sm",
+                        className="coverage-planning-run",
+                    ),
+                    dbc.Button(
+                        "Cancel",
+                        id=_id("planning-cancel"),
+                        n_clicks=0,
+                        size="sm",
+                        color="secondary",
+                        outline=True,
+                        style={"display": "none"},
+                    ),
+                ],
+                className="coverage-planning-actions",
+            ),
+            html.Div(
+                id=_id("planning-status"), role="status", className="coverage-planning-status"
+            ),
+        ],
+        className="coverage-planning-section coverage-planning-action-section",
+    )
+    return html.Div(
+        [
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.H4("Improve Coverage"),
+                        ],
+                        className="coverage-planning-heading",
+                    ),
+                    advanced,
+                ],
+                className="coverage-planning-header",
+            ),
+            html.Div(
+                [
+                    html.Aside(
+                        [target_settings, strategy, actions],
+                        className="coverage-planning-controls",
+                        **{"aria-label": "Coverage planning settings"},
+                    ),
+                    html.Div(
+                        id=_id("planning-result"),
+                        className="coverage-planning-result",
+                    ),
+                ],
+                className="coverage-planning-workspace",
             ),
             dcc.Store(id=_id("planning-data")),
             dcc.Store(id=_id("planning-view")),
         ],
-        className="coverage-card coverage-planning-controls",
-    )
-    return html.Div(
-        [controls, html.Div(id=_id("planning-result"))],
         className="coverage-planning",
     )
+
+
+def plan_toml(plan: Dict[str, Any]) -> str:
+    """Export every proposed configuration, including constants, in plan order."""
+    blocks = []
+    for trial in plan["trials"]:
+        lines = ["[[trials]]"]
+        for name, value in trial["parameters"].items():
+            key = json.dumps(name, ensure_ascii=False).replace("\x7f", "\\u007f")
+            if isinstance(value, (str, bool)):
+                encoded = json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f")
+            elif isinstance(value, (Integral, Real)):
+                encoded = str(value)
+            else:
+                raise ValueError(f"TOML export cannot represent parameter {name!r}: {value!r}.")
+            lines.append(f"{key} = {encoded}")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks) + "\n" if blocks else ""
 
 
 def plan_view(plan: Dict[str, Any]) -> Any:
@@ -259,6 +295,23 @@ def plan_view(plan: Dict[str, Any]) -> Any:
         )
     trials = plan["trials"]
     count = len(trials)
+    download = None
+    if trials:
+        try:
+            download = html.A(
+                "Download .toml",
+                href="data:application/toml;charset=utf-8," + quote(plan_toml(plan), safe=""),
+                download="coverage-plan.toml",
+                className="btn btn-outline-secondary btn-sm coverage-plan-download",
+                title=f"Download all {count:,} proposed configurations as TOML",
+            )
+        except ValueError as error:
+            download = html.Span(
+                "Download .toml",
+                className="btn btn-outline-secondary btn-sm disabled coverage-plan-download",
+                title=str(error),
+                **{"aria-disabled": "true"},
+            )
     strength = plan["target_strength"]
     parameters = plan["search_space"]["parameters"]
     total = sum(
@@ -270,13 +323,12 @@ def plan_view(plan: Dict[str, Any]) -> Any:
     observed = total - missing
     added = missing - remaining
     segments = (
-        ("observed", "Already covered configurations", observed, 0),
-        ("added", "Newly covered configurations", added, observed),
-        ("remaining", "Missing configurations", remaining, observed + added),
+        ("observed", "already covered", observed),
+        ("added", "newly covered", added),
+        ("remaining", "remaining", remaining),
     )
     complete = plan["target_complete"]
     minimize = plan["strategy"] == "minimize_trials"
-    minimum_proven = complete and plan["optimality_proven"] and count == plan["lower_bound_trials"]
 
     def percent(value: float) -> str:
         if value == 1:
@@ -285,44 +337,7 @@ def plan_view(plan: Dict[str, Any]) -> Any:
             return "<0.1%"
         return ">99.9%" if value > 0.999 else f"{value:.1%}"
 
-    if not complete:
-        outcome = "incomplete"
-    elif plan["optimality_proven"]:
-        outcome = "optimal"
-    else:
-        outcome = "heuristic"
-    trial_noun = "trial" if count == 1 else "trials"
-    trial_metric = (
-        f"Additional {trial_noun} required" if minimum_proven else f"Additional {trial_noun} proposed",
-        f"{count:,}",
-        (
-            "Proven minimum"
-            if minimum_proven
-            else f"Known lower bound: {plan['lower_bound_trials']:,} trials"
-        ),
-    )
-    if not minimize:
-        budget = plan["max_additional_trials"]
-        trial_metric = (f"Additional {trial_noun} used", f"{count:,} / {budget:,}", None)
-    trial_label, trial_value, trial_hint = trial_metric
-    coverage_value = f"{percent(plan['initial_coverage'])} → {percent(plan['projected_coverage'])}"
-    if not missing:
-        explanation_title = "Target already covered"
-        explanation = (
-            f"Observed coverage at Strength {strength} is already 100%. "
-            "No additional trials are needed."
-        )
-    elif not complete:
-        explanation_title = explanation = None
-    elif plan["optimality_proven"]:
-        explanation_title = explanation = None
-    else:
-        explanation_title = "What does this solution guarantee?"
-        explanation = (
-            f"The plan reaches full target coverage with {count:,} additional trials. "
-            f"The known lower bound is {plan['lower_bound_trials']:,} trials. "
-            "A smaller plan may exist; minimum trial count has not been proven."
-        )
+    trial_value = f"{count:,}" if minimize else f"{count:,} / {plan['max_additional_trials']:,}"
 
     names = [parameter["name"] for parameter in parameters]
     names += list(plan["search_space"]["constants"])
@@ -340,15 +355,8 @@ def plan_view(plan: Dict[str, Any]) -> Any:
     configuration_details = html.Details(
         [
             html.Summary(
-                [
-                    html.Span(
-                        [
-                            html.Strong(f"{count:,} proposed configurations"),
-                        ]
-                    ),
-                    html.Span("Show configurations →", className="coverage-plan-action"),
-                ],
-                className="coverage-plan-footer",
+                f"Show {count:,} configurations →",
+                className="coverage-plan-action",
             ),
             html.P(
                 "All proposals are validated. Run these configurations in your optimizer to apply "
@@ -359,7 +367,7 @@ def plan_view(plan: Dict[str, Any]) -> Any:
                 id=_id("planning-trials"),
                 columns=[
                     {"name": "Order", "id": "position", "type": "numeric"},
-                    {"name": "New combinations", "id": "gain", "type": "numeric"},
+                    {"name": "Covered combinations", "id": "gain", "type": "numeric"},
                     {"name": "Cumulative coverage", "id": "coverage"},
                     {"name": "Missing combinations", "id": "missing", "type": "numeric"},
                     *[{"name": name, "id": f"parameter:{name}"} for name in names],
@@ -375,85 +383,84 @@ def plan_view(plan: Dict[str, Any]) -> Any:
         ],
         className="coverage-plan-configurations",
     )
+    planned_bar = html.Div(
+        [
+            html.Span(
+                className=f"coverage-plan-segment coverage-plan-segment-{kind}",
+                style={"width": f"{100 * amount / total:.8g}%"},
+            )
+            for kind, _, amount in segments
+            if amount > 0
+        ],
+        className="coverage-plan-bar",
+        role="img",
+        **{
+            "aria-label": f"{observed:,} already covered; {added:,} covered by plan; "
+            f"{remaining:,} remaining after successful execution. Total: {total:,}."
+        },
+    )
     return html.Article(
         [
-            html.Div(
+            html.Header(
                 [
-                    html.Div(
-                        [
-                            html.Strong(trial_value),
-                            html.Div(
-                                [
-                                    html.Small(trial_label),
-                                    html.Span(
-                                        trial_hint,
-                                        className="coverage-plan-proof" if minimum_proven else "",
-                                    ) if trial_hint else None,
-                                ],
-                                className="coverage-plan-metric-copy",
-                            ),
-                        ],
-                        className="coverage-plan-metric coverage-plan-metric-trials",
-                    ),
-                    html.Div(
-                        [html.Strong(coverage_value), html.Small("Projected coverage change")],
-                        className="coverage-plan-metric coverage-plan-metric-coverage",
-                    ),
+                    html.H4("Coverage Improvement Plan"),
                 ],
-                className="coverage-plan-metrics",
+                className="coverage-plan-heading",
             ),
             html.Section(
                 [
                     html.Div(
                         [
-                            html.Span(
-                                [label + ": ", html.Strong(f"{amount:,}")],
-                                className=f"coverage-plan-label coverage-plan-key-{kind}",
-                                **{"data-anchor": f"{100 * (offset + amount / 2) / total:.8g}"},
-                            )
-                            for kind, label, amount, offset in segments
-                            if amount > 0
-                        ],
-                        className="coverage-plan-legend",
-                    ),
-                    html.Div(
-                        [
                             html.Div(
                                 [
-                                    html.Span(
-                                        className=f"coverage-plan-segment coverage-plan-segment-{kind}",
-                                        style={"width": f"{100 * amount / total:.8g}%"},
-                                    )
-                                    for kind, _, amount, _ in segments
+                                    html.Small("Current coverage"),
+                                    html.Strong(percent(plan["initial_coverage"])),
                                 ],
-                                className="coverage-plan-bar",
-                                role="img",
-                                **{
-                                    "aria-label": f"{observed:,} already covered; {added:,} covered by plan; "
-                                    f"{remaining:,} remaining after successful execution. Total: {total:,}."
-                                },
+                                className="coverage-plan-current",
+                            ),
+                            html.Div(
+                                [
+                                    html.Small(
+                                        f"+{trial_value} {'trial' if count == 1 else 'trials'}"
+                                    ),
+                                    html.Span(
+                                        "→",
+                                        className="coverage-plan-arrow",
+                                        **{"aria-hidden": "true"},
+                                    ),
+                                ],
+                                className="coverage-plan-transition",
+                            ),
+                            html.Div(
+                                [
+                                    html.Small("Planned coverage"),
+                                    html.Strong(percent(plan["projected_coverage"])),
+                                ],
+                                className="coverage-plan-projected",
                             ),
                         ],
-                        className="coverage-plan-track",
+                        className="coverage-plan-comparison",
                     ),
-                    html.Div(className="coverage-plan-brace", **{"aria-hidden": "true"}),
+                    planned_bar,
                     html.Div(
-                        [html.Strong(f"{total:,}"), f" possible configurations at strength {strength}"],
-                        className="coverage-plan-total",
+                        [
+                            html.Span(
+                                f"{'+' if kind == 'added' else ''}{amount:,} {label}",
+                                className=f"coverage-plan-label coverage-plan-key-{kind}",
+                            )
+                            for kind, label, amount in segments
+                            if amount > 0
+                        ],
+                        className="coverage-plan-counts",
                     ),
                 ],
                 className="coverage-plan-breakdown",
             ),
             (
-                html.Section(
-                    [html.H5(explanation_title), html.P(explanation)],
-                    className=f"coverage-plan-explanation coverage-plan-{outcome}",
+                html.Div(
+                    [configuration_details, download],
+                    className="coverage-plan-actions",
                 )
-                if explanation
-                else None
-            ),
-            (
-                configuration_details
                 if trials
                 else html.Div(
                     [
@@ -472,7 +479,7 @@ def plan_view(plan: Dict[str, Any]) -> Any:
                 )
             ),
         ],
-        className="coverage-card coverage-plan-result",
+        className="coverage-plan-result",
     )
 
 

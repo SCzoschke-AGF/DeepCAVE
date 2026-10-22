@@ -83,9 +83,7 @@ def _configuration_cells(row: Dict, parameters: int, trials: int) -> list:
         label, _, title = _cell_label(cell, trials)
     else:
         title = (
-            "All strengths covered"
-            if row["observed_strength"] == parameters
-            else "Not computed"
+            "All strengths covered" if row["observed_strength"] == parameters else "Not computed"
         )
     points = row.get("discretization", {}).get("points")
     unique = f"{len({tuple(point) for point in points}):,}" if points is not None else "—"
@@ -105,10 +103,7 @@ def _configuration_cells(row: Dict, parameters: int, trials: int) -> list:
             title=f"All possible configurations at maximum strength t = {parameters}.",
         ),
         html.Span(
-            [
-                html.Small(title) if not cell else None,
-                html.Strong(label),
-            ],
+            html.Strong(label),
             className="coverage-strength-coverage",
             title=title,
         ),
@@ -151,31 +146,15 @@ def combinatorial_view(
     result: Optional[Dict],
     baseline: Optional[Dict] = None,
     forecast: Optional[Dict] = None,
-    include_explanations: bool = True,
 ) -> Any:
     """Compare achieved strength and remaining coverage at each resolution."""
     if not result:
-        if forecast:
-            return html.Div(
-                [
-                    html.P("Coverage array unavailable for this search space."),
-                    forecast_details(forecast) if include_explanations else None,
-                ]
-            )
         return html.P(
             "Run combinatorial coverage to measure the coverage profile of sampled trials."
         )
     options = []
     for row in result["rows"]:
         strength = row["observed_strength"]
-        strength_reference = next(
-            (
-                item
-                for item in (baseline or {}).get("strengths", [])
-                if item["resolution"] == row["resolution"]
-            ),
-            None,
-        )
         configuration_cells = _configuration_cells(row, len(result["parameters"]), result["trials"])
         options.append(
             {
@@ -199,12 +178,6 @@ def combinatorial_view(
                                         ),
                                     ],
                                     className="coverage-strength-value",
-                                    title=_strength_reference(strength_reference),
-                                ),
-                                html.Small(
-                                    f"max. feasible strength = {row['trial_bound']}",
-                                    className="coverage-strength-reference",
-                                    title="Trial-count upper bound for full coverage; necessary, not sufficient.",
                                 ),
                             ],
                             className="coverage-strength-achieved",
@@ -234,16 +207,16 @@ def combinatorial_view(
                 [
                     html.Div(
                         [
-                            html.Span("Feature Binning"),
-                            html.Span("Strength"),
+                            html.Span("Parameter resolution"),
+                            html.Span("Achieved strength"),
                             html.Span("Coverage at next strength"),
                             html.Span(
-                                "Needed random trials for next strength "
-                                f"(prob. {(forecast or {}).get('probability_threshold', 0.8):.0%})"
+                                "Random trials to next strength "
+                                f"({(forecast or {}).get('probability_threshold', 0.8):.0%})"
                             ),
-                            html.Span("Needed minimum trials for next strength"),
-                            html.Span("Nr. observed configurations"),
-                            html.Span(f"Nr. possible configurations (t={len(result['parameters'])})"),
+                            html.Span("Minimum plan trials"),
+                            html.Span("Observed configurations"),
+                            html.Span("Possible configurations"),
                         ],
                         className="coverage-strength-row coverage-strength-head",
                     ),
@@ -263,7 +236,6 @@ def combinatorial_view(
                 ],
                 className="coverage-strength-profile",
             ),
-            *(combinatorial_explanations(result, forecast) if include_explanations else []),
         ]
     )
 

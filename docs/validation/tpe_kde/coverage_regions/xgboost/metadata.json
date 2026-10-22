@@ -1,0 +1,105 @@
+{
+  "study_name": "xgboost_data:4897daef3195_average_precision_v1_sampler:random_objective:cv_average_precision_mean_direction:maximize_modelseed:42_cvseed:42",
+  "study_user_attrs": {
+    "cv_split_seed": 42,
+    "data_representation_sha256": "4897daef3195ea0e74191f0455e83f19d67285ad6223d148b6e085e0dfb3eae6",
+    "direction": "maximize",
+    "model_family": "xgboost",
+    "model_seed": 42,
+    "objective_metric": "cv_average_precision_mean",
+    "sampler": "random"
+  },
+  "total_trials": 2000,
+  "finite_completed_trials": 2000,
+  "selected_trials": 2000,
+  "activity_audit": {
+    "colsample_bytree": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.5, \"high\": 1.0, \"log\": false}}"
+      ]
+    },
+    "gamma": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.0001, \"high\": 10.0, \"log\": true}}"
+      ]
+    },
+    "learning_rate": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.005, \"high\": 0.3, \"log\": true}}"
+      ]
+    },
+    "max_delta_step": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"IntDistribution\", \"attributes\": {\"log\": false, \"step\": 1, \"low\": 0, \"high\": 10}}"
+      ]
+    },
+    "max_depth": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"IntDistribution\", \"attributes\": {\"log\": false, \"step\": 1, \"low\": 3, \"high\": 12}}"
+      ]
+    },
+    "min_child_weight": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.5, \"high\": 100.0, \"log\": true}}"
+      ]
+    },
+    "n_estimators": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"IntDistribution\", \"attributes\": {\"log\": false, \"step\": 50, \"low\": 200, \"high\": 2000}}"
+      ]
+    },
+    "reg_alpha": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.0001, \"high\": 10.0, \"log\": true}}"
+      ]
+    },
+    "reg_lambda": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.01, \"high\": 100.0, \"log\": true}}"
+      ]
+    },
+    "subsample": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.5, \"high\": 1.0, \"log\": false}}"
+      ]
+    }
+  },
+  "excluded_parameters": [],
+  "constant_parameters": [],
+  "unique_configurations": 2000,
+  "subspace": "strict",
+  "versions": {
+    "optuna": "3.6.1",
+    "statsmodels": "0.14.6",
+    "numpy": "2.2.6",
+    "scipy": "1.15.3",
+    "matplotlib": "3.9.0",
+    "ConfigSpace": "1.2.0"
+  },
+  "python": "3.10.19",
+  "platform": "Linux-6.14.0-34-generic-x86_64-with-glibc2.41",
+  "threads": {
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1"
+  },
+  "source_hashes": {
+    "/home/sczoschke/projects/DeepCAVE/examples/api/benchmark_tpe_kde_coverage.py": "319f45b242424c45ff5d3c15177dd039f4df7b0e2c4669397d22c3fbe381c7a2",
+    "/home/sczoschke/projects/DeepCAVE/examples/api/benchmark_tpe_kde.py": "aee73632758ca52cffb3c86e26587060eeb159638d9254a8f43fc430dba2b206",
+    "deepcave/evaluators/combinatorial.py": "a816a03df5ac44e1bc545aeb7dd141053a5874ca7fac1ae9eb32fce0eb5fefc1",
+    "deepcave/evaluators/coverage_state.py": "ea27b7575a5f4fda443553fabd16f00eaee90ca0c040ad1817127e8584f86254",
+    "deepcave/evaluators/coverage_planning.py": "bce05963e304d5cc79c8a5f2f928852c2eaa5378e53e28510942caa68cfe55d9"
+  },
+  "reference_oof": "docs/validation/tpe_kde/robustness/xgboost/start_0.5/oof_scores.csv",
+  "inference": "descriptive fold means/SD and paired differences; folds are dependent"
+}

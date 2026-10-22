@@ -1,0 +1,640 @@
+[
+  {
+    "case": {
+      "name": "d6_l4_t3_uniform",
+      "dimensions": 6,
+      "levels": 4,
+      "strength": 3,
+      "design": "uniform",
+      "observations": 299
+    },
+    "cap_hits": 0,
+    "variants": {
+      "cap_1000": {
+        "wall_seconds": 0.01466553215868771,
+        "cpu_seconds": 0.014663044000000014,
+        "search_and_pruning_seconds": 0.009884929051622748,
+        "validation_and_output_seconds": 0.004308464005589485,
+        "proposed_trials": 8,
+        "iterations": 8,
+        "projected_coverage": 1.0,
+        "payload_bytes": 5396,
+        "initial_coverage": 0.9859375,
+        "wall_range": [
+          0.014236544026061893,
+          0.02980809914879501
+        ],
+        "coverage_range": [
+          1.0,
+          1.0
+        ],
+        "termination_reasons": {
+          "target_reached": 5
+        }
+      },
+      "uncapped": {
+        "wall_seconds": 0.014738355996087193,
+        "cpu_seconds": 0.014731790000000022,
+        "search_and_pruning_seconds": 0.01030657789669931,
+        "validation_and_output_seconds": 0.003959897207096219,
+        "proposed_trials": 8,
+        "iterations": 8,
+        "projected_coverage": 1.0,
+        "payload_bytes": 5396,
+        "initial_coverage": 0.9859375,
+        "wall_range": [
+          0.014180080965161324,
+          0.016637477092444897
+        ],
+        "coverage_range": [
+          1.0,
+          1.0
+        ],
+        "termination_reasons": {
+          "target_reached": 5
+        }
+      }
+    },
+    "cpu_saved_percent": 0.4666506921426894
+  },
+  {
+    "case": {
+      "name": "d6_l4_t4_uniform",
+      "dimensions": 6,
+      "levels": 4,
+      "strength": 4,
+      "design": "uniform",
+      "observations": 299
+    },
+    "cap_hits": 0,
+    "variants": {
+      "cap_1000": {
+        "wall_seconds": 0.3776429130230099,
+        "cpu_seconds": 0.3775993190000002,
+        "search_and_pruning_seconds": 0.2723911521025002,
+        "validation_and_output_seconds": 0.10401612101122737,
+        "proposed_trials": 217,
+        "iterations": 218,
+        "projected_coverage": 1.0,
+        "payload_bytes": 158029,
+        "initial_coverage": 0.6859375,
+        "wall_range": [
+          0.363766822963953,
+          0.3909511200617999
+        ],
+        "coverage_range": [
+          1.0,
+          1.0
+        ],
+        "termination_reasons": {
+          "target_reached": 5
+        }
+      },
+      "uncapped": {
+        "wall_seconds": 0.3791902989614755,
+        "cpu_seconds": 0.37918870000000005,
+        "search_and_pruning_seconds": 0.2791247160639614,
+        "validation_and_output_seconds": 0.10166087001562119,
+        "proposed_trials": 217,
+        "iterations": 218,
+        "projected_coverage": 1.0,
+        "payload_bytes": 158029,
+        "initial_coverage": 0.6859375,
+        "wall_range": [
+          0.36240173992700875,
+          0.4140359559096396
+        ],
+        "coverage_range": [
+          1.0,
+          1.0
+        ],
+        "termination_reasons": {
+          "target_reached": 5
+        }
+      }
+    },
+    "cpu_saved_percent": 0.4191530496557072
+  },
+  {
+    "case": {
+      "name": "d6_l4_t5_uniform",
+      "dimensions": 6,
+      "levels": 4,
+      "strength": 5,
+      "design": "uniform",
+      "observations": 299
+    },
+    "cap_hits": 5,
+    "variants": {
+      "cap_1000": {
+        "wall_seconds": 1.5996642371173948,
+        "cpu_seconds": 1.599640527,
+        "search_and_pruning_seconds": 1.131005050148815,
+        "validation_and_output_seconds": 0.46071272785775363,
+        "proposed_trials": 1000,
+        "iterations": 1000,
+        "projected_coverage": 0.9820963541666666,
+        "payload_bytes": 723819,
+        "initial_coverage": 0.2526041666666667,
+        "wall_range": [
+          1.5398687061388046,
+          1.648866435047239
+        ],
+        "coverage_range": [
+          0.9806315104166666,
+          0.9825846354166666
+        ],
+        "termination_reasons": {
+          "trial_limit": 5
+        }
+      },
+      "uncapped": {
+        "wall_seconds": 1.794493282213807,
+        "cpu_seconds": 1.794143797000002,
+        "search_and_pruning_seconds": 1.2728644048329443,
+        "validation_and_output_seconds": 0.5423822170123458,
+        "proposed_trials": 1096,
+        "iterations": 1107,
+        "projected_coverage": 1.0,
+        "payload_bytes": 764323,
+        "initial_coverage": 0.2526041666666667,
+        "wall_range": [
+          1.7770294090732932,
+          1.8449634150601923
+        ],
+        "coverage_range": [
+          1.0,
+          1.0
+        ],
+        "termination_reasons": {
+          "target_reached": 5
+        }
+      }
+    },
+    "cpu_saved_percent": 10.841007857075446
+  },
+  {
+    "case": {
+      "name": "d6_l4_t6_uniform",
+      "dimensions": 6,
+      "levels": 4,
+      "strength": 6,
+      "design": "uniform",
+      "observations": 299
+    },
+    "cap_hits": 5,
+    "variants": {
+      "cap_1000": {
+        "wall_seconds": 1.3765203808434308,
+        "cpu_seconds": 1.376496564,
+        "search_and_pruning_seconds": 0.8792624180205166,
+        "validation_and_output_seconds": 0.4795636828057468,
+        "proposed_trials": 1000,
+        "iterations": 1000,
+        "projected_coverage": 0.314453125,
+        "payload_bytes": 423832,
+        "initial_coverage": 0.0703125,
+        "wall_range": [
+          1.322567141847685,
+          1.3883090699091554
+        ],
+        "coverage_range": [
+          0.314453125,
+          0.314453125
+        ],
+        "termination_reasons": {
+          "trial_limit": 5
+        }
+      },
+      "uncapped": {
+        "wall_seconds": 5.246335800969973,
+        "cpu_seconds": 5.246113863999998,
+        "search_and_pruning_seconds": 3.436141896992922,
+        "validation_and_output_seconds": 1.7989058771636337,
+        "proposed_trials": 3808,
+        "iterations": 3808,
+        "projected_coverage": 1.0,
+        "payload_bytes": 1610527,
+        "initial_coverage": 0.0703125,
+        "wall_range": [
+          5.232368836179376,
+          5.267850560834631
+        ],
+        "coverage_range": [
+          1.0,
+          1.0
+        ],
+        "termination_reasons": {
+          "target_reached": 5
+        }
+      }
+    },
+    "cpu_saved_percent": 73.76159573192214
+  },
+  {
+    "case": {
+      "name": "d6_l8_t3_uniform",
+      "dimensions": 6,
+      "levels": 8,
+      "strength": 3,
+      "design": "uniform",
+      "observations": 299
+    },
+    "cap_hits": 0,
+    "variants": {
+      "cap_1000": {
+        "wall_seconds": 0.6228590509854257,
+        "cpu_seconds": 0.6227866389999974,
+        "search_and_pruning_seconds": 0.26166909793391824,
+        "validation_and_output_seconds": 0.36127749108709395,
+        "proposed_trials": 589,
+        "iterations": 589,
+        "projected_coverage": 1.0,
+        "payload_bytes": 519987,
+        "initial_coverage": 0.45,
+        "wall_range": [
+          0.6044737349729985,
+          0.6336404061876237
+        ],
+        "coverage_range": [
+          1.0,
+          1.0
+        ],
+        "termination_reasons": {
+          "target_reached": 5
+        }
+      },
+      "uncapped": {
+        "wall_seconds": 0.5950079311151057,
+        "cpu_seconds": 0.594980434,
+        "search_and_pruning_seconds": 0.24370517884381115,
+        "validation_and_output_seconds": 0.34533097315579653,
+        "proposed_trials": 589,
+        "iterations": 589,
+        "projected_coverage": 1.0,
+        "payload_bytes": 519987,
+        "initial_coverage": 0.45,
+        "wall_range": [
+          0.5869864590931684,
+          0.6577065950259566
+        ],
+        "coverage_range": [
+          1.0,
+          1.0
+        ],
+        "termination_reasons": {
+          "target_reached": 5
+        }
+      }
+    },
+    "cpu_saved_percent": -4.6734654471003
+  },
+  {
+    "case": {
+      "name": "d6_l8_t4_uniform",
+      "dimensions": 6,
+      "levels": 8,
+      "strength": 4,
+      "design": "uniform",
+      "observations": 299
+    },
+    "cap_hits": 5,
+    "variants": {
+      "cap_1000": {
+        "wall_seconds": 1.1393912280909717,
+        "cpu_seconds": 1.139329274000005,
+        "search_and_pruning_seconds": 0.5138847730122507,
+        "validation_and_output_seconds": 0.637776168063283,
+        "proposed_trials": 1000,
+        "iterations": 1000,
+        "projected_coverage": 0.31466471354166664,
+        "payload_bytes": 1493235,
+        "initial_coverage": 0.07083333333333333,
+        "wall_range": [
+          1.11230988195166,
+          1.2106057310011238
+        ],
+        "coverage_range": [
+          0.31463216145833334,
+          0.31471354166666665
+        ],
+        "termination_reasons": {
+          "trial_limit": 5
+        }
+      },
+      "uncapped": {
+        "wall_seconds": 6.993887226097286,
+        "cpu_seconds": 6.993619615,
+        "search_and_pruning_seconds": 3.1457318069878966,
+        "validation_and_output_seconds": 3.8474311700556427,
+        "proposed_trials": 6078,
+        "iterations": 6084,
+        "projected_coverage": 1.0,
+        "payload_bytes": 6399042,
+        "initial_coverage": 0.07083333333333333,
+        "wall_range": [
+          6.8724261408206075,
+          7.053498732158914
+        ],
+        "coverage_range": [
+          1.0,
+          1.0
+        ],
+        "termination_reasons": {
+          "target_reached": 5
+        }
+      }
+    },
+    "cpu_saved_percent": 83.70901855233365
+  },
+  {
+    "case": {
+      "name": "d8_l4_t4_uniform",
+      "dimensions": 8,
+      "levels": 4,
+      "strength": 4,
+      "design": "uniform",
+      "observations": 299
+    },
+    "cap_hits": 0,
+    "variants": {
+      "cap_1000": {
+        "wall_seconds": 0.37702780589461327,
+        "cpu_seconds": 0.37701956699999073,
+        "search_and_pruning_seconds": 0.1869703100528568,
+        "validation_and_output_seconds": 0.18950231513008475,
+        "proposed_trials": 348,
+        "iterations": 348,
+        "projected_coverage": 1.0,
+        "payload_bytes": 455910,
+        "initial_coverage": 0.6863839285714286,
+        "wall_range": [
+          0.3745245060417801,
+          0.4209651800338179
+        ],
+        "coverage_range": [
+          1.0,
+          1.0
+        ],
+        "termination_reasons": {
+          "target_reached": 5
+        }
+      },
+      "uncapped": {
+        "wall_seconds": 0.4014681479893625,
+        "cpu_seconds": 0.40144571800000506,
+        "search_and_pruning_seconds": 0.1974584071431309,
+        "validation_and_output_seconds": 0.20329289697110653,
+        "proposed_trials": 348,
+        "iterations": 348,
+        "projected_coverage": 1.0,
+        "payload_bytes": 455910,
+        "initial_coverage": 0.6863839285714286,
+        "wall_range": [
+          0.3888443000614643,
+          0.4212403711862862
+        ],
+        "coverage_range": [
+          1.0,
+          1.0
+        ],
+        "termination_reasons": {
+          "target_reached": 5
+        }
+      }
+    },
+    "cpu_saved_percent": 6.084546404356972
+  },
+  {
+    "case": {
+      "name": "d12_l8_t3_uniform",
+      "dimensions": 12,
+      "levels": 8,
+      "strength": 3,
+      "design": "uniform",
+      "observations": 299
+    },
+    "cap_hits": 5,
+    "variants": {
+      "cap_1000": {
+        "wall_seconds": 1.7029640518594533,
+        "cpu_seconds": 1.7028679109999985,
+        "search_and_pruning_seconds": 0.8376208220142871,
+        "validation_and_output_seconds": 0.8448829769622535,
+        "proposed_trials": 1000,
+        "iterations": 1000,
+        "projected_coverage": 0.9973366477272727,
+        "payload_bytes": 1679703,
+        "initial_coverage": 0.44469992897727273,
+        "wall_range": [
+          1.6584576480090618,
+          1.739123280160129
+        ],
+        "coverage_range": [
+          0.9972212357954545,
+          0.9975941051136363
+        ],
+        "termination_reasons": {
+          "trial_limit": 5
+        }
+      },
+      "uncapped": {
+        "wall_seconds": 1.8329270358663052,
+        "cpu_seconds": 1.8328311110000044,
+        "search_and_pruning_seconds": 0.9080992399249226,
+        "validation_and_output_seconds": 0.8938448939006776,
+        "proposed_trials": 1079,
+        "iterations": 1079,
+        "projected_coverage": 1.0,
+        "payload_bytes": 1739794,
+        "initial_coverage": 0.44469992897727273,
+        "wall_range": [
+          1.783727556001395,
+          1.8504575709812343
+        ],
+        "coverage_range": [
+          1.0,
+          1.0
+        ],
+        "termination_reasons": {
+          "target_reached": 5
+        }
+      }
+    },
+    "cpu_saved_percent": 7.090844280196507
+  },
+  {
+    "case": {
+      "name": "d20_l8_t3_uniform",
+      "dimensions": 20,
+      "levels": 8,
+      "strength": 3,
+      "design": "uniform",
+      "observations": 299
+    },
+    "cap_hits": 5,
+    "variants": {
+      "cap_1000": {
+        "wall_seconds": 4.466671272879466,
+        "cpu_seconds": 4.465639942999999,
+        "search_and_pruning_seconds": 3.1941953799687326,
+        "validation_and_output_seconds": 1.269467871868983,
+        "proposed_trials": 1000,
+        "iterations": 1000,
+        "projected_coverage": 0.9772752192982456,
+        "payload_bytes": 2080081,
+        "initial_coverage": 0.44404982182017544,
+        "wall_range": [
+          4.32871372718364,
+          4.496800911845639
+        ],
+        "coverage_range": [
+          0.9771844161184211,
+          0.9775647615131579
+        ],
+        "termination_reasons": {
+          "trial_limit": 5
+        }
+      },
+      "uncapped": {
+        "wall_seconds": 6.297446131939068,
+        "cpu_seconds": 6.297145723,
+        "search_and_pruning_seconds": 4.425924350041896,
+        "validation_and_output_seconds": 1.8687437400221825,
+        "proposed_trials": 1486,
+        "iterations": 1486,
+        "projected_coverage": 1.0,
+        "payload_bytes": 2962669,
+        "initial_coverage": 0.44404982182017544,
+        "wall_range": [
+          6.263150648912415,
+          6.315314067993313
+        ],
+        "coverage_range": [
+          1.0,
+          1.0
+        ],
+        "termination_reasons": {
+          "target_reached": 5
+        }
+      }
+    },
+    "cpu_saved_percent": 29.084697425859463
+  },
+  {
+    "case": {
+      "name": "d8_l4_t4_clustered",
+      "dimensions": 8,
+      "levels": 4,
+      "strength": 4,
+      "design": "clustered",
+      "observations": 299
+    },
+    "cap_hits": 0,
+    "variants": {
+      "cap_1000": {
+        "wall_seconds": 0.5360259518492967,
+        "cpu_seconds": 0.5360138469999924,
+        "search_and_pruning_seconds": 0.2601546219084412,
+        "validation_and_output_seconds": 0.26527135795913637,
+        "proposed_trials": 478,
+        "iterations": 478,
+        "projected_coverage": 1.0,
+        "payload_bytes": 702306,
+        "initial_coverage": 0.30373883928571427,
+        "wall_range": [
+          0.5192257589660585,
+          0.5447877929545939
+        ],
+        "coverage_range": [
+          1.0,
+          1.0
+        ],
+        "termination_reasons": {
+          "target_reached": 5
+        }
+      },
+      "uncapped": {
+        "wall_seconds": 0.532879824982956,
+        "cpu_seconds": 0.5328732600000023,
+        "search_and_pruning_seconds": 0.2628264781087637,
+        "validation_and_output_seconds": 0.2693606079556048,
+        "proposed_trials": 478,
+        "iterations": 478,
+        "projected_coverage": 1.0,
+        "payload_bytes": 702306,
+        "initial_coverage": 0.30373883928571427,
+        "wall_range": [
+          0.5275570889934897,
+          0.5692457079421729
+        ],
+        "coverage_range": [
+          1.0,
+          1.0
+        ],
+        "termination_reasons": {
+          "target_reached": 5
+        }
+      }
+    },
+    "cpu_saved_percent": -0.5893684738449867
+  },
+  {
+    "case": {
+      "name": "d12_l8_t4_uniform",
+      "dimensions": 12,
+      "levels": 8,
+      "strength": 4,
+      "design": "uniform",
+      "observations": 299
+    },
+    "cap_hits": 5,
+    "variants": {
+      "cap_1000": {
+        "wall_seconds": 4.4240639777854085,
+        "cpu_seconds": 4.423167140000004,
+        "search_and_pruning_seconds": 3.0927506040316075,
+        "validation_and_output_seconds": 1.3372256089933217,
+        "proposed_trials": 1000,
+        "iterations": 1000,
+        "projected_coverage": 0.29388316761363636,
+        "payload_bytes": 2225381,
+        "initial_coverage": 0.07046095722853535,
+        "wall_range": [
+          4.396038552979007,
+          4.464420628035441
+        ],
+        "coverage_range": [
+          0.29382644807449493,
+          0.2939196654040404
+        ],
+        "termination_reasons": {
+          "trial_limit": 5
+        }
+      },
+      "uncapped": {
+        "wall_seconds": 41.13576159393415,
+        "cpu_seconds": 41.12759565,
+        "search_and_pruning_seconds": 30.00351007306017,
+        "validation_and_output_seconds": 11.130186475114897,
+        "proposed_trials": 8303,
+        "iterations": 8303,
+        "projected_coverage": 0.9531373303345959,
+        "payload_bytes": 18285307,
+        "initial_coverage": 0.07046095722853535,
+        "wall_range": [
+          41.05942963180132,
+          41.48778119497001
+        ],
+        "coverage_range": [
+          0.9524162523674242,
+          0.9536236387310606
+        ],
+        "termination_reasons": {
+          "timeout": 5
+        }
+      }
+    },
+    "cpu_saved_percent": 89.24525718050333
+  }
+]

@@ -1,0 +1,52 @@
+[
+  {
+    "fold": 0,
+    "method": "tpe",
+    "max_absolute_difference": 0.0
+  },
+  {
+    "fold": 0,
+    "method": "kde_optimized",
+    "max_absolute_difference": 0.0
+  },
+  {
+    "fold": 1,
+    "method": "tpe",
+    "max_absolute_difference": 0.0
+  },
+  {
+    "fold": 1,
+    "method": "kde_optimized",
+    "max_absolute_difference": 0.0
+  },
+  {
+    "fold": 2,
+    "method": "tpe",
+    "max_absolute_difference": 0.0
+  },
+  {
+    "fold": 2,
+    "method": "kde_optimized",
+    "max_absolute_difference": 0.0
+  },
+  {
+    "fold": 3,
+    "method": "tpe",
+    "max_absolute_difference": 0.0
+  },
+  {
+    "fold": 3,
+    "method": "kde_optimized",
+    "max_absolute_difference": 0.0
+  },
+  {
+    "fold": 4,
+    "method": "tpe",
+    "max_absolute_difference": 0.0
+  },
+  {
+    "fold": 4,
+    "method": "kde_optimized",
+    "max_absolute_difference": 0.0
+  }
+]

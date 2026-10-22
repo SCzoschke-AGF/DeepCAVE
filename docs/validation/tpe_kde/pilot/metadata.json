@@ -1,0 +1,518 @@
+{
+  "study_name": "xgboost_data:4897daef3195_average_precision_v1_sampler:random_objective:cv_average_precision_mean_direction:maximize_modelseed:42_cvseed:42",
+  "study_user_attrs": {
+    "cv_split_seed": 42,
+    "data_representation_sha256": "4897daef3195ea0e74191f0455e83f19d67285ad6223d148b6e085e0dfb3eae6",
+    "direction": "maximize",
+    "model_family": "xgboost",
+    "model_seed": 42,
+    "objective_metric": "cv_average_precision_mean",
+    "sampler": "random"
+  },
+  "direction": "MAXIMIZE",
+  "seed": 42,
+  "n_folds": 5,
+  "good_fraction": 0.2,
+  "rounding": "ceil",
+  "top_k_ties": "trial number ascending",
+  "grouping": "identical configurations in selected subspace never cross folds",
+  "bandwidth_requested": "cv_ml",
+  "cv_timeout_per_group_seconds": 15.0,
+  "kde_regularization": "bandwidth floor 1e-8, discrete upper bound 1-1e-8",
+  "tpe": {
+    "multivariate": true,
+    "weights": "uniform",
+    "prior_weight": 1.0,
+    "consider_prior": true,
+    "consider_magic_clip": true,
+    "consider_endpoints": false
+  },
+  "kde_transforms": {
+    "colsample_bytree": {
+      "kernel_type": "c",
+      "transform": "declared bounds to [0,1]"
+    },
+    "gamma": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "learning_rate": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "max_delta_step": {
+      "kernel_type": "o",
+      "transform": "ordinal grid index (value-low)/step"
+    },
+    "max_depth": {
+      "kernel_type": "o",
+      "transform": "ordinal grid index (value-low)/step"
+    },
+    "min_child_weight": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "n_estimators": {
+      "kernel_type": "o",
+      "transform": "ordinal grid index (value-low)/step"
+    },
+    "reg_alpha": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "reg_lambda": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "subsample": {
+      "kernel_type": "c",
+      "transform": "declared bounds to [0,1]"
+    }
+  },
+  "versions": {
+    "optuna": "3.6.1",
+    "statsmodels": "0.14.6",
+    "numpy": "2.2.6",
+    "scipy": "1.15.3",
+    "matplotlib": "3.9.0"
+  },
+  "python": "3.10.19",
+  "platform": "Linux-6.14.0-34-generic-x86_64-with-glibc2.41",
+  "input_sha256": "1d6a3a86b373855eec952f9813581fe48f454c41d9a6eb07ac9b708fca54c655",
+  "total_trials": 2000,
+  "finite_completed_trials": 2000,
+  "selected_trials": 200,
+  "activity_audit": {
+    "colsample_bytree": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.5, \"high\": 1.0, \"log\": false}}"
+      ]
+    },
+    "gamma": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.0001, \"high\": 10.0, \"log\": true}}"
+      ]
+    },
+    "learning_rate": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.005, \"high\": 0.3, \"log\": true}}"
+      ]
+    },
+    "max_delta_step": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"IntDistribution\", \"attributes\": {\"log\": false, \"step\": 1, \"low\": 0, \"high\": 10}}"
+      ]
+    },
+    "max_depth": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"IntDistribution\", \"attributes\": {\"log\": false, \"step\": 1, \"low\": 3, \"high\": 12}}"
+      ]
+    },
+    "min_child_weight": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.5, \"high\": 100.0, \"log\": true}}"
+      ]
+    },
+    "n_estimators": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"IntDistribution\", \"attributes\": {\"log\": false, \"step\": 50, \"low\": 200, \"high\": 2000}}"
+      ]
+    },
+    "reg_alpha": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.0001, \"high\": 10.0, \"log\": true}}"
+      ]
+    },
+    "reg_lambda": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.01, \"high\": 100.0, \"log\": true}}"
+      ]
+    },
+    "subsample": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.5, \"high\": 1.0, \"log\": false}}"
+      ]
+    }
+  },
+  "excluded_parameters": [],
+  "constant_parameters": [],
+  "unique_configurations": 200,
+  "subspace": "strict",
+  "kde_folds": [
+    {
+      "fold": 0,
+      "n_good": 32,
+      "n_bad": 128,
+      "good": {
+        "requested": "cv_ml",
+        "used": "cv_ml",
+        "fallback": null,
+        "fit_seconds": 1.1774502599146217,
+        "warnings": [
+          "invalid value encountered in log"
+        ],
+        "raw_bandwidth": [
+          0.19060344337169605,
+          0.2214840839359928,
+          0.10557601612857058,
+          1.0,
+          1.0,
+          0.259784193148262,
+          1.0,
+          0.21486426702508854,
+          0.2688029375967289,
+          0.22644523457317706
+        ],
+        "bandwidth": [
+          0.19060344337169605,
+          0.2214840839359928,
+          0.10557601612857058,
+          0.99999999,
+          0.99999999,
+          0.259784193148262,
+          0.99999999,
+          0.21486426702508854,
+          0.2688029375967289,
+          0.22644523457317706
+        ],
+        "regularized": true
+      },
+      "bad": {
+        "requested": "cv_ml",
+        "used": "cv_ml",
+        "fallback": null,
+        "fit_seconds": 5.766886902041733,
+        "warnings": [
+          "invalid value encountered in log"
+        ],
+        "raw_bandwidth": [
+          0.22033399830394657,
+          0.20938248108751076,
+          0.21168836404931093,
+          1.0,
+          1.0,
+          0.21679833389264186,
+          1.0,
+          0.20900463933124283,
+          0.2112675758504285,
+          0.20986913136949184
+        ],
+        "bandwidth": [
+          0.22033399830394657,
+          0.20938248108751076,
+          0.21168836404931093,
+          0.99999999,
+          0.99999999,
+          0.21679833389264186,
+          0.99999999,
+          0.20900463933124283,
+          0.2112675758504285,
+          0.20986913136949184
+        ],
+        "regularized": true
+      }
+    },
+    {
+      "fold": 1,
+      "n_good": 32,
+      "n_bad": 128,
+      "good": {
+        "requested": "cv_ml",
+        "used": "cv_ml",
+        "fallback": null,
+        "fit_seconds": 1.152151727117598,
+        "warnings": [
+          "invalid value encountered in log"
+        ],
+        "raw_bandwidth": [
+          0.17117611550259415,
+          0.19773579186623158,
+          0.1326856386182926,
+          1.0,
+          1.0,
+          0.2396454544577924,
+          1.0,
+          0.2315609813742957,
+          0.28312006565355624,
+          0.2320065556837222
+        ],
+        "bandwidth": [
+          0.17117611550259415,
+          0.19773579186623158,
+          0.1326856386182926,
+          0.99999999,
+          0.99999999,
+          0.2396454544577924,
+          0.99999999,
+          0.2315609813742957,
+          0.28312006565355624,
+          0.2320065556837222
+        ],
+        "regularized": true
+      },
+      "bad": {
+        "requested": "cv_ml",
+        "used": "cv_ml",
+        "fallback": null,
+        "fit_seconds": 5.822553975973278,
+        "warnings": [
+          "invalid value encountered in log"
+        ],
+        "raw_bandwidth": [
+          0.22271043616627836,
+          0.2079091048121441,
+          0.21231236616841143,
+          1.0,
+          1.0,
+          0.2162542616974942,
+          1.0,
+          0.21064514675052243,
+          0.20912002759393652,
+          0.2059019797553409
+        ],
+        "bandwidth": [
+          0.22271043616627836,
+          0.2079091048121441,
+          0.21231236616841143,
+          0.99999999,
+          0.99999999,
+          0.2162542616974942,
+          0.99999999,
+          0.21064514675052243,
+          0.20912002759393652,
+          0.2059019797553409
+        ],
+        "regularized": true
+      }
+    },
+    {
+      "fold": 2,
+      "n_good": 32,
+      "n_bad": 128,
+      "good": {
+        "requested": "cv_ml",
+        "used": "cv_ml",
+        "fallback": null,
+        "fit_seconds": 1.1827205349691212,
+        "warnings": [
+          "invalid value encountered in log"
+        ],
+        "raw_bandwidth": [
+          0.2005962854758335,
+          0.23948792197881283,
+          0.10910433348820463,
+          1.0,
+          1.0,
+          0.25374458901855024,
+          1.0,
+          0.23094942855041506,
+          0.2569957728645702,
+          0.23672345460154637
+        ],
+        "bandwidth": [
+          0.2005962854758335,
+          0.23948792197881283,
+          0.10910433348820463,
+          0.99999999,
+          0.99999999,
+          0.25374458901855024,
+          0.99999999,
+          0.23094942855041506,
+          0.2569957728645702,
+          0.23672345460154637
+        ],
+        "regularized": true
+      },
+      "bad": {
+        "requested": "cv_ml",
+        "used": "cv_ml",
+        "fallback": null,
+        "fit_seconds": 5.701531941071153,
+        "warnings": [
+          "invalid value encountered in log"
+        ],
+        "raw_bandwidth": [
+          0.22771017430830648,
+          0.2060408842244617,
+          0.21018941672464944,
+          1.0,
+          1.0,
+          0.21505450276105387,
+          1.0,
+          0.21190966260238683,
+          0.21486257900313385,
+          0.20515668825634267
+        ],
+        "bandwidth": [
+          0.22771017430830648,
+          0.2060408842244617,
+          0.21018941672464944,
+          0.99999999,
+          0.99999999,
+          0.21505450276105387,
+          0.99999999,
+          0.21190966260238683,
+          0.21486257900313385,
+          0.20515668825634267
+        ],
+        "regularized": true
+      }
+    },
+    {
+      "fold": 3,
+      "n_good": 32,
+      "n_bad": 128,
+      "good": {
+        "requested": "cv_ml",
+        "used": "cv_ml",
+        "fallback": null,
+        "fit_seconds": 1.1402632028330117,
+        "warnings": [
+          "invalid value encountered in log"
+        ],
+        "raw_bandwidth": [
+          0.17932974920910297,
+          0.226861691737136,
+          0.12393194050529843,
+          1.0,
+          1.0,
+          0.2581141170983803,
+          1.0,
+          0.21672894046284732,
+          0.26714419057253236,
+          0.2311113862638485
+        ],
+        "bandwidth": [
+          0.17932974920910297,
+          0.226861691737136,
+          0.12393194050529843,
+          0.99999999,
+          0.99999999,
+          0.2581141170983803,
+          0.99999999,
+          0.21672894046284732,
+          0.26714419057253236,
+          0.2311113862638485
+        ],
+        "regularized": true
+      },
+      "bad": {
+        "requested": "cv_ml",
+        "used": "cv_ml",
+        "fallback": null,
+        "fit_seconds": 5.698676203144714,
+        "warnings": [
+          "invalid value encountered in log"
+        ],
+        "raw_bandwidth": [
+          0.22789264830586292,
+          0.20797685426122609,
+          0.20758781068137636,
+          1.0,
+          1.0,
+          0.21318484013679861,
+          1.0,
+          0.21366322232424342,
+          0.21344695774821398,
+          0.2036272745433636
+        ],
+        "bandwidth": [
+          0.22789264830586292,
+          0.20797685426122609,
+          0.20758781068137636,
+          0.99999999,
+          0.99999999,
+          0.21318484013679861,
+          0.99999999,
+          0.21366322232424342,
+          0.21344695774821398,
+          0.2036272745433636
+        ],
+        "regularized": true
+      }
+    },
+    {
+      "fold": 4,
+      "n_good": 32,
+      "n_bad": 128,
+      "good": {
+        "requested": "cv_ml",
+        "used": "cv_ml",
+        "fallback": null,
+        "fit_seconds": 1.124016870977357,
+        "warnings": [
+          "invalid value encountered in log"
+        ],
+        "raw_bandwidth": [
+          0.19397363090046452,
+          0.23529291066681737,
+          0.12343190560595561,
+          1.0,
+          1.0,
+          0.2566786788632185,
+          1.0,
+          0.2349381816321729,
+          0.2686264877921861,
+          0.21994197117752692
+        ],
+        "bandwidth": [
+          0.19397363090046452,
+          0.23529291066681737,
+          0.12343190560595561,
+          0.99999999,
+          0.99999999,
+          0.2566786788632185,
+          0.99999999,
+          0.2349381816321729,
+          0.2686264877921861,
+          0.21994197117752692
+        ],
+        "regularized": true
+      },
+      "bad": {
+        "requested": "cv_ml",
+        "used": "cv_ml",
+        "fallback": null,
+        "fit_seconds": 5.649630683008581,
+        "warnings": [
+          "invalid value encountered in log"
+        ],
+        "raw_bandwidth": [
+          0.21635767013777765,
+          0.19844910982987468,
+          0.21189397473931604,
+          1.0,
+          1.0,
+          0.21122466223938896,
+          1.0,
+          0.2151196638442017,
+          0.20530309183251405,
+          0.20635218487731127
+        ],
+        "bandwidth": [
+          0.21635767013777765,
+          0.19844910982987468,
+          0.21189397473931604,
+          0.99999999,
+          0.99999999,
+          0.21122466223938896,
+          0.99999999,
+          0.2151196638442017,
+          0.20530309183251405,
+          0.20635218487731127
+        ],
+        "regularized": true
+      }
+    }
+  ]
+}

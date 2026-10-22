@@ -1,0 +1,992 @@
+{
+  "study_name": "catboost_data:ccffacbaefb5_phase1_average_precision_v1_sampler:random_objective:cv_average_precision_mean_direction:maximize_modelseed:42_cvseed:42",
+  "study_user_attrs": {
+    "cv_split_seed": 42,
+    "data_representation_sha256": "ccffacbaefb5fb3b55c759deb464e6b48e6e776242080f8ebdaf8b9236f33899",
+    "direction": "maximize",
+    "model_family": "catboost",
+    "model_seed": 42,
+    "objective_metric": "cv_average_precision_mean",
+    "sampler": "random"
+  },
+  "direction": "MAXIMIZE",
+  "seed": 42,
+  "n_folds": 5,
+  "good_fraction": 0.2,
+  "rounding": "ceil",
+  "top_k_ties": "trial number ascending",
+  "grouping": "identical configurations in selected subspace never cross folds",
+  "evaluated_folds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "scored_trials": 2000,
+  "reference_oof": null,
+  "historical_score_check": {},
+  "optimizer": {
+    "method": "L-BFGS-B",
+    "objective": "exact mean negative LOO log density",
+    "jacobian": "analytic",
+    "continuous_coordinates": "log bandwidth",
+    "continuous_bounds": [
+      1e-06,
+      10.0
+    ],
+    "discrete_bounds": [
+      1e-06,
+      0.999999
+    ],
+    "discrete_initial": 0.9,
+    "maxiter": 200,
+    "ftol": 1e-10,
+    "gtol": 1e-05,
+    "timeout_per_group_seconds": 120,
+    "fallback": "none"
+  },
+  "reference_regularization": "unchanged: floor 1e-8, discrete upper bound 1-1e-8",
+  "deciles": "ascending fold-local score ranks, stable trial-number tie break; array_split",
+  "tpe": {
+    "multivariate": true,
+    "weights": "uniform",
+    "prior_weight": 1.0,
+    "consider_prior": true,
+    "consider_magic_clip": true,
+    "consider_endpoints": false
+  },
+  "kde_transforms": {
+    "depth": {
+      "kernel_type": "o",
+      "transform": "ordinal grid index (value-low)/step"
+    },
+    "iterations": {
+      "kernel_type": "o",
+      "transform": "ordinal grid index (value-low)/step"
+    },
+    "l2_leaf_reg": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    },
+    "learning_rate": {
+      "kernel_type": "c",
+      "transform": "log, declared bounds to [0,1]"
+    }
+  },
+  "versions": {
+    "optuna": "3.6.1",
+    "statsmodels": "0.14.6",
+    "numpy": "2.2.6",
+    "scipy": "1.15.3",
+    "matplotlib": "3.9.0"
+  },
+  "python": "3.10.19",
+  "platform": "Linux-6.14.0-34-generic-x86_64-with-glibc2.41",
+  "input_sha256": "38e484f7653fa46923761b604243f57ba75d57fad8518e19dc5e32a67b0d9c18",
+  "total_trials": 2000,
+  "finite_completed_trials": 2000,
+  "selected_trials": 2000,
+  "activity_audit": {
+    "depth": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"IntDistribution\", \"attributes\": {\"log\": false, \"step\": 1, \"low\": 5, \"high\": 9}}"
+      ]
+    },
+    "iterations": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"IntDistribution\", \"attributes\": {\"log\": false, \"step\": 100, \"low\": 300, \"high\": 1500}}"
+      ]
+    },
+    "l2_leaf_reg": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 1.0, \"high\": 20.0, \"log\": true}}"
+      ]
+    },
+    "learning_rate": {
+      "active_trials": 2000,
+      "distributions": [
+        "{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": null, \"low\": 0.005, \"high\": 0.08, \"log\": true}}"
+      ]
+    }
+  },
+  "excluded_parameters": [],
+  "constant_parameters": [],
+  "unique_configurations": 2000,
+  "subspace": "strict",
+  "kde_folds": [
+    {
+      "fold": 0,
+      "method": "kde_reference",
+      "n_good": 320,
+      "n_bad": 1280,
+      "good": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.5979785327090762,
+          1.7056172177606832,
+          0.14438740864288893,
+          0.07903356902085212
+        ],
+        "bandwidth": [
+          0.5979785327090762,
+          0.99999999,
+          0.14438740864288893,
+          0.07903356902085212
+        ],
+        "regularized": true,
+        "fit_seconds": 0.00010239798575639725
+      },
+      "bad": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.6360891031770745,
+          1.6254260380905574,
+          0.12246335964697558,
+          0.11926707865703809
+        ],
+        "bandwidth": [
+          0.6360891031770745,
+          0.99999999,
+          0.12246335964697558,
+          0.11926707865703809
+        ],
+        "regularized": true,
+        "fit_seconds": 4.8116082325577736e-05
+      }
+    },
+    {
+      "fold": 0,
+      "method": "kde_optimized",
+      "n_good": 320,
+      "n_bad": 1280,
+      "good": {
+        "requested": "bounded_ml",
+        "used": "bounded_ml",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.5979785327090762,
+          1.7056172177606832,
+          0.14438740864288893,
+          0.07903356902085212
+        ],
+        "success": true,
+        "status": 0,
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "iterations": 13,
+        "evaluations": 16,
+        "optimization_verified": true,
+        "initial_bandwidth": [
+          0.9,
+          0.9,
+          0.14438740864288893,
+          0.07903356902085212
+        ],
+        "bandwidth": [
+          0.09005831011453516,
+          0.3985552727176162,
+          0.15865941469802775,
+          0.0501105349869997
+        ],
+        "lower_bounds": [
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06
+        ],
+        "upper_bounds": [
+          0.999999,
+          0.999999,
+          10.0,
+          10.0
+        ],
+        "initial_mean_loo_loglikelihood": -5.6327759027363635,
+        "final_mean_loo_loglikelihood": -3.4188892700278686,
+        "initial_sum_loo_loglikelihood": -1802.4882888756363,
+        "final_sum_loo_loglikelihood": -1094.044566408918,
+        "mean_loo_loglikelihood_gain": 2.213886632708495,
+        "bandwidth_changed": true,
+        "post_fit_clipping": false,
+        "gradient_inf_norm": 1.4780510608769504e-06,
+        "at_lower_bound": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "at_upper_bound": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "fit_seconds": 0.025707663968205452
+      },
+      "bad": {
+        "requested": "bounded_ml",
+        "used": "bounded_ml",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.6360891031770745,
+          1.6254260380905574,
+          0.12246335964697558,
+          0.11926707865703809
+        ],
+        "success": true,
+        "status": 0,
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "iterations": 19,
+        "evaluations": 21,
+        "optimization_verified": true,
+        "initial_bandwidth": [
+          0.9,
+          0.9,
+          0.12246335964697558,
+          0.11926707865703809
+        ],
+        "bandwidth": [
+          1e-06,
+          0.4615469265193342,
+          0.10622269887903613,
+          0.07967143295690943
+        ],
+        "lower_bounds": [
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06
+        ],
+        "upper_bounds": [
+          0.999999,
+          0.999999,
+          10.0,
+          10.0
+        ],
+        "initial_mean_loo_loglikelihood": -6.424910577463564,
+        "final_mean_loo_loglikelihood": -4.4305911635618145,
+        "initial_sum_loo_loglikelihood": -8223.885539153362,
+        "final_sum_loo_loglikelihood": -5671.1566893591225,
+        "mean_loo_loglikelihood_gain": 1.9943194139017493,
+        "bandwidth_changed": true,
+        "post_fit_clipping": false,
+        "gradient_inf_norm": 0.04672907114165459,
+        "at_lower_bound": [
+          true,
+          false,
+          false,
+          false
+        ],
+        "at_upper_bound": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "fit_seconds": 0.8413340200204402
+      }
+    },
+    {
+      "fold": 1,
+      "method": "kde_reference",
+      "n_good": 320,
+      "n_bad": 1280,
+      "good": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.6217328529325458,
+          1.7367727151182144,
+          0.1427648848177792,
+          0.07631562873940681
+        ],
+        "bandwidth": [
+          0.6217328529325458,
+          0.99999999,
+          0.1427648848177792,
+          0.07631562873940681
+        ],
+        "regularized": true,
+        "fit_seconds": 7.864483632147312e-05
+      },
+      "bad": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.6455926321195198,
+          1.6196498363270453,
+          0.12416954141041756,
+          0.11978253843546735
+        ],
+        "bandwidth": [
+          0.6455926321195198,
+          0.99999999,
+          0.12416954141041756,
+          0.11978253843546735
+        ],
+        "regularized": true,
+        "fit_seconds": 4.8845075070858e-05
+      }
+    },
+    {
+      "fold": 1,
+      "method": "kde_optimized",
+      "n_good": 320,
+      "n_bad": 1280,
+      "good": {
+        "requested": "bounded_ml",
+        "used": "bounded_ml",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.6217328529325458,
+          1.7367727151182144,
+          0.1427648848177792,
+          0.07631562873940681
+        ],
+        "success": true,
+        "status": 0,
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "iterations": 14,
+        "evaluations": 17,
+        "optimization_verified": true,
+        "initial_bandwidth": [
+          0.9,
+          0.9,
+          0.1427648848177792,
+          0.07631562873940681
+        ],
+        "bandwidth": [
+          0.13405048420542076,
+          0.42993848151158465,
+          0.15739696969479344,
+          0.04798130492909474
+        ],
+        "lower_bounds": [
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06
+        ],
+        "upper_bounds": [
+          0.999999,
+          0.999999,
+          10.0,
+          10.0
+        ],
+        "initial_mean_loo_loglikelihood": -5.600513585315534,
+        "final_mean_loo_loglikelihood": -3.451128761544055,
+        "initial_sum_loo_loglikelihood": -1792.1643473009708,
+        "final_sum_loo_loglikelihood": -1104.3612036940976,
+        "mean_loo_loglikelihood_gain": 2.149384823771479,
+        "bandwidth_changed": true,
+        "post_fit_clipping": false,
+        "gradient_inf_norm": 4.838362950732034e-06,
+        "at_lower_bound": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "at_upper_bound": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "fit_seconds": 0.02712918701581657
+      },
+      "bad": {
+        "requested": "bounded_ml",
+        "used": "bounded_ml",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.6455926321195198,
+          1.6196498363270453,
+          0.12416954141041756,
+          0.11978253843546735
+        ],
+        "success": true,
+        "status": 0,
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "iterations": 14,
+        "evaluations": 17,
+        "optimization_verified": true,
+        "initial_bandwidth": [
+          0.9,
+          0.9,
+          0.12416954141041756,
+          0.11978253843546735
+        ],
+        "bandwidth": [
+          1e-06,
+          0.4519374846345908,
+          0.11610191052291177,
+          0.08041895894657718
+        ],
+        "lower_bounds": [
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06
+        ],
+        "upper_bounds": [
+          0.999999,
+          0.999999,
+          10.0,
+          10.0
+        ],
+        "initial_mean_loo_loglikelihood": -6.432607837837433,
+        "final_mean_loo_loglikelihood": -4.437547483502452,
+        "initial_sum_loo_loglikelihood": -8233.738032431915,
+        "final_sum_loo_loglikelihood": -5680.0607788831385,
+        "mean_loo_loglikelihood_gain": 1.9950603543349814,
+        "bandwidth_changed": true,
+        "post_fit_clipping": false,
+        "gradient_inf_norm": 0.04413099103127638,
+        "at_lower_bound": [
+          true,
+          false,
+          false,
+          false
+        ],
+        "at_upper_bound": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "fit_seconds": 0.6833419969771057
+      }
+    },
+    {
+      "fold": 2,
+      "method": "kde_reference",
+      "n_good": 320,
+      "n_bad": 1280,
+      "good": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.6064736935694218,
+          1.7665972599765472,
+          0.14560335548640854,
+          0.07740802327355868
+        ],
+        "bandwidth": [
+          0.6064736935694218,
+          0.99999999,
+          0.14560335548640854,
+          0.07740802327355868
+        ],
+        "regularized": true,
+        "fit_seconds": 7.35619105398655e-05
+      },
+      "bad": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.6457975442293306,
+          1.6527036275756501,
+          0.12393558015950575,
+          0.11949134746409783
+        ],
+        "bandwidth": [
+          0.6457975442293306,
+          0.99999999,
+          0.12393558015950575,
+          0.11949134746409783
+        ],
+        "regularized": true,
+        "fit_seconds": 4.8473943024873734e-05
+      }
+    },
+    {
+      "fold": 2,
+      "method": "kde_optimized",
+      "n_good": 320,
+      "n_bad": 1280,
+      "good": {
+        "requested": "bounded_ml",
+        "used": "bounded_ml",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.6064736935694218,
+          1.7665972599765472,
+          0.14560335548640854,
+          0.07740802327355868
+        ],
+        "success": true,
+        "status": 0,
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "iterations": 11,
+        "evaluations": 14,
+        "optimization_verified": true,
+        "initial_bandwidth": [
+          0.9,
+          0.9,
+          0.14560335548640854,
+          0.07740802327355868
+        ],
+        "bandwidth": [
+          0.11580924574962806,
+          0.4188076172637666,
+          0.13924335485306852,
+          0.05306103981726945
+        ],
+        "lower_bounds": [
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06
+        ],
+        "upper_bounds": [
+          0.999999,
+          0.999999,
+          10.0,
+          10.0
+        ],
+        "initial_mean_loo_loglikelihood": -5.608185790980041,
+        "final_mean_loo_loglikelihood": -3.4114034335008876,
+        "initial_sum_loo_loglikelihood": -1794.6194531136132,
+        "final_sum_loo_loglikelihood": -1091.649098720284,
+        "mean_loo_loglikelihood_gain": 2.1967823574791536,
+        "bandwidth_changed": true,
+        "post_fit_clipping": false,
+        "gradient_inf_norm": 8.59524199059436e-06,
+        "at_lower_bound": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "at_upper_bound": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "fit_seconds": 0.02290280512534082
+      },
+      "bad": {
+        "requested": "bounded_ml",
+        "used": "bounded_ml",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.6457975442293306,
+          1.6527036275756501,
+          0.12393558015950575,
+          0.11949134746409783
+        ],
+        "success": true,
+        "status": 0,
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "iterations": 13,
+        "evaluations": 15,
+        "optimization_verified": true,
+        "initial_bandwidth": [
+          0.9,
+          0.9,
+          0.12393558015950575,
+          0.11949134746409783
+        ],
+        "bandwidth": [
+          1e-06,
+          0.4327073852673628,
+          0.10902721979726852,
+          0.08900474647489225
+        ],
+        "lower_bounds": [
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06
+        ],
+        "upper_bounds": [
+          0.999999,
+          0.999999,
+          10.0,
+          10.0
+        ],
+        "initial_mean_loo_loglikelihood": -6.437607970812401,
+        "final_mean_loo_loglikelihood": -4.442123884237816,
+        "initial_sum_loo_loglikelihood": -8240.138202639873,
+        "final_sum_loo_loglikelihood": -5685.918571824404,
+        "mean_loo_loglikelihood_gain": 1.995484086574585,
+        "bandwidth_changed": true,
+        "post_fit_clipping": false,
+        "gradient_inf_norm": 0.04451987607799557,
+        "at_lower_bound": [
+          true,
+          false,
+          false,
+          false
+        ],
+        "at_upper_bound": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "fit_seconds": 0.6260689629707485
+      }
+    },
+    {
+      "fold": 3,
+      "method": "kde_reference",
+      "n_good": 320,
+      "n_bad": 1280,
+      "good": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.614051388286975,
+          1.758737756013182,
+          0.14427099821962203,
+          0.07856480711125359
+        ],
+        "bandwidth": [
+          0.614051388286975,
+          0.99999999,
+          0.14427099821962203,
+          0.07856480711125359
+        ],
+        "regularized": true,
+        "fit_seconds": 7.248693145811558e-05
+      },
+      "bad": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.644161316922171,
+          1.618955420525369,
+          0.12370487294406737,
+          0.11993944276481888
+        ],
+        "bandwidth": [
+          0.644161316922171,
+          0.99999999,
+          0.12370487294406737,
+          0.11993944276481888
+        ],
+        "regularized": true,
+        "fit_seconds": 4.812609404325485e-05
+      }
+    },
+    {
+      "fold": 3,
+      "method": "kde_optimized",
+      "n_good": 320,
+      "n_bad": 1280,
+      "good": {
+        "requested": "bounded_ml",
+        "used": "bounded_ml",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.614051388286975,
+          1.758737756013182,
+          0.14427099821962203,
+          0.07856480711125359
+        ],
+        "success": true,
+        "status": 0,
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "iterations": 13,
+        "evaluations": 16,
+        "optimization_verified": true,
+        "initial_bandwidth": [
+          0.9,
+          0.9,
+          0.14427099821962203,
+          0.07856480711125359
+        ],
+        "bandwidth": [
+          0.11959991414183911,
+          0.4417418282492252,
+          0.13909239247391303,
+          0.048294715620099946
+        ],
+        "lower_bounds": [
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06
+        ],
+        "upper_bounds": [
+          0.999999,
+          0.999999,
+          10.0,
+          10.0
+        ],
+        "initial_mean_loo_loglikelihood": -5.607834643953261,
+        "final_mean_loo_loglikelihood": -3.399661666012526,
+        "initial_sum_loo_loglikelihood": -1794.5070860650435,
+        "final_sum_loo_loglikelihood": -1087.8917331240084,
+        "mean_loo_loglikelihood_gain": 2.208172977940735,
+        "bandwidth_changed": true,
+        "post_fit_clipping": false,
+        "gradient_inf_norm": 5.147377780012619e-06,
+        "at_lower_bound": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "at_upper_bound": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "fit_seconds": 0.02568913414143026
+      },
+      "bad": {
+        "requested": "bounded_ml",
+        "used": "bounded_ml",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.644161316922171,
+          1.618955420525369,
+          0.12370487294406737,
+          0.11993944276481888
+        ],
+        "success": true,
+        "status": 0,
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "iterations": 14,
+        "evaluations": 17,
+        "optimization_verified": true,
+        "initial_bandwidth": [
+          0.9,
+          0.9,
+          0.12370487294406737,
+          0.11993944276481888
+        ],
+        "bandwidth": [
+          1e-06,
+          0.46868716785384684,
+          0.1002352579432066,
+          0.08913725921580977
+        ],
+        "lower_bounds": [
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06
+        ],
+        "upper_bounds": [
+          0.999999,
+          0.999999,
+          10.0,
+          10.0
+        ],
+        "initial_mean_loo_loglikelihood": -6.4391100621578685,
+        "final_mean_loo_loglikelihood": -4.467174103356408,
+        "initial_sum_loo_loglikelihood": -8242.060879562072,
+        "final_sum_loo_loglikelihood": -5717.982852296202,
+        "mean_loo_loglikelihood_gain": 1.9719359588014607,
+        "bandwidth_changed": true,
+        "post_fit_clipping": false,
+        "gradient_inf_norm": 0.06001112681569787,
+        "at_lower_bound": [
+          true,
+          false,
+          false,
+          false
+        ],
+        "at_upper_bound": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "fit_seconds": 0.6898910352028906
+      }
+    },
+    {
+      "fold": 4,
+      "method": "kde_reference",
+      "n_good": 320,
+      "n_bad": 1280,
+      "good": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.6332595780861596,
+          1.7323455381549218,
+          0.14569226481721853,
+          0.0782972996283434
+        ],
+        "bandwidth": [
+          0.6332595780861596,
+          0.99999999,
+          0.14569226481721853,
+          0.0782972996283434
+        ],
+        "regularized": true,
+        "fit_seconds": 7.35139474272728e-05
+      },
+      "bad": {
+        "requested": "normal_reference",
+        "used": "normal_reference",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.6396495881489395,
+          1.6570024267655765,
+          0.12358074118018376,
+          0.11985963708670314
+        ],
+        "bandwidth": [
+          0.6396495881489395,
+          0.99999999,
+          0.12358074118018376,
+          0.11985963708670314
+        ],
+        "regularized": true,
+        "fit_seconds": 5.2459072321653366e-05
+      }
+    },
+    {
+      "fold": 4,
+      "method": "kde_optimized",
+      "n_good": 320,
+      "n_bad": 1280,
+      "good": {
+        "requested": "bounded_ml",
+        "used": "bounded_ml",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.6332595780861596,
+          1.7323455381549218,
+          0.14569226481721853,
+          0.0782972996283434
+        ],
+        "success": true,
+        "status": 0,
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "iterations": 12,
+        "evaluations": 15,
+        "optimization_verified": true,
+        "initial_bandwidth": [
+          0.9,
+          0.9,
+          0.14569226481721853,
+          0.0782972996283434
+        ],
+        "bandwidth": [
+          0.10304530394870218,
+          0.43033252410297856,
+          0.12811926411836863,
+          0.05466176420977454
+        ],
+        "lower_bounds": [
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06
+        ],
+        "upper_bounds": [
+          0.999999,
+          0.999999,
+          10.0,
+          10.0
+        ],
+        "initial_mean_loo_loglikelihood": -5.630328293797703,
+        "final_mean_loo_loglikelihood": -3.4203292375123597,
+        "initial_sum_loo_loglikelihood": -1801.705054015265,
+        "final_sum_loo_loglikelihood": -1094.505356003955,
+        "mean_loo_loglikelihood_gain": 2.2099990562853433,
+        "bandwidth_changed": true,
+        "post_fit_clipping": false,
+        "gradient_inf_norm": 4.725448490949802e-06,
+        "at_lower_bound": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "at_upper_bound": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "fit_seconds": 0.026303009130060673
+      },
+      "bad": {
+        "requested": "bounded_ml",
+        "used": "bounded_ml",
+        "fallback": null,
+        "raw_normal_reference_bandwidth": [
+          0.6396495881489395,
+          1.6570024267655765,
+          0.12358074118018376,
+          0.11985963708670314
+        ],
+        "success": true,
+        "status": 0,
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "iterations": 17,
+        "evaluations": 19,
+        "optimization_verified": true,
+        "initial_bandwidth": [
+          0.9,
+          0.9,
+          0.12358074118018376,
+          0.11985963708670314
+        ],
+        "bandwidth": [
+          1e-06,
+          0.4510600753654062,
+          0.11169992577973753,
+          0.08394919200220319
+        ],
+        "lower_bounds": [
+          1e-06,
+          1e-06,
+          1e-06,
+          1e-06
+        ],
+        "upper_bounds": [
+          0.999999,
+          0.999999,
+          10.0,
+          10.0
+        ],
+        "initial_mean_loo_loglikelihood": -6.43143715818145,
+        "final_mean_loo_loglikelihood": -4.440302769075668,
+        "initial_sum_loo_loglikelihood": -8232.239562472256,
+        "final_sum_loo_loglikelihood": -5683.587544416855,
+        "mean_loo_loglikelihood_gain": 1.991134389105782,
+        "bandwidth_changed": true,
+        "post_fit_clipping": false,
+        "gradient_inf_norm": 0.03540170476149507,
+        "at_lower_bound": [
+          true,
+          false,
+          false,
+          false
+        ],
+        "at_upper_bound": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "fit_seconds": 0.7964980031829327
+      }
+    }
+  ]
+}

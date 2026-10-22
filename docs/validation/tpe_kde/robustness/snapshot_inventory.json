@@ -1,0 +1,59 @@
+[
+  {
+    "source": "logs/Optuna/nn_fashionmnist/run_1/optuna_study.pkl",
+    "trials": 30,
+    "directions": [
+      "MAXIMIZE"
+    ],
+    "stored_sampler_class": "TPESampler",
+    "eligibility": "insufficient test fold size"
+  },
+  {
+    "source": "logs/Optuna/nn_fashionmnist/run_2/optuna_study.pkl",
+    "trials": 30,
+    "directions": [
+      "MAXIMIZE"
+    ],
+    "stored_sampler_class": "TPESampler",
+    "eligibility": "insufficient test fold size"
+  },
+  {
+    "source": "logs/Optuna/nn_fashionmnist/run_3/optuna_study.pkl",
+    "trials": 30,
+    "directions": [
+      "MAXIMIZE"
+    ],
+    "stored_sampler_class": "TPESampler",
+    "eligibility": "insufficient test fold size"
+  },
+  {
+    "source": "logs/Optuna/nn_fashionmnist_mo/run_1/optuna_study.pkl",
+    "trials": 30,
+    "directions": [
+      "MAXIMIZE",
+      "MINIMIZE"
+    ],
+    "stored_sampler_class": "NSGAIISampler",
+    "eligibility": "Select a single-objective study; multi-objective studies are unsupported"
+  },
+  {
+    "source": "logs/Optuna/nn_fashionmnist_mo/run_2/optuna_study.pkl",
+    "trials": 30,
+    "directions": [
+      "MAXIMIZE",
+      "MINIMIZE"
+    ],
+    "stored_sampler_class": "NSGAIISampler",
+    "eligibility": "Select a single-objective study; multi-objective studies are unsupported"
+  },
+  {
+    "source": "logs/Optuna/nn_fashionmnist_mo/run_3/optuna_study.pkl",
+    "trials": 30,
+    "directions": [
+      "MAXIMIZE",
+      "MINIMIZE"
+    ],
+    "stored_sampler_class": "NSGAIISampler",
+    "eligibility": "Select a single-objective study; multi-objective studies are unsupported"
+  }
+]
