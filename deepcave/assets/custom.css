@@ -237,6 +237,224 @@ thead {
     padding: 0.8rem;
 }
 
+#overview-output {
+    padding: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+.run-metadata {
+    display: grid;
+    gap: 0.75rem;
+    color: #334155;
+}
+
+.run-metadata-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 0.6rem;
+}
+
+.run-metadata-kpi {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
+    padding: 0.75rem;
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 0.85rem;
+}
+
+.run-metadata-kpi-content {
+    min-width: 0;
+    font-size: 1.1rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.run-metadata-kpi-label {
+    margin-bottom: 0.15rem;
+    color: #667085;
+    font-size: 0.72rem;
+}
+
+.run-metadata-kpi--success .general-card-icon {
+    color: #21834a;
+    background: #edf9f0;
+}
+
+.run-metadata-kpi--failed .general-card-icon {
+    color: #c43d48;
+    background: #fff0f1;
+}
+
+.run-metadata-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+    align-items: start;
+    gap: 0.75rem;
+}
+
+.run-metadata-heading {
+    margin-bottom: 0.65rem;
+}
+
+.run-metadata-table-wrap {
+    overflow-x: auto;
+    border: 1px solid #e5e9ef;
+    border-radius: 0.5rem;
+}
+
+.run-metadata-table {
+    width: 100%;
+    font-size: 0.8rem;
+    color: #334155;
+}
+
+.run-metadata-table thead {
+    border-bottom: 1px solid #e5e9ef;
+}
+
+.run-metadata-table > :not(caption) > * > * {
+    padding: 0.4rem 0.6rem;
+    vertical-align: middle;
+    border-color: #edf0f4;
+    background: #fff;
+    box-shadow: none;
+}
+
+.run-metadata-table thead th {
+    color: #526075;
+    background: #f7f9fc;
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.run-metadata-table tbody tr:last-child > * {
+    border-bottom: 0;
+}
+
+.run-metadata-value {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.run-metadata-kpi .run-metadata-value {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.run-metadata-meta,
+.run-metadata-objectives,
+.run-metadata-failures {
+    table-layout: fixed;
+}
+
+.run-metadata-meta th:first-child {
+    width: 38%;
+}
+
+.run-metadata-grid .run-metadata-table-wrap {
+    max-height: 26rem;
+    overflow-y: auto;
+}
+
+.run-metadata-grid thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.run-metadata-objectives {
+    min-width: 24rem;
+}
+
+.run-metadata-objectives th:first-child {
+    width: 43%;
+}
+
+.run-metadata-objectives :is(th, td):not(:first-child) {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.run-metadata-failures {
+    min-width: 24rem;
+}
+
+.run-metadata-failures th:nth-child(-n+2) {
+    width: 20%;
+    white-space: normal;
+}
+
+.run-metadata-status {
+    display: inline-block;
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.35rem;
+    font-size: 0.72rem;
+    color: #b83643;
+    background: #fff0f1;
+}
+
+.run-metadata-error summary,
+.run-metadata-space-details summary {
+    cursor: pointer;
+    color: #1859bd;
+}
+
+.run-metadata-error pre {
+    margin: 0.5rem 0 0;
+    max-height: 20rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 0.75rem;
+}
+
+.run-metadata-empty {
+    padding: 0.35rem 0;
+    color: #526075;
+    font-size: 0.8rem;
+}
+
+.run-metadata-empty i {
+    color: #21834a;
+}
+
+.run-metadata-space .run-metadata-value {
+    max-width: 28rem;
+}
+
+.run-metadata-space-details {
+    margin-top: 0.6rem;
+    font-size: 0.8rem;
+    overflow-wrap: anywhere;
+}
+
+#overview-show_raw_data {
+    background: #fff;
+    border-color: #cbd5e1;
+    color: #526075;
+    font-size: 0.8rem;
+    border-radius: 0.5rem;
+}
+
+#overview-show_raw_data:hover,
+#overview-show_raw_data:focus-visible {
+    background: #edf4ff;
+    border-color: #0d6efd;
+    color: #1859bd;
+}
+
+@media (max-width: 991.98px) {
+    .run-metadata-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
 .general-management-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
