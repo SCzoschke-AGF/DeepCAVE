@@ -1,119 +1,50 @@
-"""Compact Performance-aware Coverage panel and independently queued analysis."""
+"""Compact, independently queued CHR candidate rankings and KDE interpretation."""
 
 from typing import Any, Dict
 
 import json
-from pathlib import Path
 from threading import RLock
 from uuid import uuid4
 
 import dash_bootstrap_components as dbc
 import numpy as np
 import plotly.graph_objects as go
-from dash import Input, Output, State, ctx, dcc, html, no_update
+from dash import Input, Output, State, ctx, dash_table, dcc, html, no_update
+from dash.dash_table.Format import Format, Scheme, Sign
 from dash.exceptions import PreventUpdate
 
-from deepcave.evaluators.performance_coverage import (
-    PERFORMANCE_VERSION,
-    _digest,
-    analyze_performance_distances,
-    performance_source_key,
-    prepare_performance_trials,
-    threshold_statistics,
+from deepcave.evaluators.coverage_candidates import (
+    CANDIDATE_VERSION,
+    candidate_options,
+    score_coverage_candidates,
+    scoring_source_key,
 )
-from deepcave.evaluators.rashomon import cached_pairwise_configuration_distances
 from deepcave.plugins.hyperparameter.coverage_views import _empty_figure, _id
 from deepcave.utils.global_objective import resolve_main_objective_id
 
 _JOB_LOCK = RLock()
+_SETTINGS = (
+    ("pool_size", "Candidate pool", 2000, 1, 10000),
+    ("holes", "Holes per step", 15, 1, 100),
+    ("plan_size", "CHR plan trials", 8, 1, 100),
+    ("reference_samples", "CHR reference samples", 2048, 32, 16384),
+    ("seed", "Seed", 42, 0, 2**32 - 2),
+)
 
 
-def run_performance_analysis(run: Any, objective_id: int, directory: str) -> Dict[str, Any]:
-    """Reuse Rashomon's global fANOVA weights and exact distance implementation in a worker."""
-    from deepcave.plugins.hyperparameter.near_optimal_configurations import (
-        _fanova_importances,
-        _run_version,
-    )
-
-    objective = run.get_objective(objective_id)
-    if objective is None:
-        raise ValueError("The selected sidebar objective is unavailable for this study.")
-    trials = prepare_performance_trials(run, objective_id)
-    if len(trials["trial_ids"]) < 2:
-        raise ValueError("At least two successful trials with a finite objective are required.")
-    importance = _fanova_importances(run, objective_id)
-    weights = importance["values"]
-    if not weights or sum(weights.values()) <= 0:
-        raise ValueError(
-            "Importance-weighted distance is unavailable: "
-            + str(importance["error"] or "No positive global fANOVA main effects.")
-        )
-
-    source_key = performance_source_key(run, objective_id)
-    key = _digest([source_key, weights, "rashomon-rms-v1", PERFORMANCE_VERSION])
-    folder = Path(directory) / key
-    summary_path = folder / "summary.json"
-    differences_path = folder / "differences.npy"
-    if summary_path.exists() and differences_path.exists():
-        return json.loads(summary_path.read_text())
-
-    names = list(run.configspace.keys())
-    weight_signature = tuple(sorted((name, round(float(v), 12)) for name, v in weights.items()))
-    # Keep the caller key identical to Rashomon's when the trial cohort is compatible.
-    distance_key = (
-        run.id,
-        _run_version(run),
-        tuple(trials["trial_ids"]),
-        "importance_weighted",
-        tuple(names),
-        weight_signature,
-    )
-    disk_key = _digest(
-        [
-            run.configspace.to_serialized_dict(),
-            trials["matrix"].tolist(),
-            weights,
-            "rashomon-rms-v1",
-        ]
-    )
-    distance_path = Path(directory) / "distances" / f"{disk_key}.npy"
-    if distance_path.exists():
-        distances = np.load(distance_path, mmap_mode="r", allow_pickle=False)
-    else:
-        distances = cached_pairwise_configuration_distances(
-            distance_key, trials["matrix"], run.configspace, names, weights
-        )
-        distance_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = distance_path.with_name(f"{uuid4().hex}.npy")
-        np.save(temporary, distances, allow_pickle=False)
-        temporary.replace(distance_path)
-
-    folder.mkdir(parents=True, exist_ok=True)
-    temporary_differences = folder / f"{uuid4().hex}.npy"
-    result = analyze_performance_distances(
-        distances, trials["objectives"], trials["trial_ids"], temporary_differences
-    )
-    temporary_differences.replace(differences_path)
-    result.update(
-        cache_key=key,
-        source_key=source_key,
-        objective_id=objective_id,
-        objective=objective.name,
-        excluded=trials["excluded"],
-        history_indices=trials["history_indices"],
-        weights=weights,
-        weight_source=f"Global fANOVA main effects · successful trials · highest budget "
-        f"{run.get_highest_budget():g} · 16 trees · seed 0",
-        performance_version=PERFORMANCE_VERSION,
-    )
-    temporary_summary = folder / f"{uuid4().hex}.json"
-    temporary_summary.write_text(json.dumps(result, allow_nan=False))
-    temporary_summary.replace(summary_path)
-    return result
+def run_performance_analysis(
+    run: Any, objective_id: int, directory: str, options: Any = None
+) -> Dict[str, Any]:
+    """Worker entry point; the dashboard never imports a benchmark script."""
+    try:
+        return score_coverage_candidates(run, objective_id, directory, options)
+    except (ValueError, RuntimeError, FloatingPointError, ImportError, TimeoutError) as error:
+        # RQ's generic failure state otherwise loses the actionable fit error in the UI.
+        return {"error": str(error), "objective_id": objective_id}
 
 
 def performance_panel() -> Any:
-    """Build only the new right-hand analysis panel."""
+    """Build the right column without changing the covering-array controls."""
     return html.Section(
         [
             dcc.Store(id=_id("performance-data")),
@@ -127,7 +58,7 @@ def performance_panel() -> Any:
                                 className="coverage-performance-icon",
                                 **{"aria-hidden": "true"},
                             ),
-                            html.H3("Performance-aware Coverage"),
+                            html.H3("Performance scoring of coverage candidates"),
                         ],
                         className="coverage-performance-title",
                     ),
@@ -138,73 +69,178 @@ def performance_panel() -> Any:
                         color="secondary",
                         outline=True,
                         size="sm",
-                        title="Analyze all valid trial pairs for the sidebar objective",
                     ),
                 ],
                 className="coverage-performance-header",
             ),
             html.P(
-                "Relate configuration distance to observed performance differences.",
+                "KDE scores for configurations generated from the largest coverage holes.",
                 className="coverage-performance-description",
             ),
-            html.Div(id=_id("performance-status"), role="status"),
+            html.Div(id=_id("performance-status"), role="status", **{"aria-live": "polite"}),
             html.Div(
                 [
                     html.Div([html.Span(label), html.Strong("—", id=_id(f"performance-{name}"))])
                     for name, label in (
-                        ("trials", "Trials analyzed"),
-                        ("pairs", "Pairwise comparisons"),
-                        ("objective", "Selected objective"),
+                        ("holes", "Coverage holes analyzed"),
+                        ("candidates", "Generated candidates"),
+                        ("reference", "Reference"),
+                        ("top", "Top candidate vs. reference"),
                     )
                 ],
                 className="coverage-performance-metrics",
             ),
             html.Div(
                 [
-                    html.H4("Performance sensitivity by configuration distance"),
-                    dcc.Graph(
-                        id=_id("performance-chart"),
-                        figure=performance_figure(None),
-                        config={"displaylogo": False},
-                        responsive=True,
-                        style={"height": "330px"},
-                    ),
-                    html.P(
-                        id=_id("performance-interpretation"),
-                        className="coverage-performance-interpretation",
-                    ),
-                    html.H4("Nearest-neighbor sensitivity"),
-                    html.Div(
-                        [
-                            dbc.Label(
-                                "Relevant difference: Δ >",
-                                html_for=_id("performance-threshold"),
-                            ),
-                            dbc.Input(
-                                id=_id("performance-threshold"),
-                                type="number",
-                                min=0,
-                                step="any",
-                                value=0.01,
-                                debounce=True,
-                                size="sm",
-                            ),
-                            html.Span(id=_id("performance-unit")),
+                    html.H4("Candidate rankings"),
+                    dcc.Tabs(
+                        id=_id("performance-tab"),
+                        value="overall",
+                        children=[
+                            dcc.Tab(
+                                label=label,
+                                value=value,
+                                className="coverage-candidate-tab",
+                                selected_className="coverage-candidate-tab-selected",
+                            )
+                            for value, label in (
+                                ("overall", "Best overall candidates"),
+                                ("holes", "Best candidate per hole"),
+                                ("plan", "Selected plan"),
+                            )
                         ],
-                        className="coverage-performance-threshold",
+                        className="coverage-candidate-tabs",
                     ),
-                    html.Div(id=_id("performance-threshold-error"), role="status"),
-                    html.Div(id=_id("performance-neighbors")),
+                    html.H5("KDE score distribution"),
+                    dcc.Loading(
+                        dcc.Graph(
+                            id=_id("performance-chart"),
+                            figure=performance_figure(None),
+                            config={"displayModeBar": False},
+                            responsive=True,
+                            style={"height": "165px"},
+                        ),
+                        color="#9470d5",
+                    ),
+                    dash_table.DataTable(
+                        id=_id("performance-ranking"),
+                        data=[],
+                        columns=[
+                            {"id": "rank", "name": "Rank", "type": "numeric"},
+                            {
+                                "id": "relative_score",
+                                "name": "KDE vs. reference",
+                                "type": "numeric",
+                                "format": Format(
+                                    precision=3, scheme=Scheme.fixed, sign=Sign.positive
+                                ),
+                            },
+                            {"id": "hole_id", "name": "Coverage hole"},
+                            {
+                                "id": "hole_radius",
+                                "name": "Hole radius",
+                                "type": "numeric",
+                                "format": Format(precision=4, scheme=Scheme.fixed),
+                            },
+                            {"id": "configuration", "name": "Configuration"},
+                            {"id": "selected", "name": "In plan"},
+                        ],
+                        cell_selectable=True,
+                        page_size=8,
+                        page_action="native",
+                        sort_action="none",
+                        style_table={"overflowX": "auto"},
+                        style_as_list_view=True,
+                        style_cell={
+                            "fontSize": "11px",
+                            "padding": "6px 7px",
+                            "textAlign": "left",
+                            "borderBottom": "1px solid #eeedf6",
+                            "fontFamily": "inherit",
+                            "color": "#393853",
+                            "height": "29px",
+                        },
+                        style_header={
+                            "backgroundColor": "#f8f7fd",
+                            "fontWeight": "600",
+                            "color": "#696287",
+                            "fontSize": "10px",
+                        },
+                        style_cell_conditional=[
+                            {
+                                "if": {"column_id": c},
+                                "textAlign": "right",
+                                "fontVariantNumeric": "tabular-nums",
+                            }
+                            for c in ("relative_score", "hole_radius")
+                        ]
+                        + [
+                            {
+                                "if": {"column_id": "configuration"},
+                                "maxWidth": "175px",
+                                "overflow": "hidden",
+                                "textOverflow": "ellipsis",
+                                "whiteSpace": "nowrap",
+                            }
+                        ],
+                        style_data_conditional=[
+                            {
+                                "if": {"state": "active"},
+                                "backgroundColor": "#f0e9ff",
+                                "border": "1px solid #d8c8f5",
+                            },
+                            {
+                                "if": {
+                                    "filter_query": "{relative_score} > 0",
+                                    "column_id": "relative_score",
+                                },
+                                "color": "#13944c",
+                            },
+                            {
+                                "if": {
+                                    "filter_query": "{relative_score} < 0",
+                                    "column_id": "relative_score",
+                                },
+                                "color": "#a14b78",
+                            },
+                        ],
+                    ),
                 ],
                 className="coverage-performance-body",
             ),
+            html.Div(id=_id("performance-details"), className="coverage-candidate-details"),
             html.Details(
-                [html.Summary("Method & distance weights"), html.Div(id=_id("performance-method"))],
+                [
+                    html.Summary("CHR planning settings"),
+                    html.Div(
+                        [
+                            html.Label(
+                                [
+                                    label,
+                                    dbc.Input(
+                                        id=_id(f"performance-{name}-setting"),
+                                        type="number",
+                                        value=default,
+                                        min=low,
+                                        max=high,
+                                        step=1,
+                                        debounce=True,
+                                        size="sm",
+                                    ),
+                                ]
+                            )
+                            for name, label, default, low, high in _SETTINGS
+                        ],
+                        className="coverage-candidate-settings",
+                    ),
+                ],
                 className="coverage-performance-method",
             ),
             html.Small(
-                "Observed trial pairs and leave-one-out nearest neighbors; "
-                "not calibrated predictions for unseen configurations.",
+                "Score = log p(x | good) − log p(x | bad); good = best 20% of completed trials. "
+                "The best observed trial is an in-sample reference, not independent validation. "
+                "Scores are neither predicted objective values nor success probabilities. "
+                "This sequential CHR plan is separate from Improve Coverage's covering-array plan.",
                 className="coverage-performance-footnote",
             ),
         ],
@@ -213,160 +249,192 @@ def performance_panel() -> Any:
 
 
 def performance_figure(result: Any) -> go.Figure:
-    """Show all small-study pairs or full-count density, with unsmoothed empirical curves."""
-    if result is None:
-        figure = _empty_figure("Refresh to analyze the selected objective.")
-        figure.update_layout(height=330)
+    """Histogram of the entire pool's relative scores, with a zero reference."""
+    if not result or not result.get("candidates"):
+        figure = _empty_figure("Refresh to generate and score coverage candidates.")
+        figure.update_layout(height=165)
         return figure
-    bins = result["bins"]
-    plot = result["plot"]
-    figure = go.Figure()
-    group_hover = (
-        "<br>Distance group: %{customdata[0]:.4g} – %{customdata[1]:.4g}"
-        "<br>Group pairs: %{customdata[2]:,}"
-        "<br>Group median: %{customdata[3]:.4g}<br>Group P90: %{customdata[4]:.4g}"
+    values = np.asarray([c["relative_score"] for c in result["candidates"]])
+    counts, edges = np.histogram(values, bins=min(36, max(1, int(np.sqrt(len(values))))))
+    centers = (edges[:-1] + edges[1:]) / 2
+    figure = go.Figure(
+        go.Bar(
+            x=centers.tolist(),
+            y=counts.tolist(),
+            width=(np.diff(edges) * 0.92).tolist(),
+            marker_color=[
+                f"rgba(139, 94, 207, {0.3 + 0.6 * i / max(1, len(centers) - 1)})"
+                for i in range(len(centers))
+            ],
+            hovertemplate="Relative KDE score: %{x:.4g}<br>Candidates: %{y}<extra></extra>",
+        )
     )
-
-    def bin_data(stats: Dict) -> list:
-        return [stats[key] for key in ("lower", "upper", "count", "median", "p90")]
-
-    if plot["kind"] == "scatter":
-        lookup = dict(zip(plot["labels"], bins))
-        figure.add_trace(
-            go.Scattergl(
-                x=plot["distances"],
-                y=plot["differences"],
-                mode="markers",
-                marker={"size": 4, "color": "#9675e8", "opacity": 0.22},
-                name="Observed pairs",
-                customdata=[bin_data(lookup[label]) for label in plot["bins"]],
-                hovertemplate="Distance: %{x:.4g}<br>Absolute difference: %{y:.4g}"
-                "<br>Pairs at this point: 1" + group_hover + "<extra></extra>",
-            )
-        )
-    else:
-        x_edges = np.asarray(plot["x_edges"])
-        y_edges = np.asarray(plot["y_edges"])
-        x = (x_edges[:-1] + x_edges[1:]) / 2
-        y = (y_edges[:-1] + y_edges[1:]) / 2
-        counts = np.asarray(plot["counts"], dtype=float)
-        custom = []
-        for row in range(len(y)):
-            cells = []
-            for column, center in enumerate(x):
-                stats = min(bins, key=lambda stats: abs(stats["distance_median"] - center))
-                cells.append(
-                    bin_data(stats)
-                    + [x_edges[column], x_edges[column + 1], y_edges[row], y_edges[row + 1]]
-                )
-            custom.append(cells)
-        figure.add_trace(
-            go.Heatmap(
-                x=x,
-                y=y,
-                z=np.where(counts > 0, counts, np.nan).tolist(),
-                customdata=custom,
-                colorscale=[[0, "#f8f5ff"], [0.3, "#c1a7f2"], [1, "#7752bf"]],
-                colorbar={"title": "Pairs", "thickness": 9, "len": 0.8},
-                hoverongaps=False,
-                hovertemplate="Distance: %{customdata[5]:.4g} – %{customdata[6]:.4g}"
-                "<br>Absolute difference: %{customdata[7]:.4g} – %{customdata[8]:.4g}"
-                "<br>Cell pairs: %{z:,}" + group_hover + "<extra></extra>",
-            )
-        )
-    for statistic, label, color, dash in (
-        ("median", "Median", "#553291", "solid"),
-        ("p90", "P90", "#9580b8", "dot"),
-    ):
-        figure.add_trace(
-            go.Scatter(
-                x=[stats["distance_median"] for stats in bins],
-                y=[stats[statistic] for stats in bins],
-                mode="lines+markers",
-                line={"color": color, "width": 2, "dash": dash, "shape": "linear"},
-                marker={"size": 5},
-                name=label,
-                customdata=[bin_data(stats) for stats in bins],
-                hovertemplate=label + ": %{y:.4g}" + group_hover + "<extra></extra>",
-            )
-        )
+    figure.add_vline(
+        x=0,
+        line_dash="dash",
+        line_color="#995deb",
+        line_width=1.4,
+        annotation_text="Best observed trial",
+        annotation_position="top left" if np.median(values) < 0 else "top right",
+    )
+    lower, upper = min(0, edges[0]), max(0, edges[-1])
+    padding = 0.04 * (upper - lower)
     figure.update_layout(
         template="plotly_white",
-        height=330,
-        margin={"l": 55, "r": 25, "t": 5, "b": 65},
-        font={"family": "inherit", "size": 11, "color": "#505a78"},
-        legend={"orientation": "h", "y": 1.12, "x": 0},
-        xaxis_title="Importance-weighted configuration distance",
-        yaxis_title="Absolute performance difference",
-        yaxis={"type": "linear", "rangemode": "tozero"},
+        height=165,
+        showlegend=False,
+        margin={"l": 22, "r": 15, "t": 24, "b": 40},
+        bargap=0.06,
+        font={"family": "inherit", "size": 10, "color": "#70678e"},
+        xaxis={
+            "title": "KDE score relative to reference",
+            "range": [lower - padding, upper + padding],
+            "showgrid": True,
+            "gridcolor": "#f4f1fa",
+            "zeroline": False,
+        },
+        yaxis={"showticklabels": False, "showgrid": False, "zeroline": False},
     )
     return figure
 
 
-def performance_interpretation(result: Dict) -> str:
-    """Describe only the observed bin medians, without an inferential trend test."""
-    medians = np.asarray([stats["median"] for stats in result["bins"]])
-    if len(medians) >= 3 and np.all(np.diff(medians) > 0):
-        return "Median performance differences increase across the observed distance groups."
-    if len(medians) >= 3 and np.all(np.diff(medians) < 0):
-        return "Median performance differences decrease across the observed distance groups."
-    return "No consistent trend in median performance differences across observed distance groups."
+def ranking_candidates(result: Dict, tab: str) -> list:
+    """All tabs derive from one candidate collection; plan order is authoritative."""
+    ordered = sorted(result["candidates"], key=lambda c: (-c["kde_score"], c["id"]))
+    if tab == "plan":
+        lookup = {c["id"]: c for c in ordered}
+        return [lookup[identifier] for identifier in result["plan"]]
+    if tab == "holes":
+        best: Dict[str, Dict] = {}
+        for candidate in ordered:
+            best.setdefault(candidate["hole_id"], candidate)
+        return list(best.values())
+    return ordered
 
 
-def neighbor_table(result: Dict) -> Any:
-    """Render statistics computed exclusively from one nearest neighbor per trial."""
-    rows = []
-    for stats in result["nearest_bins"]:
-        fraction = stats["relevant_fraction"]
-        rows.append(
-            html.Tr(
-                [
-                    html.Td(f"{stats['lower']:.4g} – {stats['upper']:.4g}"),
-                    html.Td(f"{stats['count']:,}"),
-                    html.Td(f"{stats['mean']:.4g}"),
-                    html.Td(f"{stats['p90']:.4g}"),
-                    html.Td(
-                        [
-                            html.Span(f"{fraction:.1%}"),
-                            html.Span(
-                                html.Span(style={"width": f"{fraction * 100:.3f}%"}),
-                                className="coverage-performance-bar",
-                                **{"aria-hidden": "true"},
-                            ),
-                        ]
-                    ),
-                ]
+def ranking_rows(result: Dict, tab: str) -> list:
+    """Keep read-only plan membership distinct from the clicked detail row."""
+    labels = {h["id"]: f"Hole {i + 1}" for i, h in enumerate(result["holes"])}
+    rows = [
+        {
+            "id": c["id"],
+            "rank": i + 1,
+            "relative_score": c["relative_score"],
+            "hole_id": labels[
+                c.get("plan_hole_id", c["hole_id"]) if tab == "plan" else c["hole_id"]
+            ],
+            "hole_radius": c["selection_radius_before"] if tab == "plan" else c["hole_radius"],
+            "configuration": ", ".join(
+                f"{k}={v:.4g}" if isinstance(v, float) else f"{k}={v}"
+                for k, v in c["configuration"].items()
+            ),
+            "selected": f"✓ {c['plan_order']}" if c["selected"] else "",
+        }
+        for i, c in enumerate(ranking_candidates(result, tab))
+    ]
+    if tab == "holes":
+        represented = {c["hole_id"] for c in result["candidates"]}
+        rows.extend(
+            {
+                "id": f"empty-{hole['id']}",
+                "rank": None,
+                "relative_score": None,
+                "hole_id": labels[hole["id"]],
+                "hole_radius": hole["radius"],
+                "configuration": "No candidate generated",
+                "selected": "",
+            }
+            for hole in result["holes"]
+            if hole["id"] not in represented
+        )
+    return rows
+
+
+def candidate_details(result: Dict, identifier: Any) -> Any:
+    """Show actual raw/relative scores, CHR geometry, and a full configuration."""
+    candidate = next((c for c in result["candidates"] if c["id"] == identifier), None)
+    if candidate is None:
+        if isinstance(identifier, str) and identifier.startswith("empty-"):
+            return html.P(
+                "No valid candidate was generated for this hole. "
+                "Increase the candidate pool size or refresh."
+            )
+        return html.P("Select a candidate to inspect its score and configuration.")
+    c = candidate
+    hole_number = next(i + 1 for i, h in enumerate(result["holes"]) if h["id"] == c["hole_id"])
+
+    def group(title: str, rows: list) -> Any:
+        return html.Div(
+            [
+                html.H5(title),
+                html.Dl([html.Div([html.Dt(label), html.Dd(value)]) for label, value in rows]),
+            ]
+        )
+
+    coverage = [
+        ("Coverage hole", f"Hole {hole_number} · {c['hole_id']}"),
+        ("Original hole radius", f"{c['hole_radius']:.5g}"),
+        ("Distance to hole center", f"{c['center_distance']:.5g}"),
+        ("Radius reduction at center", f"{c['radius_reduction']:.5g}"),
+    ]
+    if c["selected"]:
+        plan_hole_number = next(
+            i + 1 for i, h in enumerate(result["holes"]) if h["id"] == c["plan_hole_id"]
+        )
+        coverage.append(("Hole at plan selection", f"Hole {plan_hole_number}"))
+        coverage.append(
+            (
+                "Radius at selection",
+                f"{c['selection_radius_before']:.5g} → " f"{c['selection_radius_after']:.5g}",
             )
         )
-    return html.Div(
-        html.Table(
+    config_group = group("Configuration", [(k, str(v)) for k, v in c["configuration"].items()][:5])
+    config_group.children.append(
+        html.Details(
             [
-                html.Thead(
-                    html.Tr(
-                        [
-                            html.Th(label)
-                            for label in (
-                                "Distance range",
-                                "Trials",
-                                "Mean Δ perf.",
-                                "P90 Δ perf.",
-                                "Δ > threshold",
-                            )
-                        ]
-                    )
-                ),
-                html.Tbody(rows),
-            ]
-        ),
-        className="coverage-performance-table",
+                html.Summary("Show full config"),
+                html.Pre(json.dumps(c["configuration"], indent=2)),
+            ],
+            className="coverage-candidate-full-config",
+        )
     )
+    return [
+        html.Div(
+            [
+                html.H4("Selected candidate details"),
+                html.Small(f"Included in CHR plan · #{c['plan_order']}" if c["selected"] else ""),
+            ],
+            className="coverage-candidate-details-header",
+        ),
+        html.Div(
+            [
+                group(
+                    "Score interpretation",
+                    [
+                        ("Original KDE score", f"{c['kde_score']:.5g}"),
+                        ("Reference KDE score", f"{c['reference_score']:.5g}"),
+                        ("Relative KDE score", f"{c['relative_score']:+.5g}"),
+                        ("Percentile in current pool", f"{c['percentile']:.1f}%"),
+                        (
+                            f"Trial #{c['reference_trial_number']} · "
+                            f"{result['model']['objective']}",
+                            f"{c['reference_objective']:.6g}",
+                        ),
+                    ],
+                ),
+                group("Coverage contribution", coverage),
+                config_group,
+            ],
+            className="coverage-candidate-detail-columns",
+        ),
+    ]
 
 
 def register_performance_callbacks(app: Any, jobs: Any, run_handler: Any) -> None:
-    """Keep computation explicit and threshold changes independent from distance jobs."""
-    directory = jobs.directory / "_performance_data"
+    """Explicit refresh queues work; tab and row interactions use cached results."""
+    directory = jobs.directory / "_coverage_candidates"
 
-    @app.callback(
+    @app.callback(  # type: ignore[untyped-decorator]
         Output(_id("performance-data"), "data"),
         Output(_id("performance-status"), "children"),
         Output(_id("performance-run"), "disabled"),
@@ -375,43 +443,71 @@ def register_performance_callbacks(app: Any, jobs: Any, run_handler: Any) -> Non
         Input(_id("context"), "data"),
         Input(_id("tick"), "n_intervals"),
         Input("global-main-objective-state", "data"),
+        *[Input(_id(f"performance-{name}-setting"), "value") for name, *_ in _SETTINGS],
         State("global-run-selector", "value"),
         State(_id("performance-view"), "data"),
     )
     def performance_job(
-        clicks: Any, context: Any, tick: Any, objective_state: Any, active_run: str, previous: Any
+        clicks: Any,
+        context: Any,
+        tick: Any,
+        objective_state: Any,
+        pool_size: Any,
+        holes: Any,
+        plan_size: Any,
+        reference_samples: Any,
+        seed: Any,
+        active_run: str,
+        previous: Any,
     ) -> Any:
         if not context or context["run_id"] != active_run:
             raise PreventUpdate
         run = run_handler.get_run(active_run)
         objective_id = resolve_main_objective_id(run, (objective_state or {}).get("value"))
+        error = None
+        try:
+            options = candidate_options(
+                dict(
+                    pool_size=pool_size,
+                    holes=holes,
+                    plan_size=plan_size,
+                    reference_samples=reference_samples,
+                    seed=seed,
+                )
+            )
+        except ValueError as exception:
+            options, error = {}, str(exception)
         if objective_id is None:
-            view = {"run_id": run.id, "objective_id": None}
+            view = {"run_id": run.id, "objective_id": None, "error": error}
             if view == previous:
                 raise PreventUpdate
             return view, "Select a Main Objective in the sidebar.", True, view
-        source_key = performance_source_key(run, objective_id)
-        options = {"objective_id": objective_id, "performance_version": PERFORMANCE_VERSION}
+        source_key = scoring_source_key(run, objective_id)
         with _JOB_LOCK:
-            entry = jobs.poll(run.id, "performance")
+            entry = jobs.poll(run.id, "candidate_scoring")
             running = entry.get("status") == "running"
-            if clicks and _id("performance-run") in ctx.triggered_prop_ids.values() and not running:
+            if (
+                not error
+                and clicks
+                and _id("performance-run") in ctx.triggered_prop_ids.values()
+                and not running
+            ):
                 try:
                     if not jobs.queue.ready():
                         raise RuntimeError(
                             "No analysis worker is available. Start a worker and retry."
                         )
-                    job_id = f"coverage-performance-{uuid4().hex}"
+                    job_id = f"coverage-candidates-{uuid4().hex}"
                     jobs.queue.enqueue(
                         run_performance_analysis,
-                        args=[run, objective_id, str(directory)],
+                        args=[run, objective_id, str(directory), options],
                         job_id=job_id,
                         meta={
-                            "display_name": "Performance-aware Coverage",
+                            "display_name": "Coverage candidate KDE scoring",
                             "run_name": run.name,
                             "run_id": run.id,
                             "plugin_id": "search_space_coverage",
-                            "analysis": "performance",
+                            "analysis": "candidate_scoring",
                             "link": "/plugins/search_space_coverage",
                         },
                     )
@@ -425,32 +521,34 @@ def register_performance_callbacks(app: Any, jobs: Any, run_handler: Any) -> Non
                             "options": options,
                         },
                     )
-                except Exception as error:
-                    entry.update(status="failed", error=str(error))
-                jobs._write(run.id, "performance", entry)
+                except Exception as exception:
+                    entry.update(status="failed", error=str(exception))
+                jobs._write(run.id, "candidate_scoring", entry)
             running = entry.get("status") == "running"
             result = entry.get("result")
             if result and result.get("objective_id") != objective_id:
                 result = None
+            if result and result.get("error"):
+                error, result = result["error"], None
             stale = bool(result) and (
                 result.get("source_key") != source_key
-                or result.get("performance_version") != PERFORMANCE_VERSION
+                or result.get("options") != options
+                or result.get("candidate_version") != CANDIDATE_VERSION
             )
-            if result and not (directory / result["cache_key"] / "differences.npy").exists():
-                result, stale = None, True
-            status = (
-                "Computing…"
+            status = error or (
+                "Detecting coverage holes, scoring candidates and updating CHR geometry…"
                 if running
                 else (
                     str(entry.get("error"))
                     if entry.get("status") == "failed"
-                    else "Study changed · Refresh to update." if stale else ""
+                    else "Study or settings changed · Refresh to update." if stale else ""
                 )
             )
             view = {
                 "run_id": run.id,
                 "objective_id": objective_id,
                 "source_key": source_key,
+                "options": options,
                 "result_key": result.get("cache_key") if result else None,
                 "status": status,
                 "computed_at": entry.get("computed_at"),
@@ -461,79 +559,69 @@ def register_performance_callbacks(app: Any, jobs: Any, run_handler: Any) -> Non
             payload = {
                 "run_id": run.id,
                 "objective_id": objective_id,
-                "objective": run.get_objective(objective_id).name,
                 "cache_key": result.get("cache_key") if result else None,
             }
-            previous_payload = (
-                {key: previous.get(key) for key in ("run_id", "objective_id")} if previous else {}
+            unchanged = previous and all(
+                previous.get(key) == view.get(key)
+                for key in ("run_id", "objective_id", "result_key")
             )
-            unchanged = (
-                previous_payload == {"run_id": run.id, "objective_id": objective_id}
-                and previous.get("result_key") == payload["cache_key"]
-            )
-            return no_update if unchanged else payload, status, running, view
+            return no_update if unchanged else payload, status, running or not bool(options), view
 
-    @app.callback(
-        Output(_id("performance-trials"), "children"),
-        Output(_id("performance-pairs"), "children"),
-        Output(_id("performance-objective"), "children"),
+    def current_result(payload: Any, context: Any) -> Any:
+        if not payload or not context or payload.get("run_id") != context.get("run_id"):
+            return None
+        result = jobs.read(context["run_id"], "candidate_scoring").get("result")
+        if (
+            result
+            and result.get("candidates")
+            and result.get("cache_key") == payload.get("cache_key")
+        ):
+            return result
+        return None
+
+    @app.callback(  # type: ignore[untyped-decorator]
+        Output(_id("performance-holes"), "children"),
+        Output(_id("performance-candidates"), "children"),
+        Output(_id("performance-reference"), "children"),
+        Output(_id("performance-top"), "children"),
         Output(_id("performance-chart"), "figure"),
-        Output(_id("performance-interpretation"), "children"),
-        Output(_id("performance-neighbors"), "children"),
-        Output(_id("performance-unit"), "children"),
-        Output(_id("performance-method"), "children"),
-        Output(_id("performance-threshold-error"), "children"),
+        Output(_id("performance-ranking"), "data"),
+        Output(_id("performance-ranking"), "active_cell"),
+        Output(_id("performance-ranking"), "page_current"),
         Input(_id("performance-data"), "data"),
-        Input(_id("performance-threshold"), "value"),
+        Input(_id("performance-tab"), "value"),
         State(_id("context"), "data"),
     )
-    def performance_results(payload: Any, threshold: Any, context: Any) -> Any:
-        if not payload or not context or payload.get("run_id") != context.get("run_id"):
-            return "—", "—", "—", performance_figure(None), "", "", "", "", ""
-        objective = payload.get("objective", "—")
-        entry = jobs.read(context["run_id"], "performance")
-        result = entry.get("result")
-        if not result or result.get("cache_key") != payload.get("cache_key"):
-            return "—", "—", objective, performance_figure(None), "", "", objective, "", ""
-        differences_path = directory / result["cache_key"] / "differences.npy"
-        threshold_error = ""
-        try:
-            stats = threshold_statistics(result, threshold, differences_path)
-        except (ValueError, TypeError) as error:
-            stats = result
-            threshold_error = str(error)
-        method = [
-            html.P(result["weight_source"]),
-            html.P(
-                "Existing Rashomon weighted RMS distance; ConfigSpace normalization, "
-                "categorical mismatches and inactive-parameter handling are unchanged. "
-                "All valid successful trials at every budget enter the pair analysis. "
-                "Equal nearest-neighbor distances select the lowest trial ID, then history row. "
-                "Quantile groups merge identical distances. Lines join empirical group statistics."
-            ),
-            html.P(
-                f"Excluded unsuccessful, missing-objective or incompatible trials: {result['excluded']:,}."
-            ),
-            html.P(
-                "Weights are derived from this study's performance. Pairs are dependent; "
-                "differences may include evaluation noise. No causal or significance claims."
-            ),
-            html.Ul(
-                [html.Li(f"{name}: {weight:.4g}") for name, weight in result["weights"].items()]
-            ),
-        ]
-        return (
-            f"{result['trials']:,}",
-            f"{result['pairs']:,}",
-            objective,
-            performance_figure(stats),
-            performance_interpretation(stats),
-            (
-                "Enter a valid relevant-difference threshold."
-                if threshold_error
-                else neighbor_table(stats)
-            ),
-            objective,
-            method,
-            threshold_error,
+    def performance_results(payload: Any, tab: Any, context: Any) -> Any:
+        result = current_result(payload, context)
+        if not result:
+            return "—", "—", "—", "—", performance_figure(None), [], None, 0
+        rows = ranking_rows(result, tab)
+        cell = (
+            {"row": 0, "column": 1, "column_id": "relative_score", "row_id": rows[0]["id"]}
+            if rows
+            else None
         )
+        return (
+            f"{len(result['holes']):,}",
+            f"{len(result['candidates']):,}",
+            f"Best observed trial #{result['reference_trial_number']}",
+            f"{result['top_relative_score']:+.3f}",
+            performance_figure(result),
+            rows,
+            cell,
+            0,
+        )
+
+    @app.callback(  # type: ignore[untyped-decorator]
+        Output(_id("performance-details"), "children"),
+        Input(_id("performance-ranking"), "active_cell"),
+        Input(_id("performance-data"), "data"),
+        State(_id("context"), "data"),
+    )
+    def performance_detail(cell: Any, payload: Any, context: Any) -> Any:
+        result = current_result(payload, context)
+        if not result:
+            return ""
+        identifier = cell.get("row_id") if cell else None
+        return candidate_details(result, identifier)

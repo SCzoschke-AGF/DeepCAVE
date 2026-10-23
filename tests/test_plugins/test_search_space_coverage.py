@@ -2547,7 +2547,7 @@ def test_dash_registers_callbacks_and_layout_contains_no_global_process(monkeypa
     assert all(suite._id(f"{analysis}-cancel") in ids for analysis in suite.UI_ANALYSES)
     assert "Coverage status" not in labels
     assert suite._id("coverage-status") not in ids
-    assert len(app.callback_map) == 28
+    assert len(app.callback_map) == 29
     assert {callback["callback"].__name__ for callback in app.callback_map.values()} == {
         "automatic",
         "planning_resolution",
@@ -2556,6 +2556,7 @@ def test_dash_registers_callbacks_and_layout_contains_no_global_process(monkeypa
         "planning_detail",
         "performance_job",
         "performance_results",
+        "performance_detail",
         "selectors",
         "marginal",
         "scatter",

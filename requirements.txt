@@ -8,6 +8,7 @@ pandas>=1.3.4
 # numpy needs to be installed via conda instead of pip
 matplotlib==3.9.0
 seaborn>=0.13.0
+statsmodels>=0.14.0
 pyyaml>=6.0.1
 # Kaleido 1.x requires Plotly >=6.1.1 and Chrome (see RUNBOOK.md).
 kaleido==1.4.0

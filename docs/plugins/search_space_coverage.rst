@@ -51,30 +51,19 @@ Five internal tabs keep each question in its own view:
   are included. Elite selection spans the run; only jointly active trials appear
   in the selected plot. Layer changes do not change coverage calculations or
   start worker jobs. Trial tooltips remain disabled; cell hover shows density or performance.
-* **Global** places **Performance-aware Coverage** to the right of the existing
-  Coverage Array and Improve Coverage panels (stacked on narrow screens). It uses
-  **Main Objective** from the sidebar. Its own **Refresh** starts an independent
-  worker job; changing the objective never starts a job or changes the left panels.
-  All successful trials with a finite selected score and compatible configurations,
-  at all budgets, enter the analysis, including duplicate configurations.
-  The existing Rashomon importance-weighted **RMS** distance is reused unchanged,
-  including logarithmic, categorical and inactive-parameter handling. Its global
-  fANOVA main-effect weights are fitted to successful trials at the highest budget,
-  with 16 trees and seed 0. The panel exposes the weights and their provenance;
-  unavailable weights produce an explanation instead of an unweighted fallback.
-  Every unique trial pair enters the computation. Small studies show every pair;
-  larger studies show a full-count 2D density histogram. Median and P90 lines join
-  empirical distance-quantile groups, merging equal distances. Pair summaries also
-  retain mean, P95 and the fraction strictly above the relevance threshold.
-  The nearest-neighbor table uses one leave-one-out observation per valid trial,
-  grouped independently by nearest-neighbor distance quantiles. Distance ties
-  select the lowest trial ID, then history row. Identical configurations can be
-  neighbors at distance zero. The editable threshold defaults to 0.01 in the raw
-  units of the selected objective. Exact threshold changes use cached sorted
-  differences without recalculating configuration distances. Cache inputs include
-  trial/configuration content, objective, normalization and importance weights.
-  These diagnostics describe dependent observed pairs, potentially including
-  evaluation noise; they provide no calibrated predictions for unseen configurations.
+* **Global** places **Performance scoring of coverage candidates** to the right
+  of Coverage Array and Improve Coverage (stacked on narrow screens). Its own
+  **Refresh** runs independent coverage-hole detection, candidate generation,
+  KDE scoring and sequential CHR planning for the sidebar's **Main Objective**.
+  Opening the page and changing controls never submit an expensive job.
+  The compact histogram shows all generated candidates' log-density ratios
+  relative to the best observed trial, with a dashed reference at zero.
+  The ranking tabs show all candidates, the best generated candidate per hole,
+  or the actual CHR plan in selection order. Click a table cell to inspect the
+  configuration, raw/reference/relative scores, empirical pool percentile and
+  geometric radius reduction. **Show full config** expands the complete values.
+  Plan membership is read-only; inspecting a row never changes the plan.
+  This plan is separate from the left covering-array plan.
 * The left **Global** column starts with **Combinatorial Coverage**: a measured resolution/strength
   **Coverage Array** for 2, 3, 4, and 8 levels. Each resolution shows the achieved
   strength and coverage at the next strength, so near-complete interactions remain
@@ -439,3 +428,93 @@ or ``"minimize_trials"``, ``resolution``, ``strength_mode="next"`` (or ``"custom
 with ``target_strength``, or ``"maximum"``), ``max_additional_trials``,
 ``solver_timeout`` and ``seed``. The returned dictionary is the validated plan;
 no trials are executed. Sampler metadata is not used to determine compatibility.
+
+Coverage-hole-guided KDE scoring
+-------------------------------
+
+``deepcave.evaluators.coverage_candidates.score_coverage_candidates(run,
+objective_id, directory, options)`` returns the shared candidate collection,
+sampled hole centers, reference metadata, sequential plan IDs, and a geometric
+trace of each virtual insertion. Options are ``pool_size`` (default 2,000),
+``holes`` per step (15), ``plan_size`` (8), ``reference_samples`` (2,048), and
+``seed`` (42). The pool size is a generation target, not a trial budget.
+Deduplication or a finite space can produce fewer candidates. Newly exposed
+holes can add their valid centers to the same pool during sequential planning.
+The summary counts all distinct centers analyzed across planning steps and all
+actually generated candidates, including these additions.
+
+Coverage reuses ``prepare_coverage``, ``sample_reference_design`` and the existing
+nearest-trial RMS sampling-space distance. It never uses objectives, fANOVA
+weights, KDE scores or covering-array tuples. Holes are the largest distinct
+sampled empty-ball centers, with IDs derived from their configurations. These
+are sampled witnesses, not a certified partition into connected holes.
+
+The existing CHR diagnostic defines centers and radii but no candidate-membership
+rule. The new parameter-free geometric rule assigns a candidate to its nearest
+current hole center and requires both:
+
+* its distance to that center is strictly less than the center's CHR radius;
+* its distance to that center is strictly less than its own nearest-observation
+  distance, placing it in the center's Voronoi cell against observed sites.
+
+Generation allocates alternatives preferentially to larger balls, without KDE
+input. Selection always addresses the currently largest sampled hole, choosing
+the highest KDE score only within that hole's admissible alternatives. It then
+virtually inserts the point, recomputes radii on the same reference design,
+reassigns remaining alternatives and adds new centers when necessary. Neither
+observed trials nor the original ConfigSpace RNG are modified. Each step stores
+the target-center radius before/after selection and the global sampled maximum
+radius before/after. No count of allegedly closed holes is inferred. A
+candidate retains its original generation-hole attribution; ``plan_hole_id``
+and ``selection_radius_before/after`` describe its possibly different role in
+the current sequential plan. The plan tab displays that selection-time geometry.
+
+``deepcave.evaluators.kde`` contains the production statistical primitives shared
+with ``examples/api/benchmark_tpe_kde.py``. The Gaussian/Wang-Ryzin kernels,
+declared-bound log/linear transforms, ordinal step indices, analytic leave-one-out
+log-likelihood gradient, bounded L-BFGS-B limits, initialization and convergence
+settings are unchanged. Log integers retain the benchmark's continuous log
+relaxation. Production uses only the bounded fit and rejects convergence errors
+or timeouts explicitly, without a normal-reference fallback. POSIX worker
+processes enforce the existing 120-second per-density optimization limit.
+
+Only successful historical trials with finite selected objective values train
+the model. The best ``ceil(0.2 * n)`` trials form good; all remaining trials form
+bad. Ordering respects the selected objective's direction, with ties broken by
+original trial number then history row. Both groups need more observations
+than nonconstant dimensions. Duplicated historical configurations remain training
+observations. Generated configurations never become training observations during
+virtual planning.
+
+Scores are ``log p(x | good) - log p(x | bad)``. The best historical configuration
+is evaluated by exactly the same fitted model; its raw reference score is normally
+nonzero. Subtracting it produces the relative score and places the histogram's
+reference at zero. The anchor is intentionally in-sample, not independent
+validation. A positive difference is a more favorable estimated density ratio,
+not predicted accuracy, expected improvement or a success probability.
+
+Fits are persisted as numerical arrays without pickle, keyed by the study's
+configuration/distribution/status/objective fingerprint and implementation
+version. Generated pools/plans use a separate options-sensitive cache. Changes
+to CHR settings reuse the historical fit and reference; changed trials or the
+objective require a new fit after explicit Refresh. Worker failures and missing
+prerequisites show concrete messages without example scores.
+
+Supported spaces are fixed, unconditional uniform/log float and integer Optuna
+distributions, including declared step grids and constants. Existing numerical
+forbidden clauses remain enforced by legal reference sampling and configuration
+validation. Categorical, ordinal, conditional, changing-distribution, Normal/Beta,
+and explicitly weighted integer-distribution spaces are unsupported by this
+scorer, even where the separate coverage diagnostics support them. The Optuna
+converter retains a source-distribution audit to prevent silently fitting an
+intersection of a changing space. A sidebar objective is scored individually;
+there is no multi-objective acquisition or combined coverage/performance score.
+
+``uv run --locked python -m tests.coverage_candidates_smoke`` computes a real
+Fashion-MNIST study from ``logs/Optuna/nn_fashionmnist_mo/run_1``, renders the actual
+Global workspace, and checks tabs, row selection, full config, zero reference
+and Refresh with Playwright. It writes screenshots and source metadata to
+``cache/coverage-candidates-demo/``. This harness substitutes local queue transport
+for Redis/RQ and precomputes fits in the main process. Production still uses its
+existing independent worker queue. Use ``--run`` and ``--objective`` for another
+supported source. Chrome must be installed as described in ``RUNBOOK.md``.

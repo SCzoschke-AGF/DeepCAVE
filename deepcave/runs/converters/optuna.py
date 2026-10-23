@@ -161,6 +161,7 @@ class OptunaRun(Run):
                 CategoricalDistribution,
                 FloatDistribution,
                 IntDistribution,
+                distribution_to_json,
             )
             from optuna.search_space import IntersectionSearchSpace
             from optuna.study import StudyDirection
@@ -274,6 +275,27 @@ class OptunaRun(Run):
                 optuna_study, "_deepcave_sampler_name", type(optuna_study.sampler).__name__
             ),
         }
+        # Preserve the audit before intersection conversion can hide dynamic parameters.
+        names = set().union(*(trial.distributions for trial in completed_trials))
+        changing = [
+            name
+            for name in sorted(names)
+            if any(name not in trial.distributions for trial in completed_trials)
+            or len(
+                {
+                    distribution_to_json(trial.distributions[name])
+                    for trial in completed_trials
+                    if name in trial.distributions
+                }
+            )
+            != 1
+        ]
+        meta["optuna_space_error"] = (
+            "KDE scoring does not support conditional or changing Optuna distributions: "
+            + ", ".join(changing)
+            if changing
+            else None
+        )
         model_family = optuna_study.user_attrs.get("model_family")
         if model_family is not None:
             meta["model_family"] = model_family
