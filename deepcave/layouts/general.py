@@ -24,21 +24,20 @@ It handles different callbacks of the layout.
     - GeneralLayout: Provide different utilities to handle callbacks for the layout.
 """
 
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional
 
 from pathlib import Path
 
 import dash_bootstrap_components as dbc
-from dash import dcc, html
+from dash import ctx, dcc, html, no_update
 from dash.dependencies import ALL, Input, Output, State
 from dash.development.base_component import Component
 from dash.exceptions import PreventUpdate
 
 from deepcave import app, c, notification, queue, rc, run_handler
 from deepcave.layouts import Layout
-from deepcave.runs import NotMergeableError
+from deepcave.runs import NotMergeableError, Status
 from deepcave.runs.converters.optuna import OptunaRun
-from deepcave.runs.run import Run
 from deepcave.utils.hash import string_to_hash
 from deepcave.utils.layout import help_button
 from deepcave.utils.optuna import (
@@ -48,11 +47,11 @@ from deepcave.utils.optuna import (
     list_optuna_studies,
     resolve_optuna_database,
 )
-from deepcave.utils.util import short_string
 
 OPTUNA_DISCOVERY_STORE_ID = "general-optuna-discovery"
 GROUP_HYDRATION_STORE_ID = "general-group-hydration"
 CACHE_CLEARED_TRIGGER_ID = "general-cache-cleared-trigger"
+SQLITE_EXTENSIONS = {".db", ".sqlite", ".sqlite3"}
 
 
 class GeneralLayout(Layout):
@@ -67,75 +66,96 @@ class GeneralLayout(Layout):
 
     def register_callbacks(self) -> None:
         """Register if there were any callbacks."""
-        self._callback_working_directory_changed()
+        self._callback_browse_optuna_database()
         self._callback_discover_optuna_studies()
         self._callback_update_optuna_button()
-        self._callback_display_available_runs()
         self._callback_display_selected_runs()
         self._callback_manage_run()
         self._callback_display_groups()
         self._callback_manage_groups()
         self._callback_clear_cache()
 
-    def _callback_working_directory_changed(self) -> None:
-        """Check for change in working directory."""
-        inputs = [
-            Input("general-working-directory-input", "value"),
-            # Those inputs are for changing working directory quickly
-            # (if someone is pressing on a directory)
-            # Only works with "ALL"
-            Input({"type": "general-dynamic-change-directory", "index": ALL}, "n_clicks"),
-            Input("general-optuna-import-trigger", "data"),
-            State({"type": "general-dynamic-available-run-path", "index": ALL}, "data"),
-        ]
-
+    def _callback_browse_optuna_database(self) -> None:
+        """Browse server-side directories without changing the run working directory."""
         outputs = [
-            # Working directory input
-            Output("general-working-directory-input", "value"),
-            # Converter text
-            Output("general-converter-label", "children"),
-            Output("general-available-runs", "data"),
+            Output("general-optuna-browser", "is_open"),
+            Output("general-optuna-browser-directory", "value"),
+            Output("general-optuna-browser-entries", "children"),
+            Output("general-optuna-database-input", "value"),
+            Output("general-optuna-browser-error", "children"),
         ]
+        inputs = [
+            Input("general-optuna-browse-button", "n_clicks"),
+            Input("general-optuna-browser-parent", "n_clicks"),
+            Input("general-optuna-browser-close", "n_clicks"),
+            Input("general-optuna-browser-directory", "value"),
+            Input({"type": "general-optuna-browser-entry", "path": ALL}, "n_clicks"),
+        ]
+        states = [State("general-optuna-database-input", "value")]
 
-        # Register updates from inputs
-        @app.callback(outputs, inputs)  # type: ignore
-        def callback(
-            working_dir: str,
-            dynamic_n_clicks: List[Optional[int]],
-            _optuna_import_trigger: int,
-            dynamic_working_dirs: List[str],
-        ):
-            """
-            Register updates from inputs.
+        @app.callback(outputs, inputs, states, prevent_initial_call=True)  # type: ignore
+        def callback(_browse, _parent, _close, directory, entry_clicks, database_value):
+            """Navigate directories or select a validated local SQLite file."""
+            trigger = ctx.triggered_id
+            if trigger == "general-optuna-browser-close":
+                return False, no_update, no_update, no_update, ""
 
-            Parameters
-            ----------
-            working_dir : str
-                The working directory.
-            dynamic_n_clicks : List[Optional[int]]
-                The number of clicks.
-            dynamic_working_dirs : List[str]
-                The working directories.
-            """
-            # `working_dir` is only none on page load
-            if working_dir is None:
-                # Handler working directory
-                working_dir = run_handler.get_working_directory()
-                converter = run_handler.available_run_classes
-            else:
-                for dir, n_clicks in zip(dynamic_working_dirs, dynamic_n_clicks):
-                    if n_clicks is not None:
-                        working_dir = dir
-                        break
+            try:
+                if trigger == "general-optuna-browse-button":
+                    working_dir = run_handler.get_working_directory()
+                    try:
+                        directory = resolve_optuna_database(
+                            database_value or "", working_dir
+                        ).parent
+                    except (OSError, ValueError):
+                        directory = working_dir
+                elif trigger == "general-optuna-browser-parent":
+                    directory = Path(directory).expanduser().parent
+                elif isinstance(trigger, dict):
+                    # Replacing the listing also changes the wildcard inputs without a click.
+                    if not any(entry_clicks):
+                        raise PreventUpdate
+                    path = Path(trigger["path"])
+                    if not path.is_dir():
+                        if path.suffix.lower() not in SQLITE_EXTENSIONS:
+                            raise ValueError("Select a .db, .sqlite or .sqlite3 file.")
+                        database = resolve_optuna_database(
+                            str(path), run_handler.get_working_directory()
+                        )
+                        return False, no_update, no_update, str(database), ""
+                    directory = path
+                elif trigger != "general-optuna-browser-directory" or not directory:
+                    raise PreventUpdate
 
-                run_handler.set_working_directory(working_dir)
-                converter = run_handler.available_run_classes
-
-            return (
-                str(working_dir),
-                self.get_converter_text(converter),
-                run_handler.get_available_run_paths(),
-            )
+                path = Path(directory).expanduser().resolve(strict=True)
+                if not path.is_dir():
+                    raise ValueError(f"Not a directory: {path}")
+                entries = []
+                for entry in path.iterdir():
+                    if entry.is_dir():
+                        entries.append((True, entry))
+                    elif entry.is_file() and entry.suffix.lower() in SQLITE_EXTENSIONS:
+                        entries.append((False, entry))
+                entries.sort(key=lambda item: (not item[0], item[1].name.casefold()))
+                children = [
+                    dbc.Button(
+                        [
+                            html.I(className=f"fas fa-{'folder' if is_dir else 'database'} me-2"),
+                            entry.name,
+                        ],
+                        id={"type": "general-optuna-browser-entry", "path": str(entry)},
+                        n_clicks=0,
+                        color="link",
+                        className="text-start text-break w-100",
+                        title=str(entry),
+                    )
+                    for is_dir, entry in entries
+                ]
+                if not children:
+                    children = [html.Div("No folders or SQLite files found.", className="p-2")]
+                return True, str(path), children, no_update, ""
+            except (OSError, ValueError) as exception:
+                return True, no_update, [], no_update, str(exception)
 
     def _callback_discover_optuna_studies(self) -> None:
         """Discover studies whenever the SQLite database path changes."""
@@ -145,18 +165,27 @@ class GeneralLayout(Layout):
             Output("general-optuna-database-status", "children"),
             Output("general-optuna-database-status", "className"),
             Output(OPTUNA_DISCOVERY_STORE_ID, "data"),
+            Output("general-optuna-study-dropdown", "placeholder"),
+            Output("general-optuna-study-dropdown", "disabled"),
         ]
         inputs = [
             Input("general-optuna-database-input", "value"),
-            Input("general-working-directory-input", "value"),
+            Input("general-working-directory", "data"),
             State("general-optuna-study-dropdown", "value"),
+            State(OPTUNA_DISCOVERY_STORE_ID, "data"),
         ]
 
         @app.callback(outputs, inputs)  # type: ignore
-        def callback(database_value: str, working_dir: str, selected_study: Optional[str]):
+        def callback(
+            database_value: str,
+            working_dir: str,
+            selected_study: Optional[str],
+            previous_discovery: Any,
+        ):
             """Populate the study dropdown from a local Optuna database."""
-            if database_value is None or working_dir is None:
-                return [], None, "Studies", "mt-3", None
+            placeholder = "Select a study"
+            if not database_value or not database_value.strip() or working_dir is None:
+                return [], None, "", "d-none", None, placeholder, True
 
             try:
                 database = resolve_optuna_database(database_value, Path(working_dir))
@@ -167,12 +196,20 @@ class GeneralLayout(Layout):
                     "studies": [],
                     "error": str(exception),
                 }
-                return [], None, str(exception), "mt-3 text-danger", discovery
+                return (
+                    [],
+                    None,
+                    str(exception),
+                    "small text-danger mt-1",
+                    discovery,
+                    placeholder,
+                    True,
+                )
 
             if len(study_names) == 0:
-                message = "Studies (0 studies included)"
-                discovery = {"database": str(database), "studies": [], "error": None}
-                return [], None, message, "mt-3 text-warning", discovery
+                message = "No Optuna studies found in this database."
+                discovery = {"database": str(database), "studies": [], "error": message}
+                return [], None, message, "small text-warning mt-1", discovery, placeholder, True
 
             options = [
                 {
@@ -181,17 +218,22 @@ class GeneralLayout(Layout):
                 }
                 for study_name in study_names
             ]
-            if selected_study not in study_names:
-                selected_study = study_names[0] if len(study_names) == 1 else None
+            if (
+                not isinstance(previous_discovery, dict)
+                or previous_discovery.get("database") != str(database)
+                or previous_discovery.get("input") != database_value
+                or selected_study not in study_names
+            ):
+                selected_study = None
 
-            noun = "study" if len(study_names) == 1 else "studies"
-            message = f"Studies ({len(study_names)} {noun} included)"
             discovery = {
                 "database": str(database),
+                "input": database_value,
                 "studies": study_names,
                 "error": None,
             }
-            return options, selected_study, message, "mt-3", discovery
+            placeholder = f"Select a study ({len(study_names)} available)"
+            return options, selected_study, "", "d-none", discovery, placeholder, False
 
     def _callback_update_optuna_button(self) -> None:
         """Update the Optuna import button based on the selected snapshot."""
@@ -202,7 +244,7 @@ class GeneralLayout(Layout):
         inputs = [
             Input("general-optuna-database-input", "value"),
             Input("general-optuna-study-dropdown", "value"),
-            Input("general-working-directory-input", "value"),
+            Input("general-working-directory", "data"),
             Input("general-optuna-import-trigger", "data"),
             Input(OPTUNA_DISCOVERY_STORE_ID, "data"),
         ]
@@ -217,7 +259,7 @@ class GeneralLayout(Layout):
         ):
             """Choose the load or refresh state for the import button."""
             if database_value is None or study_name is None or working_dir is None:
-                return "Load Optuna Study", True
+                return "Load Study", True
 
             try:
                 database = resolve_optuna_database(database_value, Path(working_dir))
@@ -225,108 +267,30 @@ class GeneralLayout(Layout):
                     discovery.get("database") if isinstance(discovery, dict) else None
                 )
                 study_names = discovery.get("studies", []) if isinstance(discovery, dict) else []
-                if str(database) != discovered_database or study_name not in study_names:
-                    return "Load Optuna Study", True
+                if (
+                    str(database) != discovered_database
+                    or discovery.get("input") != database_value
+                    or study_name not in study_names
+                ):
+                    return "Load Study", True
                 run_path = get_optuna_snapshot_path(database, study_name, Path(working_dir))
             except Exception:
-                return "Load Optuna Study", True
+                return "Load Study", True
 
             if (run_path / SNAPSHOT_FILENAME).is_file():
-                return "Refresh from Optuna", False
+                return "Refresh Study", False
 
-            return "Load Optuna Study", False
-
-    def _callback_display_available_runs(self) -> None:
-        """Display available runs."""
-        output = Output("general-available-runs-container", "children")
-        input = Input("general-available-runs", "data")
-
-        @app.callback(output, input)  # type: ignore
-        def callback(run_paths: List[str]):
-            """
-            Display the available runs.
-
-            Parameters
-            ----------
-            run_paths : List[str]
-                The run paths.
-            """
-            children = []
-
-            # Add text to go to parent directory
-            new_element = html.Div(
-                [
-                    html.I(
-                        className="fas fa-folder-open fa-lg",
-                        id={"type": "general-dynamic-add-run", "index": -1},
-                        style={"pointer-events": "none"},
-                    ),
-                    dbc.Button(
-                        "..",
-                        id={"type": "general-dynamic-change-directory", "index": -1},
-                        color="link",
-                    ),
-                    dcc.Store(
-                        id={"type": "general-dynamic-available-run-path", "index": -1},
-                        data=str(Path(run_handler.get_working_directory()).parent.absolute()),
-                    ),
-                ],
-                className="mb-1",
-            )
-            children.append(new_element)
-
-            for i, run_path in enumerate(run_paths):
-                run_name = run_handler.get_run_name(run_path)
-
-                is_run = run_handler.is_run(run_path)
-                # Differenciate between run and directory for visibility and usability reasons
-                if is_run:
-                    new_element = html.Div(
-                        [
-                            dbc.Button(
-                                "+", id={"type": "general-dynamic-add-run", "index": i}, size="sm"
-                            ),
-                            dbc.Button(
-                                run_name,
-                                id={"type": "general-dynamic-change-directory", "index": i},
-                                color="light",
-                                disabled=True,
-                            ),
-                            dcc.Store(
-                                id={"type": "general-dynamic-available-run-path", "index": i},
-                                data=run_path,
-                            ),
-                        ],
-                        className="mb-1",
-                    )
-                else:
-                    new_element = html.Div(
-                        [
-                            html.I(className="fas fa-folder fa-lg"),
-                            dbc.Button(
-                                run_name,
-                                id={"type": "general-dynamic-change-directory", "index": i},
-                                color="link",
-                            ),
-                            dcc.Store(
-                                id={"type": "general-dynamic-available-run-path", "index": i},
-                                data=run_path,
-                            ),
-                        ],
-                        className="mb-1",
-                    )
-                children.append(new_element)
-            if len(children) == 0:
-                return html.Div("No runs found.")
-
-            return children
+            return "Load Study", False
 
     def _callback_display_selected_runs(self) -> None:
         """Display the selected runs."""
-        output = Output("general-selected-runs-container", "children")
+        outputs = [
+            Output("general-selected-runs-container", "children"),
+            Output("general-selected-runs-count", "children"),
+        ]
         input = Input("general-selected-runs", "data")
 
-        @app.callback(output, input)  # type: ignore
+        @app.callback(outputs, input)  # type: ignore
         def callback(run_paths: List[str]):
             """
             Display the selected runs.
@@ -336,44 +300,96 @@ class GeneralLayout(Layout):
             run_paths : List[str]
                 The run paths.
             """
-            children = []
+            rows = []
 
-            for i, run_path in enumerate(run_paths):
+            for i, run_path in enumerate(run_paths or []):
                 run_name = run_handler.get_run_name(run_path)
-
-                shortened_run_path = short_string(run_path, 30, mode="prefix")
-
-                new_element = html.Div(
-                    [
-                        dbc.Button(
-                            "-",
-                            id={"type": "general-dynamic-remove-run", "index": i},
-                            color="danger",
-                        ),
-                        html.Span(
-                            [
-                                run_name,
-                                html.I(
-                                    f"({shortened_run_path})",
-                                    style={"font-size": "10px", "margin-left": "6px"},
-                                ),
-                            ],
-                            # color="light",
-                            style={"margin-left": "12px"},
-                        ),
-                        dcc.Store(
-                            id={"type": "general-dynamic-selected-run-path", "index": i},
-                            data=run_path,
-                        ),
-                    ],
-                    className="mb-1",
+                run = run_handler.runs.get(run_path)
+                successful_trials = (
+                    sum(trial.status == Status.SUCCESS for trial in run.history)
+                    if run is not None
+                    else "—"
                 )
-                children.append(new_element)
+                hyperparameters = len(run.configspace) if run is not None else "—"
+                sampler = (
+                    (run.get_meta().get("optuna_sampler") or "Unknown") if run is not None else "—"
+                )
 
-            if len(children) == 0:
-                return html.Div("No runs selected.")
+                rows.append(
+                    html.Tr(
+                        [
+                            html.Td(
+                                [
+                                    html.Div(run_name, className="general-run-name"),
+                                ],
+                            ),
+                            html.Td(successful_trials),
+                            html.Td(hyperparameters),
+                            html.Td(sampler),
+                            html.Td(
+                                [
+                                    dbc.Button(
+                                        [
+                                            html.I(
+                                                className="far fa-trash-alt",
+                                                **{"aria-hidden": "true"},
+                                            ),
+                                            html.Span(
+                                                f"Remove {run_name}", className="visually-hidden"
+                                            ),
+                                        ],
+                                        id={"type": "general-dynamic-remove-run", "index": i},
+                                        color="danger",
+                                        outline=True,
+                                        size="sm",
+                                        title=f"Remove {run_name}",
+                                        className="general-run-remove",
+                                    ),
+                                    dcc.Store(
+                                        id={
+                                            "type": "general-dynamic-selected-run-path",
+                                            "index": i,
+                                        },
+                                        data=run_path,
+                                    ),
+                                ],
+                                className="general-run-actions",
+                            ),
+                        ],
+                    )
+                )
 
-            return children
+            count = len(rows)
+            if not rows:
+                rows = [
+                    html.Tr(html.Td("No runs selected.", colSpan=5, className="general-runs-empty"))
+                ]
+
+            table = html.Table(
+                [
+                    html.Thead(
+                        html.Tr(
+                            [
+                                html.Th("Run Name", scope="col"),
+                                html.Th(
+                                    "Successful Trials", scope="col", className="general-run-trials"
+                                ),
+                                html.Th(
+                                    "Hyperparameters",
+                                    scope="col",
+                                    className="general-run-hyperparameters",
+                                ),
+                                html.Th("Sampler", scope="col", className="general-run-sampler"),
+                                html.Th("Actions", scope="col", className="general-run-actions"),
+                            ]
+                        )
+                    ),
+                    html.Tbody(rows),
+                ],
+                className="general-runs-table",
+                **{"aria-label": "Selected runs"},
+            )
+            return table, f"{count} {'run' if count == 1 else 'runs'}"
 
     def _callback_manage_run(self) -> None:
         """Manage runs, including adding and removing them."""
@@ -551,7 +567,7 @@ class GeneralLayout(Layout):
                             placeholder="Name",
                             type="text",
                             value=input_value,
-                            style={"margin-bottom": "-1px"},
+                            size="sm",
                         ),
                         dcc.Dropdown(
                             id={"type": "group-dropdown", "index": index},
@@ -578,7 +594,7 @@ class GeneralLayout(Layout):
                             className="d-flex align-items-center mt-1",
                         ),
                     ],
-                    className="mb-2",
+                    className="general-group-editor",
                 )
 
             groups = run_handler.get_selected_groups()
@@ -756,102 +772,206 @@ class GeneralLayout(Layout):
 
             return None, revision or 0
 
-    @staticmethod
-    def get_converter_text(converters: List[Type[Run]]) -> html.Div:
-        """
-        Get the text for the available run converters.
-
-        Parameters
-        ----------
-        converters : List[Type[Run]]
-            A list of the avaialble run converters.
-
-        Returns
-        -------
-        html.Div
-            The text with all the available converters.
-        """
-        converter_text = []
-        for converter in converters:
-            converter_text += [converter.prefix]
-
-        return html.Div(
-            html.Span(f"Available run converters: {', '.join(converter_text)}"),
-            className="mt-2",
-        )
-
     def __call__(self) -> List[Component]:  # noqa: D102
         return [
             html.H1("General"),
-            # Working dir
-            dbc.Label("Working Directory"),
-            help_button("Relative and absolute paths are supported."),
-            dbc.InputGroup(
-                [
-                    dbc.Input(
-                        id="general-working-directory-input",
-                        placeholder="",
-                        type="text",
-                        debounce=True,
-                    ),
-                    dbc.DropdownMenu(
-                        html.Div(id="general-available-runs-container", className="px-2 py-1"),
-                        label="Browse",
-                        addon_type="append",
-                        align_end=True,
-                        color="secondary",
-                    ),
-                ]
+            dcc.Store(
+                id="general-working-directory", data=str(run_handler.get_working_directory())
             ),
-            dbc.FormText(id="general-converter-label"),
-            dcc.Store(id="general-available-runs", data={}),
             dcc.Store(id="general-optuna-import-trigger", data=0),
             dcc.Store(id=OPTUNA_DISCOVERY_STORE_ID, data=None),
             dcc.Store(id=GROUP_HYDRATION_STORE_ID, data=None),
             dcc.Store(id=CACHE_CLEARED_TRIGGER_ID, data=0),
             dbc.Card(
                 [
-                    dbc.CardHeader("Load Optuna Study"),
                     dbc.CardBody(
                         [
-                            dbc.Label("SQLite database"),
-                            dbc.Input(
-                                id="general-optuna-database-input",
-                                type="text",
-                                value="optuna.db",
-                                debounce=True,
+                            html.Div(
+                                [
+                                    html.Span("Load Optuna Study"),
+                                    html.I(className="fas fa-database text-muted"),
+                                ],
+                                className="d-flex justify-content-between mb-2",
+                            ),
+                            dbc.Label("SQLite database", html_for="general-optuna-database-input"),
+                            html.Div(
+                                [
+                                    dbc.Input(
+                                        id="general-optuna-database-input",
+                                        type="text",
+                                        value="",
+                                        placeholder="/app/data/optuna.db",
+                                        debounce=True,
+                                    ),
+                                    dbc.Button(
+                                        [html.I(className="far fa-folder-open me-1"), "Browse"],
+                                        id="general-optuna-browse-button",
+                                        color="secondary",
+                                        outline=True,
+                                    ),
+                                ],
+                                className="general-optuna-row",
+                            ),
+                            html.Div(
+                                id="general-optuna-database-status",
+                                className="d-none",
+                                role="status",
                             ),
                             dbc.Label(
-                                "Studies",
-                                id="general-optuna-database-status",
-                                className="mt-3",
+                                "Study", html_for="general-optuna-study-dropdown", className="mt-2"
                             ),
-                            dcc.Dropdown(id="general-optuna-study-dropdown", options=[]),
-                            dbc.Button(
-                                "Load Optuna Study",
-                                id="general-optuna-load-button",
-                                color="primary",
-                                className="mt-3",
-                                disabled=True,
+                            html.Div(
+                                [
+                                    dcc.Dropdown(
+                                        id="general-optuna-study-dropdown",
+                                        options=[],
+                                        placeholder="Select a study",
+                                        disabled=True,
+                                        style={"flex": "1", "minWidth": 0},
+                                    ),
+                                    dbc.Button(
+                                        "Load Study",
+                                        id="general-optuna-load-button",
+                                        color="primary",
+                                        disabled=True,
+                                    ),
+                                ],
+                                className="general-optuna-row",
                             ),
                         ]
                     ),
                 ],
-                className="mt-3 mb-3",
+                className="general-optuna-card mb-2",
             ),
-            html.Hr(),
-            # Selected Runs
-            html.H2("Selected Runs"),
+            dbc.Modal(
+                [
+                    dbc.ModalHeader(dbc.ModalTitle("Select SQLite database"), close_button=False),
+                    dbc.ModalBody(
+                        [
+                            dbc.Label("Directory", html_for="general-optuna-browser-directory"),
+                            dbc.InputGroup(
+                                [
+                                    dbc.Input(id="general-optuna-browser-directory", debounce=True),
+                                    dbc.Button(
+                                        "Up", id="general-optuna-browser-parent", outline=True
+                                    ),
+                                ]
+                            ),
+                            html.Div(
+                                id="general-optuna-browser-error",
+                                className="small text-danger mt-1",
+                                role="status",
+                            ),
+                            html.Div(
+                                id="general-optuna-browser-entries",
+                                className="mt-2",
+                                style={"maxHeight": "50vh", "overflowY": "auto"},
+                            ),
+                        ]
+                    ),
+                    dbc.ModalFooter(dbc.Button("Cancel", id="general-optuna-browser-close")),
+                ],
+                id="general-optuna-browser",
+                is_open=False,
+                size="lg",
+            ),
             dcc.Store(id="general-selected-runs", data={}),
-            html.Div(id="general-selected-runs-container", className="mt-2"),
-            html.Hr(),
-            # Groups
-            html.H2("Groups"),
-            html.Div(id="general-group-container", children=[]),
-            dbc.Button("Add Group", id="general-add-group"),
             dcc.Store(id="general-group-trigger", data=0),
-            html.Hr(),
-            # Cache
-            html.H2("Caches"),
-            dbc.Button("Clear Plugin Caches", id="general-clear-cache-button", color="primary"),
+            dbc.Card(
+                dbc.CardBody(
+                    [
+                        html.Div(
+                            [
+                                html.H2(
+                                    [
+                                        html.I(
+                                            className="fas fa-play general-card-icon",
+                                            **{"aria-hidden": "true"},
+                                        ),
+                                        "Selected Runs",
+                                    ],
+                                    className="general-card-title",
+                                ),
+                                html.Span(
+                                    "0 runs",
+                                    id="general-selected-runs-count",
+                                    className="general-run-count",
+                                ),
+                            ],
+                            className="general-card-heading",
+                        ),
+                        html.Div(
+                            id="general-selected-runs-container",
+                            className="general-runs-table-wrapper",
+                        ),
+                    ]
+                ),
+                className="general-management-card general-selected-runs-card",
+            ),
+            html.Div(
+                [
+                    dbc.Card(
+                        dbc.CardBody(
+                            [
+                                html.H2(
+                                    [
+                                        html.I(
+                                            className="fas fa-users general-card-icon",
+                                            **{"aria-hidden": "true"},
+                                        ),
+                                        "Groups",
+                                    ],
+                                    className="general-card-title",
+                                ),
+                                html.P(
+                                    "Organize runs into groups.",
+                                    className="general-card-description",
+                                ),
+                                dbc.Button(
+                                    [
+                                        html.I(
+                                            className="fas fa-plus me-1", **{"aria-hidden": "true"}
+                                        ),
+                                        "Add Group",
+                                    ],
+                                    id="general-add-group",
+                                    color="primary",
+                                    size="sm",
+                                ),
+                                html.Div(id="general-group-container", children=[]),
+                            ]
+                        ),
+                        className="general-management-card",
+                    ),
+                    dbc.Card(
+                        dbc.CardBody(
+                            [
+                                html.H2(
+                                    [
+                                        html.I(
+                                            className="fas fa-database general-card-icon",
+                                            **{"aria-hidden": "true"},
+                                        ),
+                                        "Caches",
+                                    ],
+                                    className="general-card-title",
+                                ),
+                                html.P(
+                                    "Manage cached analysis data.",
+                                    className="general-card-description",
+                                ),
+                                dbc.Button(
+                                    "Clear Plugin Caches",
+                                    id="general-clear-cache-button",
+                                    color="secondary",
+                                    outline=True,
+                                    size="sm",
+                                ),
+                            ]
+                        ),
+                        className="general-management-card",
+                    ),
+                ],
+                className="general-management-grid",
+            ),
         ]

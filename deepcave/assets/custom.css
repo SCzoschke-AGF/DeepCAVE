@@ -65,6 +65,208 @@ thead {
     background-color: #fff;
 }
 
+.general-optuna-card {
+    border-radius: 0.85rem;
+}
+
+.general-optuna-card .card-body {
+    padding: 0.75rem;
+}
+
+.general-optuna-card label {
+    color: #526075;
+    font-size: 0.8rem;
+    margin-bottom: 0.2rem;
+}
+
+.general-optuna-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.general-optuna-row .form-control {
+    min-width: 0;
+}
+
+.general-optuna-row .btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.general-optuna-row .form-control,
+.general-optuna-row .btn {
+    height: 36px;
+    border-radius: 0.65rem;
+    font-size: 0.8rem;
+}
+
+.general-optuna-row .Select-control {
+    border-radius: 0.65rem;
+}
+
+.general-management-card {
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 0.85rem;
+    min-width: 0;
+}
+
+.general-management-card .card-body {
+    padding: 0.75rem;
+}
+
+.general-selected-runs-card {
+    margin: 0.75rem 0;
+}
+
+.general-card-heading,
+.general-card-title {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.general-card-heading {
+    justify-content: space-between;
+    margin-bottom: 0.65rem;
+}
+
+.general-card-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.general-card-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 0.55rem;
+    background: #edf4ff;
+    color: #0d6efd;
+    font-size: 0.85rem;
+}
+
+.general-card-description {
+    color: #667085;
+    font-size: 0.8rem;
+    margin: 0.3rem 0 0.65rem;
+}
+
+.general-run-count {
+    display: inline-block;
+    background: #edf4ff;
+    color: #1859bd;
+    border-radius: 0.45rem;
+    padding: 0.15rem 0.45rem;
+    font-size: 0.72rem;
+}
+
+.general-run-count {
+    flex-shrink: 0;
+}
+
+.general-runs-table-wrapper {
+    position: relative;
+    overflow-x: auto;
+    border: 1px solid #e5e9ef;
+    border-radius: 0.5rem;
+}
+
+.general-runs-table {
+    width: 100%;
+    min-width: 40rem;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+}
+
+.general-runs-table th,
+.general-runs-table td {
+    padding: 0.5rem 0.65rem;
+    text-align: left;
+    vertical-align: middle;
+    overflow-wrap: anywhere;
+}
+
+.general-runs-table th {
+    background: #f7f9fc;
+    color: #526075;
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.general-runs-table td {
+    border-top: 1px solid #edf0f5;
+}
+
+.general-run-trials {
+    width: 7.5rem;
+}
+
+.general-run-hyperparameters {
+    width: 8rem;
+}
+
+.general-run-sampler {
+    width: 10rem;
+}
+
+.general-runs-table .general-run-actions {
+    width: 4.5rem;
+    text-align: right;
+}
+
+.general-run-name {
+    font-weight: 500;
+}
+
+.general-run-remove {
+    padding: 0.2rem 0.4rem;
+    border-color: #f4c9cd;
+    border-radius: 0.4rem;
+}
+
+.general-runs-table .general-runs-empty {
+    color: #667085;
+    text-align: center;
+    padding: 0.8rem;
+}
+
+.general-management-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+#general-group-container:not(:empty) {
+    margin-top: 0.75rem;
+}
+
+.general-group-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.8rem;
+}
+
+.general-group-editor + .general-group-editor {
+    border-top: 1px solid #edf0f5;
+    margin-top: 0.65rem;
+    padding-top: 0.65rem;
+}
+
+@media (max-width: 767px) {
+    .general-management-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+
 .global-run-selector .Select-value,
 .global-run-selector .Select-value-label,
 .global-run-selector .Select-placeholder {
