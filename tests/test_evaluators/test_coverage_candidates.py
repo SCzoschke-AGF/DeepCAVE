@@ -60,7 +60,15 @@ def make_run(maximize=True):
     )
 
 
-OPTIONS = dict(pool_size=60, holes=4, plan_size=4, reference_samples=128, seed=42)
+OPTIONS = dict(
+    pool_size=60,
+    holes=4,
+    plan_size=4,
+    reference_samples=128,
+    seed=42,
+    global_pool_size=80,
+    global_seed=17,
+)
 
 
 @pytest.mark.parametrize("maximize", [True, False])
@@ -115,6 +123,19 @@ def test_model_cache_survives_geometry_settings_but_not_new_objectives(tmp_path,
     assert len(calls) == 2
     assert second["cache_key"] != first["cache_key"]
     assert second["model"] == first["model"]
+    assert second["full_space_candidates"] == first["full_space_candidates"]
+    resized = scoring.score_coverage_candidates(
+        run, 0, str(tmp_path), {**OPTIONS, "global_pool_size": 90, "global_seed": 18}
+    )
+    assert len(calls) == 2
+    assert resized["cache_key"] != first["cache_key"]
+    assert resized["model"] == first["model"]
+    assert len(resized["full_space_candidates"]) == 90
+    fitted = scoring.fit_candidate_kde(run, 0, str(tmp_path))
+    np.testing.assert_array_equal(
+        [c["kde_score"] for c in first["full_space_candidates"]],
+        fitted.score([c["configuration"] for c in first["full_space_candidates"]]),
+    )
     assert scoring.score_coverage_candidates(run, 0, str(tmp_path), OPTIONS) == first
     run.history[0].costs[0] += 5
     changed = scoring.score_coverage_candidates(run, 0, str(tmp_path), OPTIONS)
@@ -331,8 +352,107 @@ def test_missing_data_unsupported_spaces_and_dynamic_audit_are_explicit(tmp_path
         ("seed", True),
         ("plan_size", None),
         ("reference_samples", float("nan")),
+        ("global_pool_size", 0),
+        ("global_pool_size", 100001),
+        ("global_seed", -1),
     ],
 )
 def test_invalid_settings_are_rejected(key, value):
     with pytest.raises(ValueError, match=key):
         scoring.candidate_options({key: value})
+
+
+def test_global_sampling_is_reproducible_objective_free_and_respects_log_lattices():
+    from ConfigSpace import ForbiddenEqualsClause
+
+    run = make_run()
+    run.configspace.add(ForbiddenEqualsClause(run.configspace["n"], 5))
+    options = {**OPTIONS, "global_pool_size": 512}
+    candidates, sampling = scoring.generate_full_space_candidates(run, options)
+    assert len(candidates) == sampling["count"] == sampling["requested"] == 512
+    assert sampling["stop_reason"] == "target_reached"
+    assert len({_key(c) for c in candidates}) == len(candidates)
+    history = {scoring._key(run.get_config(t.config_id)) for t in run.history}
+    space = scoring.numeric_space(run)
+    for candidate in candidates:
+        config = candidate["configuration"]
+        assert config["n"] in (1, 3)
+        assert scoring._key(config) not in history
+        scoring._validate_config(run, config, space)
+        assert "hole_id" not in candidate
+    # A uniform draw in log space places its midpoint near x=0.1, not x=0.5.
+    assert 0.07 < np.median([c["configuration"]["x"] for c in candidates]) < 0.14
+    for trial in run.history:
+        trial.costs = [999, None]
+    assert scoring.generate_full_space_candidates(run, options) == (candidates, sampling)
+    larger, _ = scoring.generate_full_space_candidates(run, {**options, "global_pool_size": 1200})
+    assert larger[:512] == candidates
+    changed, _ = scoring.generate_full_space_candidates(run, {**options, "global_seed": 18})
+    assert changed != candidates
+
+
+def test_global_finite_space_excludes_all_historical_statuses_and_handles_exhaustion():
+    run = make_run()
+    run.configspace = ConfigurationSpace(space={"n": (1, 3)})
+    run.history = run.history[:1]
+    run.history[0].status = Status.FAILED
+    run.get_config = lambda i: {"n": 1}
+    candidates, sampling = scoring.generate_full_space_candidates(run, OPTIONS)
+    assert {c["configuration"]["n"] for c in candidates} == {2, 3}
+    assert sampling["count"] == 2 and sampling["stop_reason"] == "finite_space_exhausted"
+    run.history = [SimpleNamespace(config_id=i) for i in range(3)]
+    run.get_config = lambda i: {"n": i + 1}
+    candidates, sampling = scoring.generate_full_space_candidates(run, OPTIONS)
+    assert candidates == [] and sampling["draws"] == 0
+    assert sampling["stop_reason"] == "finite_space_exhausted"
+
+
+def test_global_sampling_stops_at_budget_when_draws_repeat(monkeypatch):
+    run = make_run()
+    calls = []
+
+    def repeated(space, count, seed):
+        calls.append(count)
+        return SimpleNamespace(values=[run.get_config(0)] * count)
+
+    monkeypatch.setattr(scoring, "sample_reference_design", repeated)
+    candidates, sampling = scoring.generate_full_space_candidates(run, OPTIONS)
+    assert candidates == []
+    assert sampling["draws"] == sum(calls) == 1024
+    assert sampling["stop_reason"] == "sampling_budget_reached"
+
+
+def test_global_scoring_without_holes_uses_one_fit_and_bounded_batches(tmp_path, monkeypatch):
+    run = make_run()
+    fits, batches = [], []
+
+    def score(configs):
+        batches.append(len(configs))
+        return np.array([c["x"] for c in configs])
+
+    def fit(*args):
+        fits.append(args)
+        return SimpleNamespace(
+            score=score,
+            metadata={
+                "reference_score": 0.5,
+                "reference_trial_number": 100,
+                "reference_objective": 0.7,
+                "objective": "AP",
+            },
+        )
+
+    monkeypatch.setattr(scoring, "detect_holes", lambda *args: [])
+    monkeypatch.setattr(scoring, "fit_candidate_kde", fit)
+    result = scoring.score_coverage_candidates(
+        run, 0, str(tmp_path), {**OPTIONS, "global_pool_size": 2050}
+    )
+    assert len(fits) == 1 and batches == [1024, 1024, 2]
+    assert result["candidates"] == result["holes"] == result["plan"] == []
+    assert len(result["full_space_candidates"]) == 2050
+    for candidate in result["full_space_candidates"]:
+        assert candidate["kde_score"] == candidate["configuration"]["x"]
+        assert candidate["relative_score"] == candidate["kde_score"] - 0.5
+        assert candidate["reference_score"] == result["reference_score"]
+        assert 0 < candidate["percentile"] <= 100
+    assert max(c["percentile"] for c in result["full_space_candidates"]) == 100

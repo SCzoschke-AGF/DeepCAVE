@@ -1,9 +1,10 @@
-"""Compact, independently queued CHR candidate rankings and KDE interpretation."""
+"""Queued CHR and full-space candidate rankings with shared KDE interpretation."""
 
 from typing import Any, Dict
 
 import json
 from threading import RLock
+from urllib.parse import quote
 from uuid import uuid4
 
 import dash_bootstrap_components as dbc
@@ -19,16 +20,19 @@ from deepcave.evaluators.coverage_candidates import (
     score_coverage_candidates,
     scoring_source_key,
 )
+from deepcave.plugins.hyperparameter.coverage_planning_views import plan_toml
 from deepcave.plugins.hyperparameter.coverage_views import _empty_figure, _id
 from deepcave.utils.global_objective import resolve_main_objective_id
 
 _JOB_LOCK = RLock()
 _SETTINGS = (
-    ("pool_size", "Candidate pool", 2000, 1, 10000),
+    ("pool_size", "CHR candidate pool", 2000, 1, 10000),
     ("holes", "Holes per step", 15, 1, 100),
     ("plan_size", "CHR plan trials", 8, 1, 100),
     ("reference_samples", "CHR reference samples", 2048, 32, 16384),
-    ("seed", "Seed", 42, 0, 2**32 - 2),
+    ("seed", "CHR seed", 42, 0, 2**32 - 2),
+    ("global_pool_size", "Full-space candidate pool", 10000, 1, 100000),
+    ("global_seed", "Full-space seed", 42, 0, 2**32 - 2),
 )
 
 
@@ -43,8 +47,72 @@ def run_performance_analysis(
         return {"error": str(error), "objective_id": objective_id}
 
 
+def _export_label() -> list:
+    return [html.I(className="fas fa-download", **{"aria-hidden": "true"}), "Export TOML"]
+
+
+def ranking_columns(tab: str = "overall") -> list:
+    """Use the score columns in both pools and geometry columns only for CHR."""
+    columns = [
+        {"id": "rank", "name": "Rank", "type": "numeric"},
+        {
+            "id": "relative_score",
+            "name": "KDE vs. reference",
+            "type": "numeric",
+            "format": Format(precision=3, scheme=Scheme.fixed, sign=Sign.positive),
+        },
+    ]
+    if tab != "full_space":
+        columns.extend(
+            [
+                {"id": "hole_id", "name": "Coverage hole"},
+                {
+                    "id": "hole_radius",
+                    "name": "Hole radius",
+                    "type": "numeric",
+                    "format": Format(precision=4, scheme=Scheme.fixed),
+                },
+            ]
+        )
+    # RTL table layout places Dash's leading selection column on the right.
+    return columns[::-1]
+
+
 def performance_panel() -> Any:
     """Build the right column without changing the covering-array controls."""
+    advanced = html.Details(
+        [
+            html.Summary([html.Span("☷", **{"aria-hidden": "true"}), " Advanced"]),
+            html.Div(
+                [
+                    html.H5("Candidate search settings"),
+                    html.Div(
+                        [
+                            html.Label(
+                                [
+                                    label,
+                                    dbc.Input(
+                                        id=_id(f"performance-{name}-setting"),
+                                        type="number",
+                                        value=default,
+                                        min=low,
+                                        max=high,
+                                        step=1,
+                                        debounce=True,
+                                        size="sm",
+                                    ),
+                                ]
+                            )
+                            for name, label, default, low, high in _SETTINGS
+                        ],
+                        className="coverage-candidate-settings",
+                    ),
+                ],
+                className="coverage-planning-advanced-content",
+            ),
+        ],
+        className="coverage-planning-advanced coverage-performance-advanced",
+    )
     return html.Section(
         [
             dcc.Store(id=_id("performance-data")),
@@ -66,15 +134,15 @@ def performance_panel() -> Any:
                         "Refresh",
                         id=_id("performance-run"),
                         n_clicks=0,
-                        color="secondary",
-                        outline=True,
+                        color="primary",
                         size="sm",
                     ),
+                    advanced,
                 ],
                 className="coverage-performance-header",
             ),
             html.P(
-                "KDE scores for configurations generated from the largest coverage holes.",
+                "KDE scores for unseen configurations from coverage holes and the full search space.",
                 className="coverage-performance-description",
             ),
             html.Div(id=_id("performance-status"), role="status", **{"aria-live": "polite"}),
@@ -85,14 +153,42 @@ def performance_panel() -> Any:
                         ("holes", "Coverage holes analyzed"),
                         ("candidates", "Generated candidates"),
                         ("reference", "Reference"),
-                        ("top", "Top candidate vs. reference"),
+                        ("top", "Best candidate vs. reference"),
                     )
                 ],
                 className="coverage-performance-metrics",
             ),
             html.Div(
                 [
-                    html.H4("Candidate rankings"),
+                    html.H5("KDE score distribution · current pool"),
+                    dcc.Loading(
+                        dcc.Graph(
+                            id=_id("performance-chart"),
+                            figure=performance_figure(None),
+                            config={"displayModeBar": False},
+                            responsive=True,
+                            style={"height": "165px"},
+                        ),
+                        color="#9470d5",
+                    ),
+                    html.Div(
+                        [
+                            html.H4("Candidate rankings"),
+                            html.Div(
+                                dbc.Button(
+                                    _export_label(),
+                                    color="secondary",
+                                    outline=True,
+                                    size="sm",
+                                    disabled=True,
+                                    title="Select trials using the checkboxes to export their parameters.",
+                                ),
+                                id=_id("performance-export"),
+                                className="coverage-candidate-export",
+                            ),
+                        ],
+                        className="coverage-candidate-rankings-header",
+                    ),
                     dcc.Tabs(
                         id=_id("performance-tab"),
                         value="overall",
@@ -106,46 +202,24 @@ def performance_panel() -> Any:
                             for value, label in (
                                 ("overall", "Best overall candidates"),
                                 ("holes", "Best candidate per hole"),
-                                ("plan", "Selected plan"),
+                                ("plan", "Recommended trials"),
+                                ("full_space", "Best candidates: full search space"),
                             )
                         ],
                         className="coverage-candidate-tabs",
                     ),
-                    html.H5("KDE score distribution"),
-                    dcc.Loading(
-                        dcc.Graph(
-                            id=_id("performance-chart"),
-                            figure=performance_figure(None),
-                            config={"displayModeBar": False},
-                            responsive=True,
-                            style={"height": "165px"},
-                        ),
-                        color="#9470d5",
+                    html.P(
+                        id=_id("performance-pool-summary"),
+                        className="coverage-performance-interpretation",
                     ),
                     dash_table.DataTable(
                         id=_id("performance-ranking"),
                         data=[],
-                        columns=[
-                            {"id": "rank", "name": "Rank", "type": "numeric"},
-                            {
-                                "id": "relative_score",
-                                "name": "KDE vs. reference",
-                                "type": "numeric",
-                                "format": Format(
-                                    precision=3, scheme=Scheme.fixed, sign=Sign.positive
-                                ),
-                            },
-                            {"id": "hole_id", "name": "Coverage hole"},
-                            {
-                                "id": "hole_radius",
-                                "name": "Hole radius",
-                                "type": "numeric",
-                                "format": Format(precision=4, scheme=Scheme.fixed),
-                            },
-                            {"id": "configuration", "name": "Configuration"},
-                            {"id": "selected", "name": "In plan"},
-                        ],
+                        columns=ranking_columns(),
                         cell_selectable=True,
+                        row_selectable="multi",
+                        selected_rows=[],
+                        selected_row_ids=[],
                         page_size=8,
                         page_action="native",
                         sort_action="none",
@@ -173,15 +247,6 @@ def performance_panel() -> Any:
                                 "fontVariantNumeric": "tabular-nums",
                             }
                             for c in ("relative_score", "hole_radius")
-                        ]
-                        + [
-                            {
-                                "if": {"column_id": "configuration"},
-                                "maxWidth": "175px",
-                                "overflow": "hidden",
-                                "textOverflow": "ellipsis",
-                                "whiteSpace": "nowrap",
-                            }
                         ],
                         style_data_conditional=[
                             {
@@ -209,35 +274,9 @@ def performance_panel() -> Any:
                 className="coverage-performance-body",
             ),
             html.Div(id=_id("performance-details"), className="coverage-candidate-details"),
-            html.Details(
-                [
-                    html.Summary("CHR planning settings"),
-                    html.Div(
-                        [
-                            html.Label(
-                                [
-                                    label,
-                                    dbc.Input(
-                                        id=_id(f"performance-{name}-setting"),
-                                        type="number",
-                                        value=default,
-                                        min=low,
-                                        max=high,
-                                        step=1,
-                                        debounce=True,
-                                        size="sm",
-                                    ),
-                                ]
-                            )
-                            for name, label, default, low, high in _SETTINGS
-                        ],
-                        className="coverage-candidate-settings",
-                    ),
-                ],
-                className="coverage-performance-method",
-            ),
             html.Small(
-                "Score = log p(x | good) − log p(x | bad); good = best 20% of completed trials. "
+                "Score = log p(x | good) − log p(x | bad); good = best 20% of completed trials; "
+                "bad = remaining 80% of completed trials. "
                 "The best observed trial is an in-sample reference, not independent validation. "
                 "Scores are neither predicted objective values nor success probabilities. "
                 "This sequential CHR plan is separate from Improve Coverage's covering-array plan.",
@@ -248,13 +287,18 @@ def performance_panel() -> Any:
     )
 
 
-def performance_figure(result: Any) -> go.Figure:
+def performance_figure(result: Any, tab: str = "overall") -> go.Figure:
     """Histogram of the entire pool's relative scores, with a zero reference."""
-    if not result or not result.get("candidates"):
-        figure = _empty_figure("Refresh to generate and score coverage candidates.")
+    candidates = candidate_pool(result, tab) if result else []
+    if not candidates:
+        figure = _empty_figure(
+            "No unseen candidates in this pool."
+            if result
+            else "Refresh to generate and score candidates."
+        )
         figure.update_layout(height=165)
         return figure
-    values = np.asarray([c["relative_score"] for c in result["candidates"]])
+    values = np.asarray([c["relative_score"] for c in candidates])
     counts, edges = np.histogram(values, bins=min(36, max(1, int(np.sqrt(len(values))))))
     centers = (edges[:-1] + edges[1:]) / 2
     figure = go.Figure(
@@ -274,7 +318,7 @@ def performance_figure(result: Any) -> go.Figure:
         line_dash="dash",
         line_color="#995deb",
         line_width=1.4,
-        annotation_text="Best observed trial",
+        annotation_text="Best observed trial<br>(Reference)",
         annotation_position="top left" if np.median(values) < 0 else "top right",
     )
     lower, upper = min(0, edges[0]), max(0, edges[-1])
@@ -298,9 +342,14 @@ def performance_figure(result: Any) -> go.Figure:
     return figure
 
 
+def candidate_pool(result: Dict, tab: str) -> list:
+    """Keep the global random pool separate from CHR candidates and planning."""
+    return result.get("full_space_candidates", []) if tab == "full_space" else result["candidates"]
+
+
 def ranking_candidates(result: Dict, tab: str) -> list:
-    """All tabs derive from one candidate collection; plan order is authoritative."""
-    ordered = sorted(result["candidates"], key=lambda c: (-c["kde_score"], c["id"]))
+    """Rank each pool by KDE score; preserve sequential CHR plan order."""
+    ordered = sorted(candidate_pool(result, tab), key=lambda c: (-c["kde_score"], c["id"]))
     if tab == "plan":
         lookup = {c["id"]: c for c in ordered}
         return [lookup[identifier] for identifier in result["plan"]]
@@ -320,10 +369,16 @@ def ranking_rows(result: Dict, tab: str) -> list:
             "id": c["id"],
             "rank": i + 1,
             "relative_score": c["relative_score"],
-            "hole_id": labels[
-                c.get("plan_hole_id", c["hole_id"]) if tab == "plan" else c["hole_id"]
-            ],
-            "hole_radius": c["selection_radius_before"] if tab == "plan" else c["hole_radius"],
+            "hole_id": (
+                None
+                if tab == "full_space"
+                else labels[c.get("plan_hole_id", c["hole_id"]) if tab == "plan" else c["hole_id"]]
+            ),
+            "hole_radius": (
+                None
+                if tab == "full_space"
+                else c["selection_radius_before"] if tab == "plan" else c["hole_radius"]
+            ),
             "configuration": ", ".join(
                 f"{k}={v:.4g}" if isinstance(v, float) else f"{k}={v}"
                 for k, v in c["configuration"].items()
@@ -352,7 +407,14 @@ def ranking_rows(result: Dict, tab: str) -> list:
 
 def candidate_details(result: Dict, identifier: Any) -> Any:
     """Show actual raw/relative scores, CHR geometry, and a full configuration."""
-    candidate = next((c for c in result["candidates"] if c["id"] == identifier), None)
+    candidate = next(
+        (
+            c
+            for c in result["candidates"] + result.get("full_space_candidates", [])
+            if c["id"] == identifier
+        ),
+        None,
+    )
     if candidate is None:
         if isinstance(identifier, str) and identifier.startswith("empty-"):
             return html.P(
@@ -361,7 +423,6 @@ def candidate_details(result: Dict, identifier: Any) -> Any:
             )
         return html.P("Select a candidate to inspect its score and configuration.")
     c = candidate
-    hole_number = next(i + 1 for i, h in enumerate(result["holes"]) if h["id"] == c["hole_id"])
 
     def group(title: str, rows: list) -> Any:
         return html.Div(
@@ -371,22 +432,35 @@ def candidate_details(result: Dict, identifier: Any) -> Any:
             ]
         )
 
-    coverage = [
-        ("Coverage hole", f"Hole {hole_number} · {c['hole_id']}"),
-        ("Original hole radius", f"{c['hole_radius']:.5g}"),
-        ("Distance to hole center", f"{c['center_distance']:.5g}"),
-        ("Radius reduction at center", f"{c['radius_reduction']:.5g}"),
-    ]
+    if "hole_id" in c:
+        hole_number = next(i + 1 for i, h in enumerate(result["holes"]) if h["id"] == c["hole_id"])
+        search_title = "Coverage contribution"
+        search_rows = [
+            ("Coverage hole", f"Hole {hole_number} · {c['hole_id']}"),
+            ("Original hole radius", f"{c['hole_radius']:.5g}"),
+            ("Distance to hole center", f"{c['center_distance']:.5g}"),
+            ("Radius reduction at center", f"{c['radius_reduction']:.5g}"),
+        ]
+    else:
+        sampling = result["global_sampling"]
+        search_title = "Full-space search"
+        search_rows = [
+            ("Evaluated unseen configurations", f"{sampling['count']:,}"),
+            ("Requested pool size", f"{sampling['requested']:,}"),
+            ("Seed", str(sampling["seed"])),
+        ]
     if c["selected"]:
         plan_hole_number = next(
             i + 1 for i, h in enumerate(result["holes"]) if h["id"] == c["plan_hole_id"]
         )
-        coverage.append(("Hole at plan selection", f"Hole {plan_hole_number}"))
-        coverage.append(
-            (
-                "Radius at selection",
-                f"{c['selection_radius_before']:.5g} → " f"{c['selection_radius_after']:.5g}",
-            )
+        search_rows.extend(
+            [
+                ("Hole at plan selection", f"Hole {plan_hole_number}"),
+                (
+                    "Radius at selection",
+                    f"{c['selection_radius_before']:.5g} → {c['selection_radius_after']:.5g}",
+                ),
+            ]
         )
     config_group = group("Configuration", [(k, str(v)) for k, v in c["configuration"].items()][:5])
     config_group.children.append(
@@ -422,7 +496,7 @@ def candidate_details(result: Dict, identifier: Any) -> Any:
                         ),
                     ],
                 ),
-                group("Coverage contribution", coverage),
+                group(search_title, search_rows),
                 config_group,
             ],
             className="coverage-candidate-detail-columns",
@@ -457,6 +531,8 @@ def register_performance_callbacks(app: Any, jobs: Any, run_handler: Any) -> Non
         plan_size: Any,
         reference_samples: Any,
         seed: Any,
+        global_pool_size: Any,
+        global_seed: Any,
         active_run: str,
         previous: Any,
     ) -> Any:
@@ -473,6 +549,8 @@ def register_performance_callbacks(app: Any, jobs: Any, run_handler: Any) -> Non
                     plan_size=plan_size,
                     reference_samples=reference_samples,
                     seed=seed,
+                    global_pool_size=global_pool_size,
+                    global_seed=global_seed,
                 )
             )
         except ValueError as exception:
@@ -536,7 +614,7 @@ def register_performance_callbacks(app: Any, jobs: Any, run_handler: Any) -> Non
                 or result.get("candidate_version") != CANDIDATE_VERSION
             )
             status = error or (
-                "Detecting coverage holes, scoring candidates and updating CHR geometry…"
+                "Sampling full-space candidates, scoring candidates and updating CHR geometry…"
                 if running
                 else (
                     str(entry.get("error"))
@@ -573,44 +651,124 @@ def register_performance_callbacks(app: Any, jobs: Any, run_handler: Any) -> Non
         result = jobs.read(context["run_id"], "candidate_scoring").get("result")
         if (
             result
-            and result.get("candidates")
+            and "candidates" in result
             and result.get("cache_key") == payload.get("cache_key")
         ):
             return result
         return None
 
     @app.callback(  # type: ignore[untyped-decorator]
+        Output(_id("performance-chart"), "figure"),
+        Input(_id("performance-data"), "data"),
+        Input(_id("performance-tab"), "value"),
+        State(_id("context"), "data"),
+    )
+    def performance_chart(payload: Any, tab: str, context: Any) -> go.Figure:
+        return performance_figure(current_result(payload, context), tab)
+
+    @app.callback(  # type: ignore[untyped-decorator]
         Output(_id("performance-holes"), "children"),
         Output(_id("performance-candidates"), "children"),
         Output(_id("performance-reference"), "children"),
         Output(_id("performance-top"), "children"),
-        Output(_id("performance-chart"), "figure"),
         Output(_id("performance-ranking"), "data"),
         Output(_id("performance-ranking"), "active_cell"),
         Output(_id("performance-ranking"), "page_current"),
+        Output(_id("performance-ranking"), "selected_rows"),
+        Output(_id("performance-ranking"), "selected_row_ids"),
+        Output(_id("performance-ranking"), "columns"),
+        Output(_id("performance-pool-summary"), "children"),
         Input(_id("performance-data"), "data"),
         Input(_id("performance-tab"), "value"),
         State(_id("context"), "data"),
     )
     def performance_results(payload: Any, tab: Any, context: Any) -> Any:
         result = current_result(payload, context)
+        columns = ranking_columns(tab)
         if not result:
-            return "—", "—", "—", "—", performance_figure(None), [], None, 0
+            return "—", "—", "—", "—", [], None, 0, [], [], columns, ""
         rows = ranking_rows(result, tab)
+        pool = candidate_pool(result, tab)
+        top = max((c["relative_score"] for c in pool), default=None)
+        if tab == "full_space" and "global_sampling" not in result:
+            summary = "Refresh to generate full-space candidates."
+        elif tab == "full_space":
+            sampling = result["global_sampling"]
+            summary = (
+                f"Best among {len(pool):,} sampled, unseen configurations · Seed {sampling['seed']}. "
+                "Sampling follows the declared parameter distributions."
+            )
+            if sampling["count"] < sampling["requested"]:
+                summary += (
+                    " No unseen configurations remain in the finite search space."
+                    if sampling["stop_reason"] == "finite_space_exhausted"
+                    else f" Requested {sampling['requested']:,}; sampling limit reached after "
+                    f"{sampling['draws']:,} valid draws."
+                )
+        else:
+            summary = f"{len(pool):,} candidates from coverage holes."
         cell = (
-            {"row": 0, "column": 1, "column_id": "relative_score", "row_id": rows[0]["id"]}
+            {
+                "row": 0,
+                "column": 0 if tab == "full_space" else 2,
+                "column_id": "relative_score",
+                "row_id": rows[0]["id"],
+            }
             if rows
             else None
         )
         return (
             f"{len(result['holes']):,}",
-            f"{len(result['candidates']):,}",
+            f"{len(pool):,}",
             f"Best observed trial #{result['reference_trial_number']}",
-            f"{result['top_relative_score']:+.3f}",
-            performance_figure(result),
+            f"{top:+.3f}" if top is not None else "—",
             rows,
             cell,
             0,
+            [],
+            [],
+            columns,
+            summary,
+        )
+
+    @app.callback(  # type: ignore[untyped-decorator]
+        Output(_id("performance-export"), "children"),
+        Input(_id("performance-ranking"), "selected_row_ids"),
+        Input(_id("performance-data"), "data"),
+        Input(_id("performance-tab"), "value"),
+        State(_id("context"), "data"),
+    )
+    def performance_export(selected_ids: Any, payload: Any, tab: Any, context: Any) -> Any:
+        result = current_result(payload, context)
+        selected = set(selected_ids or [])
+        trials = (
+            [
+                {"parameters": c["configuration"]}
+                for c in ranking_candidates(result, tab)
+                if c["id"] in selected
+            ]
+            if result
+            else []
+        )
+        title = "Select trials using the checkboxes to export their parameters."
+        if trials:
+            try:
+                return html.A(
+                    _export_label(),
+                    href="data:application/toml;charset=utf-8,"
+                    + quote(plan_toml({"trials": trials}), safe=""),
+                    download=(
+                        "full-space-candidates.toml"
+                        if tab == "full_space"
+                        else "coverage-candidates.toml"
+                    ),
+                    className="btn btn-outline-secondary btn-sm",
+                    title=f"Export {len(trials):,} selected configurations as TOML",
+                )
+            except ValueError as error:
+                title = str(error)
+        return dbc.Button(
+            _export_label(), color="secondary", outline=True, size="sm", disabled=True, title=title
         )
 
     @app.callback(  # type: ignore[untyped-decorator]

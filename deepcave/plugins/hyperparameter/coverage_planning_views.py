@@ -299,7 +299,7 @@ def plan_view(plan: Dict[str, Any]) -> Any:
     if trials:
         try:
             download = html.A(
-                "Download .toml",
+                "Export TOML",
                 href="data:application/toml;charset=utf-8," + quote(plan_toml(plan), safe=""),
                 download="coverage-plan.toml",
                 className="btn btn-outline-secondary btn-sm coverage-plan-download",
@@ -307,7 +307,7 @@ def plan_view(plan: Dict[str, Any]) -> Any:
             )
         except ValueError as error:
             download = html.Span(
-                "Download .toml",
+                "Export TOML",
                 className="btn btn-outline-secondary btn-sm disabled coverage-plan-download",
                 title=str(error),
                 **{"aria-disabled": "true"},
@@ -357,11 +357,6 @@ def plan_view(plan: Dict[str, Any]) -> Any:
             html.Summary(
                 f"Show {count:,} configurations →",
                 className="coverage-plan-action",
-            ),
-            html.P(
-                "All proposals are validated. Run these configurations in your optimizer to apply "
-                "the plan. Select a row to inspect its parameters and the gaps it would close.",
-                className="coverage-plan-note",
             ),
             dash_table.DataTable(
                 id=_id("planning-trials"),

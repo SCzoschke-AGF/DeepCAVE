@@ -1,4 +1,4 @@
-"""Objective-independent CHR candidates, scored by the validated good/bad KDE.
+"""Objective-independent CHR and full-space candidates scored by one good/bad KDE.
 
 CHR describes sampled empty balls, not covering-array tuples. A candidate is
 eligible for its nearest hole center only if it is inside that empty ball AND
@@ -9,6 +9,7 @@ This Voronoi criterion introduces no coverage tolerance or performance weight.
 from typing import Any, Dict, List, Optional
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -34,7 +35,7 @@ from deepcave.evaluators.coverage import (
 from deepcave.evaluators.performance_coverage import _digest, performance_source_key
 from deepcave.runs.status import Status
 
-CANDIDATE_VERSION = 2
+CANDIDATE_VERSION = 3
 
 
 def candidate_options(inputs: Optional[Dict[str, Any]] = None) -> Dict[str, int]:
@@ -47,6 +48,8 @@ def candidate_options(inputs: Optional[Dict[str, Any]] = None) -> Dict[str, int]
         ("plan_size", 8, 1, 100),
         ("reference_samples", 2048, 32, 16384),
         ("seed", 42, 0, 2**32 - 2),
+        ("global_pool_size", 10000, 1, 100000),
+        ("global_seed", 42, 0, 2**32 - 2),
     ):
         value = inputs.get(name, default)
         if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -317,6 +320,58 @@ def generate_candidates(
     return selected
 
 
+def generate_full_space_candidates(run: Any, options: Dict[str, int]) -> tuple:
+    """Sample unseen legal configurations independently of objectives and CHR geometry."""
+    space = numeric_space(run)
+    seen = {_key(dict(run.get_config(t.config_id))) for t in run.history}
+    sizes = [CoverageAxis(hp).size for hp in run.configspace.values()]
+    cardinality = math.prod(sizes) if all(size is not None for size in sizes) else None
+    requested = options["global_pool_size"]
+    target = min(requested, max(0, cardinality - len(seen))) if cardinality else requested
+    rng = np.random.RandomState(options["global_seed"])
+    candidates: List[Dict[str, Any]] = []
+    draws, budget = 0, max(1024, requested * 10)
+    while len(candidates) < target and draws < budget:
+        # Fixed-size batches preserve the candidate prefix when the requested pool grows.
+        count = min(1024, budget - draws)
+        sampled = sample_reference_design(
+            run.configspace, count, int(rng.randint(0, 2**32 - 1))
+        ).values
+        draws += len(sampled)
+        for config in sampled:
+            key = _key(config)
+            if key in seen:
+                continue
+            _validate_config(run, config, space)
+            seen.add(key)
+            candidates.append(
+                {
+                    "id": f"G-{_digest(config)[:16]}",
+                    "configuration": config,
+                    "selected": False,
+                    "plan_order": None,
+                }
+            )
+            if len(candidates) == target:
+                break
+    reason = (
+        "target_reached"
+        if len(candidates) == requested
+        else (
+            "finite_space_exhausted"
+            if cardinality is not None and len(seen) == cardinality
+            else "sampling_budget_reached"
+        )
+    )
+    return candidates, {
+        "requested": requested,
+        "count": len(candidates),
+        "seed": options["global_seed"],
+        "draws": draws,
+        "stop_reason": reason,
+    }
+
+
 def score_coverage_candidates(
     run: Any, objective_id: int, directory: str, inputs: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
@@ -334,23 +389,25 @@ def score_coverage_candidates(
     )
     initial_holes = detect_holes(data, references, options["holes"])
     candidates = generate_candidates(run, data, initial_holes, options)
-    if not candidates:
-        raise ValueError("No unseen valid candidates remain in the sampled coverage holes.")
     fitted = fit_candidate_kde(run, objective_id, directory)
     reference_score = fitted.metadata["reference_score"]
 
     def score(rows: List[Dict]) -> None:
-        scores = fitted.score([row["configuration"] for row in rows])
-        for row, value in zip(rows, scores):
-            row.update(
-                kde_score=float(value),
-                reference_score=reference_score,
-                relative_score=float(value - reference_score),
-                reference_trial_number=fitted.metadata["reference_trial_number"],
-                reference_objective=fitted.metadata["reference_objective"],
-            )
+        for start in range(0, len(rows), 1024):
+            batch = rows[start : start + 1024]
+            scores = fitted.score([row["configuration"] for row in batch])
+            for row, value in zip(batch, scores):
+                row.update(
+                    kde_score=float(value),
+                    reference_score=reference_score,
+                    relative_score=float(value - reference_score),
+                    reference_trial_number=fitted.metadata["reference_trial_number"],
+                    reference_objective=fitted.metadata["reference_objective"],
+                )
 
     score(candidates)
+    full_space_candidates, global_sampling = generate_full_space_candidates(run, options)
+    score(full_space_candidates)
     known_holes = {h["id"]: h for h in initial_holes}
     virtual = data
     plan, steps = [], []
@@ -444,13 +501,14 @@ def score_coverage_candidates(
         )
         plan.append(chosen["id"])
         excluded.add(_key(chosen["configuration"]))
-    all_scores = np.sort([c["kde_score"] for c in candidates])
-    for candidate in candidates:
-        candidate["percentile"] = float(
-            100
-            * np.searchsorted(all_scores, candidate["kde_score"], side="right")
-            / len(all_scores)
-        )
+    for pool in (candidates, full_space_candidates):
+        all_scores = np.sort([c["kde_score"] for c in pool])
+        for candidate in pool:
+            candidate["percentile"] = float(
+                100
+                * np.searchsorted(all_scores, candidate["kde_score"], side="right")
+                / len(all_scores)
+            )
     result = {
         "candidate_version": CANDIDATE_VERSION,
         "cache_key": cache_key,
@@ -458,6 +516,8 @@ def score_coverage_candidates(
         "options": options,
         "holes": list(known_holes.values()),
         "candidates": candidates,
+        "full_space_candidates": full_space_candidates,
+        "global_sampling": global_sampling,
         "plan": plan,
         "steps": steps,
         "model": fitted.metadata,
@@ -465,7 +525,7 @@ def score_coverage_candidates(
         "reference_score": reference_score,
         "reference_trial_number": fitted.metadata["reference_trial_number"],
         "reference_objective": fitted.metadata["reference_objective"],
-        "top_relative_score": max(c["relative_score"] for c in candidates),
+        "top_relative_score": max((c["relative_score"] for c in candidates), default=None),
     }
     result_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = result_path.with_suffix(f".{uuid4().hex}.tmp")

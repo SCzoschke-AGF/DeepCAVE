@@ -10,7 +10,9 @@
 .coverage-performance { padding: .75rem; color: #232341; }
 .coverage-performance-header,
 .coverage-performance-title { display: flex; align-items: center; gap: .55rem; }
-.coverage-performance-header { justify-content: space-between; gap: .6rem; }
+.coverage-performance-header { justify-content: flex-start; flex-wrap: wrap; gap: .6rem; }
+.coverage-performance-advanced .coverage-planning-advanced-content { width: min(26rem, 80vw); }
+.coverage-performance-advanced h5 { margin: 0 0 .5rem; font-size: .8rem; }
 .coverage-performance-title { min-width: 0; }
 .coverage-performance-title h3 { margin: 0; font-size: 1.3rem; font-weight: 700; }
 .coverage-performance-header .btn { flex-shrink: 0; font-size: .75rem; }
@@ -69,6 +71,34 @@
 .coverage-performance-metrics > div { padding: 0 .5rem; }
 .coverage-performance-metrics span { font-size: .62rem; }
 .coverage-candidate-tabs { margin-bottom: .2rem; }
+#search_space_coverage-performance-ranking .dash-spreadsheet-inner table {
+    direction: rtl;
+    table-layout: fixed;
+    width: 100%;
+}
+#search_space_coverage-performance-ranking .dash-fixed-content {
+    width: 100%;
+    margin-left: 0 !important;
+}
+#search_space_coverage-performance-ranking .dash-spreadsheet-inner th,
+#search_space_coverage-performance-ranking .dash-spreadsheet-inner td { direction: ltr; }
+#search_space_coverage-performance-ranking .dash-select-header,
+#search_space_coverage-performance-ranking .dash-select-cell {
+    width: 52px !important;
+    min-width: 52px !important;
+    max-width: 52px !important;
+    text-align: center;
+}
+#search_space_coverage-performance-ranking .dash-select-header::after {
+    content: "Export";
+    font-size: 10px;
+    font-weight: 600;
+    color: #696287;
+}
+.coverage-candidate-rankings-header { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .5rem; }
+.coverage-candidate-rankings-header h4 { margin: 0; }
+.coverage-candidate-export { flex-shrink: 0; }
+.coverage-candidate-export .btn { display: inline-flex; align-items: center; gap: .35rem; border-radius: 999px; padding: .2rem .65rem; font-size: .7rem; line-height: 1.3; }
 .coverage-candidate-tab { padding: .5rem .25rem !important; font-size: .7rem; background: white !important; border: 0 !important; border-bottom: 1px solid #e7e9f5 !important; }
 .coverage-candidate-tab-selected { color: #8248da !important; font-weight: 600; border-bottom: 2px solid #a174e4 !important; }
 .coverage-candidate-details { border: 1px solid #e7e9f5; border-radius: .4rem; margin-top: .6rem; padding: .6rem; }
@@ -82,8 +112,8 @@
 .coverage-candidate-detail-columns h5 { font-size: .67rem; font-weight: 650; margin: 0 0 .4rem; }
 .coverage-candidate-detail-columns dl { font-size: .63rem; margin: 0; }
 .coverage-candidate-detail-columns dl > div { display: flex; justify-content: space-between; gap: .4rem; margin-bottom: .3rem; }
-.coverage-candidate-detail-columns dt { font-weight: 400; color: #74708b; }
-.coverage-candidate-detail-columns dd { margin: 0; text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.coverage-candidate-detail-columns dt { min-width: 0; overflow-wrap: anywhere; font-weight: 400; color: #74708b; }
+.coverage-candidate-detail-columns dd { flex-shrink: 0; max-width: 55%; margin: 0; text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .coverage-candidate-full-config { font-size: .65rem; margin-top: .4rem; }
 .coverage-candidate-full-config summary { cursor: pointer; color: #8248da; }
 .coverage-candidate-full-config pre { max-height: 260px; overflow: auto; margin-top: .4rem; white-space: pre-wrap; }

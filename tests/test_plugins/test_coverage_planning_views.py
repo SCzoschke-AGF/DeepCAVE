@@ -112,7 +112,7 @@ def test_toml_download_exports_all_trials_and_preserves_parameter_types():
     view = plan_view(plan)
     children = list(components(view))
     link = next(c for c in children if isinstance(c, html.A))
-    assert text(link) == "Download .toml"
+    assert text(link) == "Export TOML"
     actions = next(c for c in children if getattr(c, "className", None) == "coverage-plan-actions")
     details, download = actions.children
     assert isinstance(details, html.Details)
@@ -137,7 +137,7 @@ def test_toml_download_is_disabled_for_values_toml_cannot_represent():
         plan_toml(plan)
     children = list(components(plan_view(plan)))
     assert not any(isinstance(c, html.A) for c in children)
-    disabled = next(c for c in children if text(c) == "Download .toml")
+    disabled = next(c for c in children if text(c) == "Export TOML")
     assert disabled.to_plotly_json()["props"]["aria-disabled"] == "true"
 
 
@@ -324,7 +324,7 @@ def test_already_covered_target_has_no_execution_action():
     assert "Target already covered · Nothing to execute" in text(view)
     assert "Current coverage 100% +0 trials → Planned coverage 100%" in text(view)
     assert "Show configurations" not in text(view)
-    assert "Download .toml" not in text(view)
+    assert "Export TOML" not in text(view)
     assert not any(isinstance(c, (dcc.Graph, dash_table.DataTable)) for c in components(view))
 
 

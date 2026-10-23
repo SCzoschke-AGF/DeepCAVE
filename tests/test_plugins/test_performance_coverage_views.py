@@ -1,6 +1,7 @@
 """Real callback behavior for CHR candidate scoring, rankings and detail selection."""
 
 from types import SimpleNamespace
+from urllib.parse import unquote
 
 import pytest
 from dash.exceptions import PreventUpdate
@@ -9,6 +10,7 @@ from deepcave.plugins.hyperparameter import performance_coverage_views as views
 from deepcave.plugins.hyperparameter import search_space_coverage as suite
 
 from tests.test_evaluators.test_coverage_candidates import OPTIONS, make_run
+from tests.test_plugins.test_coverage_planning_views import tomllib
 from tests.test_plugins.test_search_space_coverage import FakeQueue, visible_text
 
 
@@ -19,6 +21,7 @@ def callbacks(tmp_path, monkeypatch):
     def callback(*args, **kwargs):
         def register(function):
             functions[function.__name__] = function
+            function.callback_dependencies = args
             return function
 
         return register
@@ -80,20 +83,27 @@ def test_refresh_queues_once_tabs_and_details_never_queue(callbacks):
         f"Best observed trial #{result['reference_trial_number']}",
         f"{result['top_relative_score']:+.3f}",
     )
-    scores = [r["relative_score"] for r in overall[5]]
+    chart = functions["performance_chart"]
+    assert [d.component_id for d in chart.callback_dependencies if isinstance(d, views.Input)] == [
+        suite._id("performance-data"),
+        suite._id("performance-tab"),
+    ]
+    assert sum(chart(complete[0], "overall", context).data[0].y) == len(result["candidates"])
+    scores = [r["relative_score"] for r in overall[4]]
     assert scores == sorted(scores, reverse=True)
     per_hole = functions["performance_results"](complete[0], "holes", context)
-    assert len({r["hole_id"] for r in per_hole[5]}) == len(per_hole[5])
-    for row in per_hole[5]:
+    assert len({r["hole_id"] for r in per_hole[4]}) == len(per_hole[4])
+    for row in per_hole[4]:
         assert row["relative_score"] == max(
-            r["relative_score"] for r in overall[5] if r["hole_id"] == row["hole_id"]
+            r["relative_score"] for r in overall[4] if r["hole_id"] == row["hole_id"]
         )
     plan = functions["performance_results"](complete[0], "plan", context)
-    assert [r["id"] for r in plan[5]] == result["plan"]
-    assert [r["selected"] for r in plan[5]] == [f"✓ {i + 1}" for i in range(len(result["plan"]))]
-    selected = functions["performance_detail"](plan[6], complete[0], context)
+    assert [r["id"] for r in plan[4]] == result["plan"]
+    assert [r["selected"] for r in plan[4]] == [f"✓ {i + 1}" for i in range(len(result["plan"]))]
+    assert overall[7:9] == per_hole[7:9] == plan[7:9] == ([], [])
+    selected = functions["performance_detail"](plan[5], complete[0], context)
     assert "Included in CHR plan" in visible_text(selected)
-    other = overall[5][-1]
+    other = overall[4][-1]
     changed = functions["performance_detail"]({"row_id": other["id"]}, complete[0], context)
     assert changed != selected
     assert "Show full config" in visible_text(changed)
@@ -115,7 +125,8 @@ def test_study_settings_and_objective_invalidation_preserve_explicit_refresh(cal
     changed = job_call(callbacks, objective="objective:1", previous=settings[3])
     assert changed[0]["objective_id"] == 1 and changed[0]["cache_key"] is None
     hidden = functions["performance_results"](changed[0], "overall", {"run_id": run.id})
-    assert hidden[:4] == ("—",) * 4 and hidden[5] == []
+    assert hidden[:4] == ("—",) * 4 and hidden[4] == []
+    assert not functions["performance_chart"](changed[0], "overall", {"run_id": run.id}).data
     assert functions["performance_detail"](None, changed[0], {"run_id": run.id}) == ""
     assert len(jobs.queue.calls) == 1
 
@@ -136,7 +147,7 @@ def test_missing_objective_settings_worker_and_fit_failure_are_explained(callbac
     assert "failed" in result[1]
     payload = started[0] if result[0] is views.no_update else result[0]
     rendered = callbacks[0]["performance_results"](payload, "overall", {"run_id": callbacks[2].id})
-    assert rendered[5] == []
+    assert rendered[4] == []
 
 
 def test_error_results_and_run_switch_cannot_show_other_studies(callbacks):
@@ -149,7 +160,7 @@ def test_error_results_and_run_switch_cannot_show_other_studies(callbacks):
     assert functions["performance_detail"]({"row_id": "x"}, complete[0], {"run_id": "other"}) == ""
     with pytest.raises(PreventUpdate):
         functions["performance_job"](
-            1, {"run_id": "other"}, 0, None, 60, 4, 4, 128, 42, run.id, None
+            1, {"run_id": "other"}, 0, None, 60, 4, 4, 128, 42, 80, 17, run.id, None
         )
 
 
@@ -175,8 +186,8 @@ def test_small_pool_explains_holes_without_generated_candidates(callbacks):
     context = {"run_id": run.id}
     view = functions["performance_results"](complete[0], "holes", context)
     result = jobs.read(run.id, "candidate_scoring")["result"]
-    assert len(view[5]) == len(result["holes"])
-    missing = next(row for row in view[5] if row["relative_score"] is None)
+    assert len(view[4]) == len(result["holes"])
+    missing = next(row for row in view[4] if row["relative_score"] is None)
     detail = functions["performance_detail"]({"row_id": missing["id"]}, complete[0], context)
     assert "No valid candidate" in visible_text(detail)
 
@@ -189,7 +200,7 @@ def test_histogram_counts_all_relative_scores_with_reference_at_zero(values):
     assert figure.layout.shapes[0].line.dash == "dash"
     assert figure.layout.xaxis.range[0] < min(0, *values)
     assert figure.layout.xaxis.range[1] > max(0, *values)
-    assert figure.layout.annotations[0].text == "Best observed trial"
+    assert figure.layout.annotations[0].text == "Best observed trial<br>(Reference)"
     assert figure.layout.xaxis.title.text == "KDE score relative to reference"
 
 
@@ -215,5 +226,127 @@ def test_panel_titles_loading_settings_and_readonly_membership():
         c for c in components if getattr(c, "id", None) == suite._id("performance-ranking")
     )
     assert not getattr(table, "editable", False)
-    assert not getattr(table, "row_selectable", False)
+    assert table.row_selectable == "multi"
+    assert table.selected_rows == table.selected_row_ids == []
+    assert table.columns[2]["id"] == "relative_score"
+    tabs = next(c for c in components if getattr(c, "id", None) == suite._id("performance-tab"))
+    assert tabs.children[-1].label == "Best candidates: full search space"
+    assert tabs.children[-1].value == "full_space"
     assert any(c.__class__.__name__ == "Loading" for c in components)
+
+
+@pytest.mark.parametrize("tab", ["overall", "holes", "plan", "full_space"])
+def test_selected_trials_export_full_parameters_in_ranking_order(callbacks, tab):
+    complete = finish(callbacks)
+    functions, jobs, run, _ = callbacks
+    context = {"run_id": run.id}
+    result = jobs.read(run.id, "candidate_scoring")["result"]
+    ranked = views.ranking_candidates(result, tab)
+    chosen = [ranked[0], ranked[-1]]
+    if tab == "overall":
+        assert len(ranked) > 8  # Selection can span table pages.
+    link = functions["performance_export"](
+        [c["id"] for c in reversed(chosen)] + ["unknown", "empty-hole"],
+        complete[0],
+        tab,
+        context,
+    )
+    assert link.download == (
+        "full-space-candidates.toml" if tab == "full_space" else "coverage-candidates.toml"
+    )
+    prefix, content = link.href.split(",", 1)
+    assert prefix == "data:application/toml;charset=utf-8"
+    exported = tomllib.loads(unquote(content))
+    assert exported == {"trials": [c["configuration"] for c in chosen]}
+    assert type(exported["trials"][0]["x"]) is float
+    assert type(exported["trials"][0]["n"]) is int
+    assert len(jobs.queue.calls) == 1
+
+
+def test_export_requires_valid_selection_and_current_results(callbacks):
+    complete = finish(callbacks)
+    functions, jobs, run, _ = callbacks
+    context = {"run_id": run.id}
+    entry = jobs.read(run.id, "candidate_scoring")
+    candidate = entry["result"]["candidates"][0]
+    export = functions["performance_export"]
+    for selected, payload, current_context in (
+        ([], complete[0], context),
+        (["unknown", "empty-hole"], complete[0], context),
+        ([candidate["id"]], complete[0], {"run_id": "other"}),
+        ([candidate["id"]], {"run_id": run.id, "cache_key": "stale"}, context),
+    ):
+        assert export(selected, payload, "overall", current_context).disabled
+    candidate["configuration"]["unsupported"] = None
+    jobs._write(run.id, "candidate_scoring", entry)
+    disabled = export([candidate["id"]], complete[0], "overall", context)
+    assert disabled.disabled
+    assert "cannot represent parameter" in disabled.title
+
+
+def test_full_space_tab_ranks_its_pool_and_shows_sampling_details(callbacks):
+    complete = finish(callbacks)
+    functions, jobs, run, _ = callbacks
+    context = {"run_id": run.id}
+    result = jobs.read(run.id, "candidate_scoring")["result"]
+    rendered = functions["performance_results"](complete[0], "full_space", context)
+    ranked = views.ranking_candidates(result, "full_space")
+    assert len(rendered[4]) == len(ranked) == OPTIONS["global_pool_size"]
+    assert [r["id"] for r in rendered[4]] == [c["id"] for c in ranked]
+    assert [c["kde_score"] for c in ranked] == sorted(
+        [c["kde_score"] for c in ranked], reverse=True
+    )
+    assert rendered[1] == str(len(ranked))
+    assert rendered[3] == f"{ranked[0]['relative_score']:+.3f}"
+    assert rendered[7:9] == ([], [])
+    assert [column["id"] for column in rendered[9]] == ["relative_score", "rank"]
+    assert "80 sampled, unseen configurations" in rendered[10]
+    assert "Seed 17" in rendered[10]
+    assert all(row["hole_id"] is None and row["hole_radius"] is None for row in rendered[4])
+    chart = functions["performance_chart"](complete[0], "full_space", context)
+    assert sum(chart.data[0].y) == 80
+    details = visible_text(functions["performance_detail"](rendered[5], complete[0], context))
+    assert "Full-space search" in details and "Show full config" in details
+    assert "Coverage contribution" not in details and "Included in CHR plan" not in details
+    assert len(jobs.queue.calls) == 1
+    changed = job_call(callbacks, previous=complete[3], global_pool_size=90)
+    assert "Refresh" in changed[1] and len(jobs.queue.calls) == 1
+
+
+@pytest.mark.parametrize("reason", ["finite_space_exhausted", "sampling_budget_reached"])
+def test_empty_global_pool_keeps_hole_results_available_and_explains_limit(callbacks, reason):
+    complete = finish(callbacks)
+    functions, jobs, run, _ = callbacks
+    entry = jobs.read(run.id, "candidate_scoring")
+    entry["result"]["full_space_candidates"] = []
+    entry["result"]["global_sampling"].update(count=0, stop_reason=reason)
+    jobs._write(run.id, "candidate_scoring", entry)
+    context = {"run_id": run.id}
+    rendered = functions["performance_results"](complete[0], "full_space", context)
+    assert rendered[1] == "0" and rendered[3] == "—" and rendered[4] == []
+    assert (
+        "No unseen configurations remain"
+        if reason == "finite_space_exhausted"
+        else "sampling limit reached"
+    ) in rendered[10]
+    assert functions["performance_results"](complete[0], "overall", context)[4]
+
+
+def test_global_only_results_and_older_cached_results_render_without_errors(callbacks):
+    complete = finish(callbacks)
+    functions, jobs, run, _ = callbacks
+    entry = jobs.read(run.id, "candidate_scoring")
+    entry["result"].update(candidates=[], holes=[], plan=[])
+    jobs._write(run.id, "candidate_scoring", entry)
+    context = {"run_id": run.id}
+    rendered = functions["performance_results"](complete[0], "full_space", context)
+    assert len(rendered[4]) == OPTIONS["global_pool_size"]
+    assert functions["performance_chart"](complete[0], "full_space", context).data
+    assert "Full-space search" in visible_text(
+        functions["performance_detail"](rendered[5], complete[0], context)
+    )
+    entry["result"].pop("full_space_candidates")
+    entry["result"].pop("global_sampling")
+    jobs._write(run.id, "candidate_scoring", entry)
+    rendered = functions["performance_results"](complete[0], "full_space", context)
+    assert rendered[4] == [] and "Refresh" in rendered[10]
