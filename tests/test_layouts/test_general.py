@@ -10,6 +10,7 @@ from dash.exceptions import PreventUpdate
 
 import deepcave
 from deepcave.runs import Status
+from deepcave.utils.cache import Cache
 
 
 def _walk_components(component):
@@ -45,6 +46,7 @@ def test_optuna_study_dropdown_uses_full_study_names(monkeypatch, tmp_path):
         monkeypatch.setattr(deepcave, name, SimpleNamespace(), raising=False)
 
     general_module = importlib.import_module("deepcave.layouts.general")
+    monkeypatch.setattr(general_module, "c", Cache())
     monkeypatch.setattr(
         general_module,
         "app",
@@ -208,6 +210,7 @@ def general_callbacks(monkeypatch):
         return decorator
 
     monkeypatch.setattr(module, "app", SimpleNamespace(callback=register_callback))
+    monkeypatch.setattr(module, "c", Cache())
     monkeypatch.setattr(
         module, "run_handler", SimpleNamespace(get_working_directory=lambda: Path.cwd())
     )
@@ -220,6 +223,45 @@ def _database(path, studies):
         connection.execute("CREATE TABLE studies (study_name TEXT)")
         connection.executemany("INSERT INTO studies VALUES (?)", [(name,) for name in studies])
     return path
+
+
+def test_database_and_studies_are_restored_after_reload(general_callbacks, monkeypatch, tmp_path):
+    module, layout, callbacks = general_callbacks
+    database = _database(tmp_path / "optuna.db", ["first", "second"])
+    layout._callback_discover_optuna_studies()
+    discover = callbacks[0]
+    discover(database.name, str(tmp_path), None, None)
+
+    # Initial discovery with an empty input must not erase the remembered database.
+    discover("", str(tmp_path), None, None)
+    layout._callback_browse_optuna_database()
+    monkeypatch.setattr(module, "ctx", SimpleNamespace(triggered_id=None))
+    opened, _directory, _entries, restored, error = callbacks[1](None, None, None, None, [], "")
+    assert opened is False
+    assert restored == str(database)
+    assert error == ""
+    options, selected, _message, _class, _discovery, _placeholder, disabled = discover(
+        restored, str(tmp_path), None, None
+    )
+    assert options == [
+        {"label": "first", "value": "first"},
+        {"label": "second", "value": "second"},
+    ]
+    assert selected is None
+    assert disabled is False
+
+
+def test_database_restore_without_a_saved_path(general_callbacks, monkeypatch):
+    module, layout, callbacks = general_callbacks
+    layout._callback_browse_optuna_database()
+    monkeypatch.setattr(module, "ctx", SimpleNamespace(triggered_id=None))
+    assert callbacks[0](None, None, None, None, [], "") == (
+        False,
+        no_update,
+        no_update,
+        "",
+        "",
+    )
 
 
 def test_selected_run_table_uses_real_metadata_and_preserves_remove_targets(

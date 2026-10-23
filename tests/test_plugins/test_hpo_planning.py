@@ -24,7 +24,7 @@ from deepcave.runs.trial import Trial
 def test_plugin_is_registered_for_hyperparameter_analysis():
     plugin_ids = [plugin.id for plugin in config.PLUGINS["Hyperparameter Analysis"]]
 
-    assert "hpo_planning" in plugin_ids
+    assert plugin_ids[0] == "hpo_planning"
     assert planning.HPOPlanning.name == "HPO Planner"
 
 

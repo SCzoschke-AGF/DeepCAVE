@@ -51,6 +51,7 @@ from deepcave.plugins.hyperparameter.combinatorial_views import (
     combinatorial_view,
 )
 from deepcave.plugins.hyperparameter.coverage_planning_views import (
+    optuna_export_study,
     plan_trial_detail,
     plan_view,
     planning_coverage,
@@ -1774,7 +1775,9 @@ class SearchSpaceCoverage(Plugin):
                 ),
                 status == "running" or bool(error),
                 {} if status == "running" else {"display": "none"},
-                no_update if same_result else plan_view(entry.get("result")),
+                no_update
+                if same_result
+                else plan_view(entry.get("result"), optuna_export_study(run)),
                 view,
             )
 

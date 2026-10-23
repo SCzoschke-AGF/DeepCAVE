@@ -97,7 +97,8 @@ def test_full_strength_summary_shows_coverage_metrics_and_configuration_action()
     assert [segment.style["width"] for segment in bar.children] == ["25%", "75%"]
 
 
-def test_toml_download_exports_all_trials_and_preserves_parameter_types():
+@pytest.mark.parametrize("study", [None, {"name": 'catboost_hpo "test"', "id": 7}])
+def test_toml_download_exports_all_trials_and_preserves_parameter_types(study):
     plan = make_plan(dimensions=4, strength=4)
     constants = {
         "learning_rate": 0.001,
@@ -109,7 +110,7 @@ def test_toml_download_exports_all_trials_and_preserves_parameter_types():
     plan["search_space"]["constants"].update(constants)
     for trial in plan["trials"]:
         trial["parameters"].update(constants)
-    view = plan_view(plan)
+    view = plan_view(plan, study)
     children = list(components(view))
     link = next(c for c in children if isinstance(c, html.A))
     assert text(link) == "Export TOML"
@@ -122,7 +123,11 @@ def test_toml_download_exports_all_trials_and_preserves_parameter_types():
     prefix, content = link.href.split(",", 1)
     assert prefix == "data:application/toml;charset=utf-8"
     parsed = tomllib.loads(unquote(content))
-    assert parsed == {"trials": [trial["parameters"] for trial in plan["trials"]]}
+    expected = {"trials": [trial["parameters"] for trial in plan["trials"]]}
+    if study:
+        expected["study"] = study
+        assert study["name"] not in text(view)
+    assert parsed == expected
     assert type(parsed["trials"][0]["enabled"]) is bool
     assert type(parsed["trials"][0]["batch_size"]) is int
     assert type(parsed["trials"][0]["learning_rate"]) is float

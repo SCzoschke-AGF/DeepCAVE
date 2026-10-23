@@ -271,6 +271,12 @@ class OptunaRun(Run):
         study_name = optuna_study.study_name
         meta = {
             "optuna_study_name": study_name,
+            "optuna_study_id": getattr(
+                optuna_study,
+                "_deepcave_study_id",
+                # Older detached snapshots no longer contain the original ID.
+                None if hasattr(optuna_study, "_deepcave_sampler_name") else optuna_study._study_id,
+            ),
             "optuna_sampler": getattr(
                 optuna_study, "_deepcave_sampler_name", type(optuna_study.sampler).__name__
             ),

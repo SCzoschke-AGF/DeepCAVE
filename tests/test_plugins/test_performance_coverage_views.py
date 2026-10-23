@@ -236,9 +236,12 @@ def test_panel_titles_loading_settings_and_readonly_membership():
 
 
 @pytest.mark.parametrize("tab", ["overall", "holes", "plan", "full_space"])
-def test_selected_trials_export_full_parameters_in_ranking_order(callbacks, tab):
+@pytest.mark.parametrize("study", [None, {"name": 'catboost_hpo "test"', "id": 7}])
+def test_selected_trials_export_full_parameters_in_ranking_order(callbacks, tab, study):
     complete = finish(callbacks)
     functions, jobs, run, _ = callbacks
+    if study:
+        run.meta.update(optuna_study_name=study["name"], optuna_study_id=study["id"])
     context = {"run_id": run.id}
     result = jobs.read(run.id, "candidate_scoring")["result"]
     ranked = views.ranking_candidates(result, tab)
@@ -257,7 +260,10 @@ def test_selected_trials_export_full_parameters_in_ranking_order(callbacks, tab)
     prefix, content = link.href.split(",", 1)
     assert prefix == "data:application/toml;charset=utf-8"
     exported = tomllib.loads(unquote(content))
-    assert exported == {"trials": [c["configuration"] for c in chosen]}
+    expected = {"trials": [c["configuration"] for c in chosen]}
+    if study:
+        expected["study"] = study
+    assert exported == expected
     assert type(exported["trials"][0]["x"]) is float
     assert type(exported["trials"][0]["n"]) is int
     assert len(jobs.queue.calls) == 1

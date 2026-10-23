@@ -90,6 +90,7 @@ def test_converter_uses_original_study_name_instead_of_snapshot_directory(
 
     assert run.name == study_name
     assert run.meta["optuna_study_name"] == study_name
+    assert run.meta["optuna_study_id"] == study._study_id
 
 
 def test_converter_handles_missing_timestamps(tmp_path: Path) -> None:

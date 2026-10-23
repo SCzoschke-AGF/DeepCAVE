@@ -55,14 +55,12 @@ from deepcave.plugins.hyperparameter.search_space_state import (
 )
 from deepcave.runs import AbstractRun
 from deepcave.utils.analysis_layout import (
-    analysis_card,
     analysis_graph,
-    analysis_toolbar_item,
     bin_label,
     horizontal_colorbar,
     style_analysis_panel,
 )
-from deepcave.utils.layout import get_select_options
+from deepcave.utils.layout import get_select_options, help_button
 from deepcave.utils.styled_plotty import save_image
 
 N_BINS = 4
@@ -70,9 +68,10 @@ MIN_BINS = 2
 MAX_BINS = 20
 ELITE_PROPORTION_DEFAULT = 0.10
 COLOR_SCALE = "Viridis"
-PANEL_HEIGHT = 270
+PANEL_HEIGHT = 240
+TRIALS_PANEL_HEIGHT = 210
 PANEL_BOTTOM_MARGIN = 94
-ENRICHMENT_TOP_MARGIN = 30
+ENRICHMENT_TOP_MARGIN = 16
 ENRICHMENT_BOTTOM_MARGIN = 60
 MAX_ANNOTATED_X_BINS = 15
 MAX_ANNOTATED_Y_BINS = 6
@@ -248,6 +247,7 @@ def _style_two_dimensional_panel(figure: go.Figure) -> None:
         height=PANEL_HEIGHT,
         bottom=PANEL_BOTTOM_MARGIN,
         show_legend=False,
+        top=16,
     )
 
 
@@ -274,7 +274,16 @@ def _observed_trials_figure(
                 "colorscale": COLOR_SCALE,
                 "reversescale": color_by_rank or optimize == "lower",
                 "showscale": True,
-                "colorbar": horizontal_colorbar(colorbar_title),
+                "colorbar": {
+                    "orientation": "v",
+                    "title": {"text": colorbar_title, "side": "top", "font": {"size": 11}},
+                    "thickness": 10,
+                    "tickfont": {"size": 10},
+                    "nticks": 6,
+                    "lenmode": "pixels",
+                    "len": TRIALS_PANEL_HEIGHT - 64,
+                    "x": 1.02,
+                },
                 "size": 6,
                 "opacity": 0.7,
             },
@@ -290,6 +299,7 @@ def _observed_trials_figure(
         )
     )
     _style_two_dimensional_panel(figure)
+    figure.update_layout(height=TRIALS_PANEL_HEIGHT, margin={"b": 48, "r": 100})
     figure.update_xaxes(
         title_text=hyperparameter_name_1,
         type="log" if getattr(hyperparameter_1, "log", False) else None,
@@ -330,10 +340,10 @@ def _elite_enrichment_figure(
     elite_customdata: List[List[List[Any]]] = []
     annotations: List[Dict[str, Any]] = []
     cell_lookup = {(row["group_1"], row["group_2"]): row for _, row in cells.iterrows()}
-    for y_label in y_labels:
+    for y_index, y_label in enumerate(y_labels):
         enrichment_row: List[Any] = []
         customdata_row: List[List[Any]] = []
-        for x_label in x_labels:
+        for x_index, x_label in enumerate(x_labels):
             cell = cell_lookup.get((x_label, y_label))
             if cell is None or int(cell["n"]) == 0:
                 enrichment_row.append(None)
@@ -344,16 +354,16 @@ def _elite_enrichment_figure(
                     annotations.extend(
                         [
                             {
-                                "x": x_label,
-                                "y": y_label,
+                                "x": x_index,
+                                "y": y_index,
                                 "text": "No data",
                                 "showarrow": False,
                                 "yshift": 6,
                                 "font": {"size": 11, "color": "#64748b", "weight": 600},
                             },
                             {
-                                "x": x_label,
-                                "y": y_label,
+                                "x": x_index,
+                                "y": y_index,
                                 "text": "n = 0",
                                 "showarrow": False,
                                 "yshift": -8,
@@ -386,16 +396,16 @@ def _elite_enrichment_figure(
                 annotations.extend(
                     [
                         {
-                            "x": x_label,
-                            "y": y_label,
+                            "x": x_index,
+                            "y": y_index,
                             "text": _format_enrichment(enrichment),
                             "showarrow": False,
                             "yshift": 6,
                             "font": {"size": 13, "color": text_color, "weight": 600},
                         },
                         {
-                            "x": x_label,
-                            "y": y_label,
+                            "x": x_index,
+                            "y": y_index,
                             "text": f"n = {int(cell['n'])}",
                             "showarrow": False,
                             "yshift": -8,
@@ -444,6 +454,7 @@ def _elite_enrichment_figure(
     figure.update_layout(annotations=annotations, plot_bgcolor="#eef1f5")
     figure.update_xaxes(
         title_text=hyperparameter_name_1,
+        type="category",
         tickmode="array",
         tickvals=x_labels,
         ticktext=[bin_label(label, multiline=False) for label in x_labels],
@@ -454,6 +465,7 @@ def _elite_enrichment_figure(
     )
     figure.update_yaxes(
         title_text=hyperparameter_name_2,
+        type="category",
         tickmode="array",
         tickvals=y_labels,
         ticktext=[bin_label(label) for label in y_labels],
@@ -561,6 +573,7 @@ def _objective_median_figure(
             )
         )
         figure.update_xaxes(
+            type="category",
             tickmode="array",
             tickvals=x_labels,
             ticktext=[bin_label(label, multiline=False) for label in x_labels],
@@ -568,6 +581,7 @@ def _objective_median_figure(
             categoryarray=x_labels,
         )
         figure.update_yaxes(
+            type="category",
             tickmode="array",
             tickvals=y_labels,
             ticktext=[bin_label(label) for label in y_labels],
@@ -773,12 +787,12 @@ def _planning_control(
     parameter: Dict[str, Any], selection: Dict[str, Any], axis_index: int
 ) -> Component:
     """Build the reduced planner control for one selected 2-D feature."""
-    label = f"Feature #{axis_index + 1} · {parameter['name']}"
+    label = "Search range"
     planning_context = parameter.get("planning_context", "")
     if parameter["parameter_type"] not in ("integer", "float"):
         return html.Div(
             [
-                dbc.Label(label, className="small mb-1"),
+                dbc.Label(label, className="two-dimensional-range-label"),
                 dcc.Dropdown(
                     id={
                         "type": PLANNING_CATEGORIES_TYPE,
@@ -799,23 +813,20 @@ def _planning_control(
     metrics = selection_metrics(parameter, selection)
     domain = slider_domain(metrics)
     extensions, unselected = _range_overlay_components(metrics, domain)
-    reference_left = position_percent(0, domain)
-    reference_right = position_percent(1, domain)
     return html.Div(
         [
-            dbc.Label(label, className="small mb-1"),
             html.Div(
                 [
-                    html.Div(
-                        html.Span(
-                            className="planner-current-reference-segment",
-                            style={
-                                "left": f"{reference_left:.6f}%",
-                                "width": f"{reference_right - reference_left:.6f}%",
-                            },
-                        ),
-                        className="planner-current-reference",
+                    dbc.Label(label, className="two-dimensional-range-label"),
+                    html.Span(
+                        f"{selection['min']:.6g} – {selection['max']:.6g}",
+                        className="two-dimensional-range-value",
                     ),
+                ],
+                className="two-dimensional-range-heading",
+            ),
+            html.Div(
+                [
                     dcc.RangeSlider(
                         id={
                             "type": PLANNING_RANGE_TYPE,
@@ -826,10 +837,7 @@ def _planning_control(
                         max=domain[1],
                         step=0.001,
                         value=[metrics["min_normalized"], metrics["max_normalized"]],
-                        marks={
-                            0: f"{parameter['current_min']:.6g}",
-                            1: f"{parameter['current_max']:.6g}",
-                        },
+                        marks=None,
                         allowCross=False,
                         updatemode="mouseup",
                         tooltip={
@@ -901,47 +909,112 @@ class TwoDimensionalAnalysis(DynamicPlugin):
 
     @staticmethod
     def get_input_layout(register: Callable) -> List[Component]:
-        """Return the analysis controls; the active run lives in the sidebar."""
-        # Register the bin inputs here even though their components live in the fourth grid card.
-        register("n_bins_1", "value", type=int)
-        register("n_bins_2", "value", type=int)
+        """Group feature selection, search range and binning by axis."""
+        # The rank switch lives alongside the observed-trials plot.
         register("color_by_rank", "value", filter=True, type=bool)
+        feature_cards = []
+        for index, (axis, mount) in enumerate(
+            (("X", PLANNING_CONTROL_1_ID), ("Y", PLANNING_CONTROL_2_ID)), start=1
+        ):
+            feature_id = register(f"hyperparameter_name_{index}", ["value", "options"])
+            bin_id = register(f"n_bins_{index}", "value", type=int)
+            feature_cards.append(
+                html.Div(
+                    [
+                        dbc.Label(
+                            f"Hyperparameter {axis}",
+                            html_for=feature_id,
+                            className="two-dimensional-control-title",
+                        ),
+                        dbc.Select(
+                            id=feature_id,
+                            placeholder="Select hyperparameter ...",
+                            size="sm",
+                            className="two-dimensional-feature-select",
+                        ),
+                        html.Div(
+                            [
+                                dbc.Label(
+                                    "Bins",
+                                    html_for=bin_id,
+                                    className="two-dimensional-control-title",
+                                ),
+                                html.Div(
+                                    [
+                                        html.Button(
+                                            "−",
+                                            id=f"{bin_id}-decrement",
+                                            type="button",
+                                            className="two-dimensional-bin-button",
+                                            **{"aria-label": f"Decrease bins for {axis}"},
+                                        ),
+                                        dbc.Input(
+                                            id=bin_id,
+                                            type="number",
+                                            min=MIN_BINS,
+                                            max=MAX_BINS,
+                                            step=1,
+                                            value=N_BINS,
+                                            className="two-dimensional-bin-input",
+                                        ),
+                                        html.Button(
+                                            "+",
+                                            id=f"{bin_id}-increment",
+                                            type="button",
+                                            className="two-dimensional-bin-button",
+                                            **{"aria-label": f"Increase bins for {axis}"},
+                                        ),
+                                    ],
+                                    className="two-dimensional-bin-stepper",
+                                ),
+                            ],
+                            className="two-dimensional-binning-control",
+                        ),
+                        html.Div(id=mount, className="two-dimensional-range-mount"),
+                    ],
+                    className="two-dimensional-feature-card",
+                )
+            )
+        elite_id = register("elite_proportion", "value", type=float)
         return [
             html.Div(
                 [
-                    analysis_toolbar_item(
-                        "Hyperparameter #1",
-                        dbc.Select(
-                            id=register("hyperparameter_name_1", ["value", "options"]),
-                            placeholder="Select hyperparameter ...",
-                        ),
-                        width="12rem",
+                    *feature_cards,
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    dbc.Label(
+                                        "Elite",
+                                        html_for=elite_id,
+                                        className="two-dimensional-control-title",
+                                    ),
+                                    help_button(
+                                        "Fraction of the best trials considered elite. "
+                                        "For example, 0.10 selects the best 10%."
+                                    ),
+                                ],
+                                className="two-dimensional-elite-heading",
+                            ),
+                            dbc.Input(
+                                id=elite_id,
+                                type="number",
+                                min=0.01,
+                                max=0.99,
+                                step=0.01,
+                                size="sm",
+                            ),
+                            html.Div(id=PLANNING_ACTIONS_ID),
+                        ],
+                        className="two-dimensional-elite-card",
                     ),
-                    analysis_toolbar_item(
-                        "Hyperparameter #2",
-                        dbc.Select(
-                            id=register("hyperparameter_name_2", ["value", "options"]),
-                            placeholder="Select hyperparameter ...",
-                        ),
-                        width="12rem",
-                    ),
-                    analysis_toolbar_item(
-                        "Elite",
-                        dbc.Input(
-                            id=register("elite_proportion", "value", type=float),
-                            type="number",
-                            min=0.01,
-                            max=0.99,
-                            step=0.01,
-                        ),
-                        width="6rem",
-                        help_text=(
-                            "Fraction of the best trials considered elite. For example, "
-                            "0.10 selects the best 10%."
-                        ),
+                    dcc.Store(
+                        id={"type": PLANNED_SEARCH_SPACE_CONTEXT_TYPE, "source": PLANNING_SOURCE},
+                        data=None,
                     ),
                 ],
-                className="analysis-toolbar d-flex flex-wrap align-items-center gap-2",
+                id=PLANNING_CONTROLS_ID,
+                className="two-dimensional-controls",
             )
         ]
 
@@ -955,6 +1028,25 @@ class TwoDimensionalAnalysis(DynamicPlugin):
         """Synchronize the reduced controls with the shared planning state."""
         super().register_callbacks()
         from deepcave import app, run_handler
+
+        for index in (1, 2):
+            bin_id = self.get_internal_input_id(f"n_bins_{index}")
+            app.clientside_callback(  # type: ignore
+                """function(decrease, increase, value, minimum, maximum) {
+                    const id = dash_clientside.callback_context.triggered_id;
+                    if (!id) return dash_clientside.no_update;
+                    const step = id.endsWith("-increment") ? 1 : -1;
+                    const current = Number.isFinite(value) ? value : minimum;
+                    return Math.max(minimum, Math.min(maximum, current + step));
+                }""",
+                Output(bin_id, "value"),
+                [
+                    Input(f"{bin_id}-decrement", "n_clicks"),
+                    Input(f"{bin_id}-increment", "n_clicks"),
+                ],
+                [State(bin_id, "value"), State(bin_id, "min"), State(bin_id, "max")],
+                prevent_initial_call=True,
+            )
 
         @app.callback(  # type: ignore
             [
@@ -1011,7 +1103,7 @@ class TwoDimensionalAnalysis(DynamicPlugin):
             ]
             actions = html.Div(
                 dbc.Button(
-                    [html.I(className="fas fa-undo me-2"), "Reset feature ranges"],
+                    [html.I(className="fas fa-undo me-2"), "Reset ranges"],
                     id={"type": PLANNING_RESET_ID, "context": planning_context},
                     color="primary",
                     outline=True,
@@ -1205,10 +1297,10 @@ class TwoDimensionalAnalysis(DynamicPlugin):
 
     @staticmethod
     def get_output_layout(register: Callable) -> List[Any]:
-        """Return independently sized plot and control columns."""
+        """Show trials across the full width, followed by the two binned views."""
         trials_graph = analysis_graph(
             register("trials_graph", "figure"),
-            PANEL_HEIGHT,
+            TRIALS_PANEL_HEIGHT,
             config.FIGURE_DOWNLOAD_SCALE,
         )
         elite_rate_graph = analysis_graph(
@@ -1221,124 +1313,49 @@ class TwoDimensionalAnalysis(DynamicPlugin):
             PANEL_HEIGHT,
             config.FIGURE_DOWNLOAD_SCALE,
         )
+
+        def card(title: str, description: str, graph: Component, trials: bool = False) -> Component:
+            header = [
+                html.Div(
+                    [
+                        html.H2(title, className="two-dimensional-card-title"),
+                        html.P(description, className="two-dimensional-card-description"),
+                    ],
+                    className="two-dimensional-card-heading",
+                )
+            ]
+            if trials:
+                header.append(
+                    dbc.Switch(
+                        id=f"{TwoDimensionalAnalysis.id}-color_by_rank-input",
+                        label="Color by trial rank",
+                        value=False,
+                        className="two-dimensional-color-control",
+                    )
+                )
+            return html.Div(
+                [html.Div(header, className="two-dimensional-card-header"), graph],
+                className="analysis-card" + (" two-dimensional-trials-card" if trials else ""),
+            )
+
         return [
             html.Div(
                 [
-                    html.Div(
-                        [
-                            analysis_card("Observed trials", trials_graph),
-                            analysis_card(
-                                "Empirical objective median contour",
-                                objective_graph,
-                            ),
-                        ],
-                        className="two-dimensional-analysis-column",
+                    card(
+                        "Observed trials",
+                        "Each point represents a trial, colored by objective value or trial rank.",
+                        trials_graph,
+                        trials=True,
                     ),
-                    html.Div(
-                        [
-                            analysis_card(
-                                "Elite enrichement (1x = Baseline)",
-                                elite_rate_graph,
-                            ),
-                            analysis_card(
-                                "Plot controls",
-                                html.Div(
-                                    [
-                                        html.Div(
-                                            [
-                                                dbc.Label(
-                                                    "Feature #1 bins", className="small mb-1"
-                                                ),
-                                                dcc.Slider(
-                                                    id=(
-                                                        f"{TwoDimensionalAnalysis.id}"
-                                                        "-n_bins_1-input"
-                                                    ),
-                                                    min=MIN_BINS,
-                                                    max=MAX_BINS,
-                                                    step=1,
-                                                    value=N_BINS,
-                                                    marks={
-                                                        value: str(value)
-                                                        for value in range(
-                                                            MIN_BINS, MAX_BINS + 1, 2
-                                                        )
-                                                    },
-                                                    tooltip={"placement": "bottom"},
-                                                ),
-                                            ],
-                                            className="two-dimensional-binning-control",
-                                        ),
-                                        html.Div(
-                                            [
-                                                dbc.Label(
-                                                    "Feature #2 bins", className="small mb-1"
-                                                ),
-                                                dcc.Slider(
-                                                    id=(
-                                                        f"{TwoDimensionalAnalysis.id}"
-                                                        "-n_bins_2-input"
-                                                    ),
-                                                    min=MIN_BINS,
-                                                    max=MAX_BINS,
-                                                    step=1,
-                                                    value=N_BINS,
-                                                    marks={
-                                                        value: str(value)
-                                                        for value in range(
-                                                            MIN_BINS, MAX_BINS + 1, 2
-                                                        )
-                                                    },
-                                                    tooltip={"placement": "bottom"},
-                                                ),
-                                            ],
-                                            className="two-dimensional-binning-control",
-                                        ),
-                                        dbc.Switch(
-                                            id=(
-                                                f"{TwoDimensionalAnalysis.id}"
-                                                "-color_by_rank-input"
-                                            ),
-                                            label="Color observed trials by trial rank",
-                                            value=False,
-                                            className="two-dimensional-color-control",
-                                        ),
-                                    ],
-                                    className=(
-                                        "two-dimensional-control-panel "
-                                        "two-dimensional-binning-controls"
-                                    ),
-                                ),
-                            ),
-                            analysis_card(
-                                "HPO Planner - Search Space",
-                                html.Div(
-                                    [
-                                        dcc.Store(
-                                            id={
-                                                "type": PLANNED_SEARCH_SPACE_CONTEXT_TYPE,
-                                                "source": PLANNING_SOURCE,
-                                            },
-                                            data=None,
-                                        ),
-                                        html.Div(
-                                            id=PLANNING_CONTROLS_ID,
-                                            className="two-dimensional-planning-controls",
-                                            children=[
-                                                html.Div(id=PLANNING_CONTROL_1_ID),
-                                                html.Div(id=PLANNING_CONTROL_2_ID),
-                                                html.Div(id=PLANNING_ACTIONS_ID),
-                                            ],
-                                        ),
-                                    ],
-                                    className=(
-                                        "two-dimensional-control-panel "
-                                        "two-dimensional-range-controls"
-                                    ),
-                                ),
-                            ),
-                        ],
-                        className="two-dimensional-analysis-column",
+                    card(
+                        "Elite enrichment (1x = Baseline)",
+                        "Elite rate relative to baseline. Each cell shows enrichment and trial count.",
+                        elite_rate_graph,
+                    ),
+                    card(
+                        "Empirical objective median contour",
+                        "Median objective values across the hyperparameter space.",
+                        objective_graph,
                     ),
                 ],
                 className="analysis-grid analysis-grid--two-dimensional",

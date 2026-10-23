@@ -127,6 +127,11 @@ def create_optuna_snapshot(
         to_study_name=study_name,
     )
     snapshot = optuna.load_study(storage=memory, study_name=study_name)
+    # Copying into memory assigns a new ID; retain the source database's ID.
+    with sqlite3.connect(database) as connection:
+        snapshot._deepcave_study_id = connection.execute(
+            "SELECT study_id FROM studies WHERE study_name = ?", (study_name,)
+        ).fetchone()[0]
     # Storage does not retain the original sampler. Do not report load_study's default.
     sampler_name = snapshot.user_attrs.get("optuna_sampler")
     snapshot._deepcave_sampler_name = (

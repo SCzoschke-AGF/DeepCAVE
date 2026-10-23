@@ -5,8 +5,12 @@ The 2-D Analyses plugin examines the empirical relationship between two hyperpar
 selected objective in an Optuna study. Select a study, objective, two different hyperparameters,
 and the proportion of plottable trials that should be considered elite.
 
-The top-left plot shows every successful trial without binning. Point colors encode the selected
-objective value, and the color direction follows the optimization direction. The top-right
+The X and Y cards group each hyperparameter selection with its search range and bin count.
+The Elite card sets the elite proportion and resets both feature ranges.
+
+The full-width plot shows every successful trial without binning. Point colors encode the selected
+objective value, and the color direction follows the optimization direction. A switch in the plot
+header can instead color points by trial rank. The lower-left
 heatmap groups both hyperparameters into joint bins and displays elite enrichment relative to the
 selected global
 elite proportion. One is the expected baseline, values below one are underrepresented, and values
@@ -18,18 +22,18 @@ the shared Viridis color scale.
 Empirical Objective Surface
 ---------------------------
 
-The bottom-left plot shows the median objective in each joint bin. For two numeric parameters the
+The lower-right plot shows the median objective in each joint bin. For two numeric parameters the
 median is rendered as a contour plot. Missing joint bins remain empty and no surrogate model or
 value imputation is used.
 If either parameter is categorical or ordinal, an objective heatmap is shown instead because
 interpolation between categories would not be meaningful. The Viridis direction follows the
 objective direction, so the bright end consistently represents better values.
 
-The bottom-right controls set the bin count independently for both selected features. Both the
+The controls in the X and Y cards set the bin count independently for both selected features. Both the
 elite-enrichment and objective-contour plots use this shared two-dimensional grid. Categorical
 features continue to use their categories and therefore ignore the numeric bin count.
 
-The same card also provides a reduced search-space planner for the two selected features. Numeric
+The search-range control in each card provides a reduced search-space planner. Numeric
 features use range sliders, while categorical and ordinal features use multi-select controls. The
 selection is shared with the HPO Planner and remains available while navigating between plugins in
 the current browser page. Numeric extensions beyond the current ConfigSpace are shown as orange
