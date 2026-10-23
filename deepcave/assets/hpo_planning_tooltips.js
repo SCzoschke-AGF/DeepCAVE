@@ -22,6 +22,15 @@
             return;
         }
 
+        const summary = control.parentElement.querySelector(".two-dimensional-range-value");
+        const handles = slider.querySelectorAll(".rc-slider-handle");
+        if (summary && handles.length === 2) {
+            const text = Array.from(handles, handle =>
+                formatOriginalValue(control, handle.getAttribute("aria-valuenow"))
+            ).join(" – ");
+            if (summary.textContent !== text) summary.textContent = text;
+        }
+
         const railBounds = rail.getBoundingClientRect();
         const trackBounds = track.getBoundingClientRect();
         if (railBounds.width <= 0) {
@@ -90,6 +99,10 @@
             return position;
         }
 
+        return formatOriginalValue(control, position);
+    }
+
+    function formatOriginalValue(control, position) {
         const lower = Number(control.dataset.currentMin);
         const upper = Number(control.dataset.currentMax);
         const logarithmic = control.dataset.log === "true";

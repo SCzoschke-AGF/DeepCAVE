@@ -93,10 +93,12 @@ class GeneralLayout(Layout):
         ]
         states = [State("general-optuna-database-input", "value")]
 
-        @app.callback(outputs, inputs, states, prevent_initial_call=True)  # type: ignore
+        @app.callback(outputs, inputs, states)  # type: ignore
         def callback(_browse, _parent, _close, directory, entry_clicks, database_value):
             """Navigate directories or select a validated local SQLite file."""
             trigger = ctx.triggered_id
+            if trigger is None:
+                return False, no_update, no_update, c.get("optuna_database") or "", ""
             if trigger == "general-optuna-browser-close":
                 return False, no_update, no_update, no_update, ""
 
@@ -205,6 +207,8 @@ class GeneralLayout(Layout):
                     placeholder,
                     True,
                 )
+
+            c.set("optuna_database", value=str(database))
 
             if len(study_names) == 0:
                 message = "No Optuna studies found in this database."
@@ -800,7 +804,7 @@ class GeneralLayout(Layout):
                                         id="general-optuna-database-input",
                                         type="text",
                                         value="",
-                                        placeholder="/app/data/optuna.db",
+                                        placeholder="Enter a SQLite database path",
                                         debounce=True,
                                     ),
                                     dbc.Button(

@@ -142,9 +142,9 @@ class Config:
                 MultiMetricsComparison(),
             ],
             "Hyperparameter Analysis": [
+                HPOPlanning(),
                 OneDimensionalAnalysis(),
                 TwoDimensionalAnalysis(),
-                HPOPlanning(),
                 CostEfficiency(),
                 Importances(),
                 PartialDependencies(),

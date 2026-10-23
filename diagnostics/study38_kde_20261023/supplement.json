@@ -1,0 +1,79 @@
+{
+  "paired": [
+    {
+      "split": 0.6,
+      "auc_gain": 0.05897435897435899,
+      "auc_gain_low": -0.06722689075630245,
+      "auc_gain_high": 0.18540832390648573,
+      "ap_gain": 0.1309074876809554,
+      "ap_gain_low": -0.136580546692691,
+      "ap_gain_high": 0.38633171062559385
+    },
+    {
+      "split": 0.8,
+      "auc_gain": 0.14883520276100082,
+      "auc_gain_low": -0.0018482771468216277,
+      "auc_gain_high": 0.29999522536287243,
+      "ap_gain": 0.3024332819817129,
+      "ap_gain_low": 0.05329996935148214,
+      "ap_gain_high": 0.5121857044637741
+    }
+  ],
+  "within_depth": [
+    {
+      "split": 0.6,
+      "same_depth_pairs": 129,
+      "same_depth_pairwise_auc": 0.7441860465116279
+    },
+    {
+      "split": 0.8,
+      "same_depth_pairs": 189,
+      "same_depth_pairwise_auc": 0.8201058201058201
+    }
+  ],
+  "gradient_max_absolute_error": [
+    2.225658385035621e-10,
+    1.7731840802715699e-10
+  ],
+  "finite_good_mass": 0.9135558131751171,
+  "finite_bad_mass": 0.9078904206155765,
+  "finite_renormalized_winner": 15,
+  "naive_independent_marginal_top27_depth_counts": {
+    "15": 24,
+    "13": 2,
+    "14": 1
+  },
+  "counterfactual_winner_margin_median": 1.1723676201666748,
+  "counterfactual_winner_margin_min": 0.030676930174746708,
+  "conditional_depth_log_ratio_range": [
+    1.1719865875735025,
+    3.586911155297732
+  ],
+  "conditional_depth_log_ratio_median": 2.334880654379653,
+  "marginal_depth15_log_ratio": 0.8199635085401634,
+  "pool_depth_counts": {
+    "14": 1699,
+    "12": 1687,
+    "11": 1661,
+    "13": 1655,
+    "15": 1649,
+    "10": 1649
+  },
+  "fisher": [
+    {
+      "comparison": "15 vs 12",
+      "odds_ratio": 2.783400809716599,
+      "p_unadjusted": 0.012227034590534704
+    },
+    {
+      "comparison": "15 vs 13",
+      "odds_ratio": 1.644736842105263,
+      "p_unadjusted": 0.20836668425177052
+    },
+    {
+      "comparison": "15 vs 14",
+      "odds_ratio": 2.1052631578947367,
+      "p_unadjusted": 0.08434193100134796
+    }
+  ]
+}

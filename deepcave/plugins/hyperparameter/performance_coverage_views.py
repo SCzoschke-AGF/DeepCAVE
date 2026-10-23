@@ -20,7 +20,7 @@ from deepcave.evaluators.coverage_candidates import (
     score_coverage_candidates,
     scoring_source_key,
 )
-from deepcave.plugins.hyperparameter.coverage_planning_views import plan_toml
+from deepcave.plugins.hyperparameter.coverage_planning_views import optuna_export_study, plan_toml
 from deepcave.plugins.hyperparameter.coverage_views import _empty_figure, _id
 from deepcave.utils.global_objective import resolve_main_objective_id
 
@@ -753,10 +753,11 @@ def register_performance_callbacks(app: Any, jobs: Any, run_handler: Any) -> Non
         title = "Select trials using the checkboxes to export their parameters."
         if trials:
             try:
+                study = optuna_export_study(run_handler.get_run(context["run_id"]))
                 return html.A(
                     _export_label(),
                     href="data:application/toml;charset=utf-8,"
-                    + quote(plan_toml({"trials": trials}), safe=""),
+                    + quote(plan_toml({"trials": trials}, study), safe=""),
                     download=(
                         "full-space-candidates.toml"
                         if tab == "full_space"

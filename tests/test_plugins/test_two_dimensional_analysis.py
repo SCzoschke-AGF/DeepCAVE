@@ -8,6 +8,7 @@ from ConfigSpace import ConfigurationSpace
 from ConfigSpace.hyperparameters import (
     CategoricalHyperparameter,
     UniformFloatHyperparameter,
+    UniformIntegerHyperparameter,
 )
 from dash import dcc
 
@@ -54,116 +55,87 @@ def _walk_components(component):
             yield from _walk_components(child)
 
 
-def test_input_controls_use_a_single_toolbar_row():
+def test_feature_cards_group_each_selector_with_its_range_and_bins():
     registered = []
-    (toolbar,) = analysis.TwoDimensionalAnalysis.get_input_layout(
-        lambda input_id, *_args, **_kwargs: registered.append(input_id) or input_id
+    (controls,) = analysis.TwoDimensionalAnalysis.get_input_layout(
+        lambda name, *_args, **_kwargs: registered.append(name) or name
     )
-
     assert registered == [
-        "n_bins_1",
-        "n_bins_2",
         "color_by_rank",
         "hyperparameter_name_1",
+        "n_bins_1",
         "hyperparameter_name_2",
+        "n_bins_2",
         "elite_proportion",
     ]
-    assert "analysis-toolbar" in toolbar.className
-    assert not any(isinstance(component, dbc.Switch) for component in _walk_components(toolbar))
+    assert controls.id == analysis.PLANNING_CONTROLS_ID
+    x_card, y_card, elite_card, context = controls.children
+    for index, (card, mount) in enumerate(
+        ((x_card, analysis.PLANNING_CONTROL_1_ID), (y_card, analysis.PLANNING_CONTROL_2_ID)),
+        start=1,
+    ):
+        components = list(_walk_components(card))
+        (selector,) = [c for c in components if isinstance(c, dbc.Select)]
+        (bins,) = [c for c in components if isinstance(c, dbc.Input)]
+        assert selector.id == f"hyperparameter_name_{index}"
+        assert bins.id == f"n_bins_{index}"
+        assert bins.type == "number"
+        assert (bins.min, bins.max, bins.step, bins.value) == (
+            analysis.MIN_BINS,
+            analysis.MAX_BINS,
+            1,
+            analysis.N_BINS,
+        )
+        buttons = [c for c in components if getattr(c, "type", None) == "button"]
+        assert [button.id for button in buttons] == [
+            f"n_bins_{index}-decrement",
+            f"n_bins_{index}-increment",
+        ]
+        assert any(getattr(c, "id", None) == mount for c in components)
+        assert not any(getattr(c, "id", None) == analysis.PLANNING_ACTIONS_ID for c in components)
+    assert x_card.children[0].children == "Hyperparameter X"
+    assert y_card.children[0].children == "Hyperparameter Y"
+    assert any(
+        getattr(c, "id", None) == analysis.PLANNING_ACTIONS_ID for c in _walk_components(elite_card)
+    )
+    assert isinstance(context, dcc.Store)
+    assert context.id == {
+        "type": analysis.PLANNED_SEARCH_SPACE_CONTEXT_TYPE,
+        "source": analysis.PLANNING_SOURCE,
+    }
+    # The input and output regions coexist; all mounts and controls must have unique IDs.
+    output = analysis.TwoDimensionalAnalysis.get_output_layout(lambda name, *_args: name)
+    components = [c for root in [controls, *output] for c in _walk_components(root)]
+    ids = [str(c.id) for c in components if hasattr(c, "id")]
+    assert len(ids) == len(set(ids))
 
 
-def test_output_layout_uses_independent_columns_and_separate_control_panels():
+def test_trials_span_the_width_above_the_two_binned_views():
     registered = []
     (grid,) = analysis.TwoDimensionalAnalysis.get_output_layout(
         lambda name, *_args, **_kwargs: registered.append(name) or name
     )
-
     assert grid.className == "analysis-grid analysis-grid--two-dimensional"
     assert registered == ["trials_graph", "elite_rate_graph", "objective_graph"]
-    assert len(grid.children) == 2
-    assert all(column.className == "two-dimensional-analysis-column" for column in grid.children)
-    left_column, right_column = grid.children
-    assert [card.className for card in left_column.children] == [
-        "analysis-card",
-        "analysis-card",
-    ]
-    assert [card.className for card in right_column.children] == [
-        "analysis-card",
-        "analysis-card",
-        "analysis-card",
-    ]
-    assert [card.children[0].children for card in left_column.children] == [
+    assert len(grid.children) == 3
+    scatter, enrichment, contour = grid.children
+    assert "two-dimensional-trials-card" in scatter.className
+    assert "two-dimensional-trials-card" not in enrichment.className + contour.className
+    assert [card.children[0].children[0].children[0].children for card in grid.children] == [
         "Observed trials",
+        "Elite enrichment (1x = Baseline)",
         "Empirical objective median contour",
     ]
-    assert [card.children[0].children for card in right_column.children] == [
-        "Elite enrichement (1x = Baseline)",
-        "Plot controls",
-        "HPO Planner - Search Space",
-    ]
-    plot_controls = right_column.children[1]
-    range_controls = right_column.children[2]
-    bin_sliders = [
-        component
-        for component in _walk_components(plot_controls)
-        if isinstance(component, dcc.Slider)
-    ]
-    assert [component.id for component in bin_sliders] == [
-        "two_dimensional_analysis-n_bins_1-input",
-        "two_dimensional_analysis-n_bins_2-input",
-    ]
-    assert all(component.value == analysis.N_BINS for component in bin_sliders)
-    assert all(component.min == analysis.MIN_BINS for component in bin_sliders)
-    assert all(component.max == analysis.MAX_BINS for component in bin_sliders)
-    assert all(component.step == 1 for component in bin_sliders)
-    planning_mounts = [
-        component
-        for component in _walk_components(range_controls)
-        if getattr(component, "id", None) == analysis.PLANNING_CONTROLS_ID
-    ]
-    context_stores = [
-        component
-        for component in _walk_components(range_controls)
-        if isinstance(component, dcc.Store)
-        and component.id
-        == {
-            "type": analysis.PLANNED_SEARCH_SPACE_CONTEXT_TYPE,
-            "source": analysis.PLANNING_SOURCE,
-        }
-    ]
-    assert len(planning_mounts) == 1
-    assert len(context_stores) == 1
-    assert [child.id for child in planning_mounts[0].children] == [
-        analysis.PLANNING_CONTROL_1_ID,
-        analysis.PLANNING_CONTROL_2_ID,
-        analysis.PLANNING_ACTIONS_ID,
-    ]
-    reset_buttons = [
-        component
-        for component in _walk_components(range_controls)
-        if isinstance(component, dbc.Button) and component.id == analysis.PLANNING_RESET_ID
-    ]
-    assert reset_buttons == []
-    assert not any(
-        getattr(component, "id", None) == analysis.PLANNING_CONTROLS_ID
-        for component in _walk_components(plot_controls)
+    assert [card.children[1].id for card in grid.children] == registered
+    assert scatter.children[1].style["height"] == f"{analysis.TRIALS_PANEL_HEIGHT}px"
+    assert all(
+        card.children[1].style["height"] == f"{analysis.PANEL_HEIGHT}px"
+        for card in (enrichment, contour)
     )
-    assert not any(
-        isinstance(component, dcc.Slider) for component in _walk_components(range_controls)
-    )
-    color_switches = [
-        component
-        for component in _walk_components(plot_controls)
-        if isinstance(component, dbc.Switch)
-    ]
-    assert len(color_switches) == 1
-    assert color_switches[0].id == "two_dimensional_analysis-color_by_rank-input"
-    assert color_switches[0].label == "Color observed trials by trial rank"
-    assert color_switches[0].value is False
-    assert not any(
-        isinstance(component, dbc.Switch) for component in _walk_components(range_controls)
-    )
-    assert "Set the numeric resolution" not in str(plot_controls)
+    (switch,) = [c for c in _walk_components(scatter) if isinstance(c, dbc.Switch)]
+    assert switch.id == "two_dimensional_analysis-color_by_rank-input"
+    assert switch.value is False
+    assert not any(isinstance(c, dcc.Slider) for c in _walk_components(grid))
 
 
 def test_dependencies_exclude_time_and_enforce_distinct_hyperparameters():
@@ -570,7 +542,10 @@ def test_numeric_outputs_use_contour_and_preserve_missing_cells(monkeypatch):
         == elite_rate_figure.data[0].colorscale
         == objective_figure.data[0].colorscale
     )
-    assert trials_figure.data[0].marker.colorbar.orientation == "h"
+    assert trials_figure.data[0].marker.colorbar.orientation == "v"
+    assert trials_figure.data[0].marker.colorbar.lenmode == "pixels"
+    assert 0 < trials_figure.data[0].marker.colorbar.len < analysis.TRIALS_PANEL_HEIGHT
+    assert trials_figure.layout.height == analysis.TRIALS_PANEL_HEIGHT
     assert objective_figure.data[0].colorbar.orientation == "h"
     assert trials_figure.data[0].marker.colorbar.title.text == "Accuracy"
     assert objective_figure.data[0].colorbar.title.text == "Accuracy"
@@ -590,6 +565,40 @@ def test_numeric_outputs_use_contour_and_preserve_missing_cells(monkeypatch):
     assert list(rank_figure.data[0].marker.color) == pytest.approx([2.0, 1.0])
     assert rank_figure.data[0].marker.reversescale is True
     assert rank_figure.data[0].marker.colorbar.title.text == "Trial rank"
+
+
+@pytest.mark.parametrize("n_bins", [5, 6, 7])
+@pytest.mark.parametrize("swap_axes", [False, True])
+def test_enrichment_axes_stay_categorical_when_integer_bins_become_single_values(n_bins, swap_axes):
+    hp1 = UniformFloatHyperparameter("learning_rate", 0.004, 0.08, log=True)
+    hp2 = UniformIntegerHyperparameter("depth", 10, 15)
+    trials = pd.DataFrame(
+        {
+            "trial_number": range(6),
+            "hyperparameter_1": np.geomspace(0.004, 0.08, 6),
+            "hyperparameter_2": range(10, 16),
+            "objective": range(6),
+        }
+    )
+    _, xs, ys, threshold, _, cells = analysis._summarize_pair(
+        trials, hp1, hp2, "lower", 0.1, n_bins_1=5, n_bins_2=n_bins
+    )
+    x_labels, y_labels = [str(x) for x in xs], [str(y) for y in ys]
+    if n_bins >= 6:
+        assert y_labels == [str(value) for value in range(10, 16)]
+    else:
+        assert all(isinstance(group, pd.Interval) for group in ys)
+    cells = pd.DataFrame(cells)
+    if swap_axes:
+        x_labels, y_labels = y_labels, x_labels
+        cells = cells.rename(columns={"group_1": "group_2", "group_2": "group_1"})
+    figure = analysis._elite_enrichment_figure(cells, x_labels, y_labels, "x", "y", threshold, 0.1)
+    assert figure.layout.xaxis.type == figure.layout.yaxis.type == "category"
+    assert list(figure.data[0].x) == list(figure.layout.xaxis.categoryarray) == x_labels
+    assert list(figure.data[0].y) == list(figure.layout.yaxis.categoryarray) == y_labels
+    assert all(
+        0 <= a.x < len(x_labels) and 0 <= a.y < len(y_labels) for a in figure.layout.annotations
+    )
 
 
 def test_enrichment_distinguishes_observed_zero_from_an_empty_bin():
@@ -789,6 +798,8 @@ def test_reduced_planning_controls_adapt_to_parameter_type():
     }
     assert slider.min < 0
     assert slider.max > 1
+    assert slider.marks is None
+    assert numeric_control.children[0].children[1].children == "0.1 – 2"
     assert dropdown.id == {
         "type": analysis.PLANNING_CATEGORIES_TYPE,
         "index": 1,

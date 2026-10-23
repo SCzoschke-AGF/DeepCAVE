@@ -1,6 +1,6 @@
 """Controls and explanations for coverage plans in the Global coverage workspace."""
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import json
 from itertools import combinations
@@ -269,9 +269,25 @@ def planning_panel() -> Any:
     )
 
 
-def plan_toml(plan: Dict[str, Any]) -> str:
+def optuna_export_study(run: Any) -> Dict[str, Any]:
+    """Return available source study metadata for downloads only."""
+    meta = getattr(run, "meta", {})
+    return {
+        key: meta[source]
+        for key, source in (("name", "optuna_study_name"), ("id", "optuna_study_id"))
+        if meta.get(source) is not None
+    }
+
+
+def plan_toml(plan: Dict[str, Any], study: Optional[Dict[str, Any]] = None) -> str:
     """Export every proposed configuration, including constants, in plan order."""
     blocks = []
+    if study:
+        lines = ["[study]"]
+        for key, value in study.items():
+            encoded = json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f")
+            lines.append(f"{key} = {encoded}")
+        blocks.append("\n".join(lines))
     for trial in plan["trials"]:
         lines = ["[[trials]]"]
         for name, value in trial["parameters"].items():
@@ -287,7 +303,7 @@ def plan_toml(plan: Dict[str, Any]) -> str:
     return "\n\n".join(blocks) + "\n" if blocks else ""
 
 
-def plan_view(plan: Dict[str, Any]) -> Any:
+def plan_view(plan: Dict[str, Any], study: Optional[Dict[str, Any]] = None) -> Any:
     """Explain the saved plan's outcome, proof and next action before technical details."""
     if not plan:
         return html.P(
@@ -300,7 +316,7 @@ def plan_view(plan: Dict[str, Any]) -> Any:
         try:
             download = html.A(
                 "Export TOML",
-                href="data:application/toml;charset=utf-8," + quote(plan_toml(plan), safe=""),
+                href="data:application/toml;charset=utf-8," + quote(plan_toml(plan, study), safe=""),
                 download="coverage-plan.toml",
                 className="btn btn-outline-secondary btn-sm coverage-plan-download",
                 title=f"Download all {count:,} proposed configurations as TOML",

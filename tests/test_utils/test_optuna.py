@@ -90,6 +90,7 @@ def test_list_studies_does_not_load_trial_history(tmp_path: Path) -> None:
 
 def test_snapshot_is_detached_and_tracks_skipped_trials(tmp_path: Path) -> None:
     database = tmp_path / "optuna.db"
+    _create_database(database, ["other-study"])
     _create_database(database, ["live-study"])
 
     result = create_optuna_snapshot(database, "live-study", tmp_path)
@@ -105,7 +106,16 @@ def test_snapshot_is_detached_and_tracks_skipped_trials(tmp_path: Path) -> None:
 
     database.rename(tmp_path / "optuna.db.away")
     run = OptunaRun.from_path(result.run_path)
+    assert run.meta["optuna_study_id"] == 2
+    assert run.meta["optuna_study_name"] == "live-study"
     assert len(run.history) == 1
+
+    # Legacy detached snapshots must not export their in-memory ID as the source ID.
+    del snapshot._deepcave_study_id
+    with snapshot_file.open("wb") as file:
+        pickle.dump(snapshot, file)
+    legacy_run = OptunaRun.from_path(result.run_path)
+    assert legacy_run.meta["optuna_study_id"] is None
 
 
 @pytest.mark.parametrize("sampler_name", [None, "RandomSampler", "TPESampler", "", 42])
