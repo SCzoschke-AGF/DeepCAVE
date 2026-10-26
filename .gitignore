@@ -165,6 +165,7 @@ smac3-output*
 
 # DeepCAVE 
 cache
+/diagnostics/
 data/
 examples/others
 examples/record/_*
