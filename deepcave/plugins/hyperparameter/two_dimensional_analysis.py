@@ -1314,12 +1314,11 @@ class TwoDimensionalAnalysis(DynamicPlugin):
             config.FIGURE_DOWNLOAD_SCALE,
         )
 
-        def card(title: str, description: str, graph: Component, trials: bool = False) -> Component:
+        def card(title: str, graph: Component, trials: bool = False) -> Component:
             header = [
                 html.Div(
                     [
                         html.H2(title, className="two-dimensional-card-title"),
-                        html.P(description, className="two-dimensional-card-description"),
                     ],
                     className="two-dimensional-card-heading",
                 )
@@ -1343,18 +1342,15 @@ class TwoDimensionalAnalysis(DynamicPlugin):
                 [
                     card(
                         "Observed trials",
-                        "Each point represents a trial, colored by objective value or trial rank.",
                         trials_graph,
                         trials=True,
                     ),
                     card(
                         "Elite enrichment (1x = Baseline)",
-                        "Elite rate relative to baseline. Each cell shows enrichment and trial count.",
                         elite_rate_graph,
                     ),
                     card(
                         "Empirical objective median contour",
-                        "Median objective values across the hyperparameter space.",
                         objective_graph,
                     ),
                 ],

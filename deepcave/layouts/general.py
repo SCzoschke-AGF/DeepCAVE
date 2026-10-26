@@ -318,6 +318,7 @@ class GeneralLayout(Layout):
                 sampler = (
                     (run.get_meta().get("optuna_sampler") or "Unknown") if run is not None else "—"
                 )
+                study_name = run.get_meta().get("study_name") if run is not None else None
 
                 rows.append(
                     html.Tr(
@@ -326,6 +327,13 @@ class GeneralLayout(Layout):
                                 [
                                     html.Div(run_name, className="general-run-name"),
                                 ],
+                            ),
+                            html.Td(
+                                dbc.Badge(
+                                    str(study_name), color="success", pill=True, className="text-wrap"
+                                )
+                                if study_name is not None and study_name != ""
+                                else "—"
                             ),
                             html.Td(successful_trials),
                             html.Td(hyperparameters),
@@ -366,7 +374,7 @@ class GeneralLayout(Layout):
             count = len(rows)
             if not rows:
                 rows = [
-                    html.Tr(html.Td("No runs selected.", colSpan=5, className="general-runs-empty"))
+                    html.Tr(html.Td("No runs selected.", colSpan=6, className="general-runs-empty"))
                 ]
 
             table = html.Table(
@@ -375,6 +383,7 @@ class GeneralLayout(Layout):
                         html.Tr(
                             [
                                 html.Th("Run Name", scope="col"),
+                                html.Th("Study Name", scope="col", className="general-run-batch"),
                                 html.Th(
                                     "Successful Trials", scope="col", className="general-run-trials"
                                 ),

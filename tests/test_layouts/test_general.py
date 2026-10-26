@@ -278,7 +278,7 @@ def test_selected_run_table_uses_real_metadata_and_preserves_remove_targets(
         SimpleNamespace(
             runs={
                 paths[0]: SimpleNamespace(
-                    get_meta=lambda: {"optuna_sampler": "TPESampler"},
+                    get_meta=lambda: {"optuna_sampler": "TPESampler", "study_name": "batch-42"},
                     history=[
                         SimpleNamespace(status=status)
                         for status in (
@@ -306,16 +306,24 @@ def test_selected_run_table_uses_real_metadata_and_preserves_remove_targets(
     assert len(rows[0].children[0].children) == 1
     assert [header.children for header in table.children[0].children.children] == [
         "Run Name",
+        "Study Name",
         "Successful Trials",
         "Hyperparameters",
         "Sampler",
         "Actions",
     ]
-    assert [cell.children for cell in rows[0].children[1:4]] == [2, 3, "TPESampler"]
-    assert [cell.children for cell in rows[1].children[1:4]] == [0, 0, "Unknown"]
-    assert [cell.children for cell in rows[2].children[1:4]] == ["—", "—", "—"]
+    badge = rows[0].children[1].children
+    assert isinstance(badge, module.dbc.Badge)
+    assert badge.children == "batch-42"
+    assert badge.color == "success"
+    assert badge.pill is True
+    assert rows[1].children[1].children == "—"
+    assert rows[2].children[1].children == "—"
+    assert [cell.children for cell in rows[0].children[2:5]] == [2, 3, "TPESampler"]
+    assert [cell.children for cell in rows[1].children[2:5]] == [0, 0, "Unknown"]
+    assert [cell.children for cell in rows[2].children[2:5]] == ["—", "—", "—"]
     for index, row in enumerate(rows):
-        button, store = row.children[4].children
+        button, store = row.children[5].children
         assert button.id == {"type": "general-dynamic-remove-run", "index": index}
         assert store.data == paths[index]
 
@@ -336,7 +344,7 @@ def test_selected_run_table_empty_state_and_count(general_callbacks, monkeypatch
     if not paths:
         empty_cell = table.children[1].children[0].children
         assert empty_cell.children == "No runs selected."
-        assert empty_cell.colSpan == 5
+        assert empty_cell.colSpan == 6
 
 
 def test_database_change_resets_study_even_if_both_databases_contain_it(

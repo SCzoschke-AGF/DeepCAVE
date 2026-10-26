@@ -227,6 +227,20 @@ def test_converter_retains_model_family(tmp_path: Path) -> None:
     assert run.meta["model_family"] == "xgboost"
 
 
+@pytest.mark.parametrize("study_description", [None, "opt-AP_v1", "", 0])
+def test_converter_retains_study_name_attribute(tmp_path: Path, study_description: Any) -> None:
+    study = optuna.create_study(study_name="full-study-name", direction="minimize")
+    if study_description is not None:
+        study.set_user_attr("study_name", study_description)
+    study.add_trial(create_trial(value=0.4))
+
+    run = OptunaRun.from_path(_write_study(tmp_path / "run", study))
+
+    assert run.meta.get("study_name") == study_description
+    assert run.name == "full-study-name"
+    assert run.meta["optuna_study_name"] == "full-study-name"
+
+
 def test_converter_retains_sampler_name(tmp_path: Path) -> None:
     study = optuna.create_study(direction="minimize", sampler=optuna.samplers.RandomSampler())
     study.add_trial(create_trial(value=0.4))

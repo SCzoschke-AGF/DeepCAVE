@@ -1,4 +1,4 @@
-"""Shared benchmark math, objective-free CHR pools and sequential virtual plans."""
+"""Shared benchmark math and objective-free CHR and full-space candidate pools."""
 
 from types import SimpleNamespace
 
@@ -63,11 +63,11 @@ def make_run(maximize=True):
 OPTIONS = dict(
     pool_size=60,
     holes=4,
-    plan_size=4,
     reference_samples=128,
     seed=42,
     global_pool_size=80,
     global_seed=17,
+    number_of_candidates=20,
 )
 
 
@@ -130,7 +130,15 @@ def test_model_cache_survives_geometry_settings_but_not_new_objectives(tmp_path,
     assert len(calls) == 2
     assert resized["cache_key"] != first["cache_key"]
     assert resized["model"] == first["model"]
-    assert len(resized["full_space_candidates"]) == 90
+    assert resized["supply"]["initial_count"] == 90
+    assert len(resized["full_space_candidates"]) >= 5000
+    # A recommendation-budget change reuses every generated and scored pool.
+    budget = scoring.score_coverage_candidates(
+        run, 0, str(tmp_path), {**OPTIONS, "number_of_candidates": 27}
+    )
+    assert len(calls) == 2 and len(budget["recommendations"]) == 27
+    assert budget["full_space_candidates"] == first["full_space_candidates"]
+    assert budget["stage_keys"] == first["stage_keys"]
     fitted = scoring.fit_candidate_kde(run, 0, str(tmp_path))
     np.testing.assert_array_equal(
         [c["kde_score"] for c in first["full_space_candidates"]],
@@ -142,7 +150,14 @@ def test_model_cache_survives_geometry_settings_but_not_new_objectives(tmp_path,
     assert len(calls) == 4
     assert changed["source_key"] != first["source_key"]
     assert changed["reference_trial_number"] == 100
+    assert changed["stage_keys"]["global"] == first["stage_keys"]["global"]
+    assert changed["stage_keys"]["geometry"] != first["stage_keys"]["geometry"]
+    assert changed["stage_keys"]["augmented"] != first["stage_keys"]["augmented"]
     scoring.fit_candidate_kde(run, 1, str(tmp_path))
+    assert len(calls) == 6
+    other = scoring.score_coverage_candidates(run, 1, str(tmp_path), OPTIONS)
+    assert other["stage_keys"]["global"] == first["stage_keys"]["global"]
+    assert other["stage_keys"]["geometry"] != changed["stage_keys"]["geometry"]
     assert len(calls) == 6
 
 
@@ -174,76 +189,35 @@ def _key(candidate):
     return tuple(sorted(candidate["configuration"].items()))
 
 
-def test_sequential_plan_updates_geometry_and_retains_one_cohort(tmp_path):
+def test_scoring_uses_only_initial_holes_and_generated_candidates(tmp_path, monkeypatch):
     run = make_run()
-    result = scoring.score_coverage_candidates(run, 0, str(tmp_path), OPTIONS)
-    selected = sorted(
-        [c for c in result["candidates"] if c["selected"]], key=lambda c: c["plan_order"]
-    )
-    assert [c["id"] for c in selected] == result["plan"]
-    assert len(set(result["plan"])) == len(result["plan"]) == 4
-    virtual = prepare_coverage(run)
+    data = prepare_coverage(run)
     references = sample_reference_design(
         run.configspace, OPTIONS["reference_samples"], OPTIONS["seed"]
     )
-    for candidate, step in zip(selected, result["steps"]):
-        assert step["radius_after"] < step["radius_before"]
-        assert step["max_radius_after"] <= step["max_radius_before"]
-        current = scoring.detect_holes(virtual, references, OPTIONS["holes"])
-        assert current[0]["id"] == candidate["plan_hole_id"]
-        assert current[0]["radius"] == step["radius_before"]
-        virtual = normalize_configurations(
-            run.configspace, virtual.values + [candidate["configuration"]]
-        )
-        assert max(_nearest_distances(virtual, references)) == pytest.approx(
-            step["max_radius_after"]
-        )
+    holes = scoring.detect_holes(data, references, OPTIONS["holes"])
+    candidates = scoring.generate_candidates(run, data, holes, OPTIONS)
+    detect = scoring.detect_holes
+    calls = []
+
+    def tracked(*args):
+        calls.append(args)
+        return detect(*args)
+
+    monkeypatch.setattr(scoring, "detect_holes", tracked)
+    result = scoring.score_coverage_candidates(run, 0, str(tmp_path), OPTIONS)
+    assert len(calls) == 1
+    assert result["holes"] == holes
+    assert [c["id"] for c in result["candidates"]] == [c["id"] for c in candidates]
+    assert "plan" not in result and "steps" not in result
+    assert "plan_size" not in result["options"]
     for c in result["candidates"]:
+        assert "selected" not in c and "plan_order" not in c
         assert c["relative_score"] == c["kde_score"] - result["reference_score"]
         assert c["reference_score"] == result["model"]["reference_score"]
         assert c["reference_trial_number"] in result["model"]["training_trials"]
     assert len(result["model"]["training_trials"]) == len(run.history)
     assert result["reference_score"] != 0
-
-
-def test_kde_cannot_override_geometric_admissibility(tmp_path, monkeypatch):
-    run = make_run()
-    run.configspace = ConfigurationSpace(space={"x": (0.0, 1.0)})
-    run.get_config = lambda i: {"x": 0.0 if i % 2 == 0 else 1.0}
-    refs = normalize_configurations(run.configspace, [{"x": 0.5}, {"x": 0.25}, {"x": 0.75}])
-    monkeypatch.setattr(scoring, "sample_reference_design", lambda *a: refs)
-
-    def generate(run, data, holes, options):
-        hole = holes[0]
-        return [
-            {
-                "id": str(x),
-                "configuration": {"x": x},
-                "hole_id": hole["id"],
-                "hole_radius": hole["radius"],
-                "center_distance": abs(0.5 - x),
-                "radius_reduction": 0.5 - abs(0.5 - x),
-                "selected": False,
-                "plan_order": None,
-            }
-            for x in (0.49, 0.51, 0.9)
-        ]
-
-    monkeypatch.setattr(scoring, "generate_candidates", generate)
-    fake = SimpleNamespace(
-        metadata={
-            "reference_score": 2.0,
-            "reference_trial_number": 100,
-            "reference_objective": 0.0,
-            "objective": "AP",
-        },
-        score=lambda configs: np.array([c["x"] * 1000 for c in configs]),
-    )
-    monkeypatch.setattr(scoring, "fit_candidate_kde", lambda *a: fake)
-    result = scoring.score_coverage_candidates(run, 0, str(tmp_path), {**OPTIONS, "plan_size": 2})
-    assert result["plan"][0] == "0.51"  # .9 has the highest score but is inadmissible.
-    assert result["steps"][1]["hole_id"] != result["steps"][0]["hole_id"]
-    assert result["steps"][1]["max_radius_before"] == result["steps"][0]["max_radius_after"]
 
 
 def test_training_excludes_pending_failed_and_nonfinite_trials(tmp_path):
@@ -350,11 +324,12 @@ def test_missing_data_unsupported_spaces_and_dynamic_audit_are_explicit(tmp_path
         ("pool_size", 0),
         ("holes", 1.5),
         ("seed", True),
-        ("plan_size", None),
         ("reference_samples", float("nan")),
         ("global_pool_size", 0),
         ("global_pool_size", 100001),
         ("global_seed", -1),
+        ("number_of_candidates", 0),
+        ("number_of_candidates", 2.5),
     ],
 )
 def test_invalid_settings_are_rejected(key, value):
@@ -447,9 +422,11 @@ def test_global_scoring_without_holes_uses_one_fit_and_bounded_batches(tmp_path,
     result = scoring.score_coverage_candidates(
         run, 0, str(tmp_path), {**OPTIONS, "global_pool_size": 2050}
     )
-    assert len(fits) == 1 and batches == [1024, 1024, 2]
-    assert result["candidates"] == result["holes"] == result["plan"] == []
-    assert len(result["full_space_candidates"]) == 2050
+    assert len(fits) == 1 and max(batches) <= 1024
+    assert result["candidates"] == result["holes"] == []
+    assert result["supply"]["initial_count"] == 2050
+    assert sum(batches) == len(result["full_space_candidates"])
+    assert len(result["recommendations"]) == 20
     for candidate in result["full_space_candidates"]:
         assert candidate["kde_score"] == candidate["configuration"]["x"]
         assert candidate["relative_score"] == candidate["kde_score"] - 0.5

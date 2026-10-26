@@ -13,26 +13,29 @@ import plotly.graph_objects as go
 from dash import Input, Output, State, ctx, dash_table, dcc, html, no_update
 from dash.dash_table.Format import Format, Scheme, Sign
 from dash.exceptions import PreventUpdate
+from scipy.special import expit
 
 from deepcave.evaluators.coverage_candidates import (
-    CANDIDATE_VERSION,
     candidate_options,
     score_coverage_candidates,
     scoring_source_key,
 )
-from deepcave.plugins.hyperparameter.coverage_planning_views import optuna_export_study, plan_toml
+from deepcave.plugins.hyperparameter.coverage_planning_views import (
+    optuna_export_study,
+    plan_toml,
+)
 from deepcave.plugins.hyperparameter.coverage_views import _empty_figure, _id
 from deepcave.utils.global_objective import resolve_main_objective_id
 
 _JOB_LOCK = RLock()
 _SETTINGS = (
     ("pool_size", "CHR candidate pool", 2000, 1, 10000),
-    ("holes", "Holes per step", 15, 1, 100),
-    ("plan_size", "CHR plan trials", 8, 1, 100),
+    ("holes", "Coverage holes", 15, 1, 100),
     ("reference_samples", "CHR reference samples", 2048, 32, 16384),
     ("seed", "CHR seed", 42, 0, 2**32 - 2),
     ("global_pool_size", "Full-space candidate pool", 10000, 1, 100000),
     ("global_seed", "Full-space seed", 42, 0, 2**32 - 2),
+    ("number_of_candidates", "Number of candidates", 20, 1, 100000),
 )
 
 
@@ -52,14 +55,26 @@ def _export_label() -> list:
 
 
 def ranking_columns(tab: str = "overall") -> list:
-    """Use the score columns in both pools and geometry columns only for CHR."""
+    """Share score columns while distinguishing CHR geometry and hybrid selection ranks."""
     columns = [
         {"id": "rank", "name": "Rank", "type": "numeric"},
+        {
+            "id": "good_probability",
+            "name": "Top-20% probability",
+            "type": "numeric",
+            "format": Format(precision=2, scheme=Scheme.percentage),
+        },
+        {
+            "id": "kde_score",
+            "name": "KDE score",
+            "type": "numeric",
+            "format": Format(precision=2, scheme=Scheme.fixed),
+        },
         {
             "id": "relative_score",
             "name": "KDE vs. reference",
             "type": "numeric",
-            "format": Format(precision=3, scheme=Scheme.fixed, sign=Sign.positive),
+            "format": Format(precision=2, scheme=Scheme.fixed, sign=Sign.positive),
         },
     ]
     if tab != "full_space":
@@ -72,6 +87,22 @@ def ranking_columns(tab: str = "overall") -> list:
                     "type": "numeric",
                     "format": Format(precision=4, scheme=Scheme.fixed),
                 },
+            ]
+        )
+    else:
+        columns[1:1] = [
+            {"id": "selection", "name": "Selection"},
+            {"id": "kde_rank", "name": "KDE rank", "type": "numeric"},
+        ]
+        columns.extend(
+            [
+                {
+                    "id": "distance",
+                    "name": "Distance",
+                    "type": "numeric",
+                    "format": Format(precision=4, scheme=Scheme.fixed),
+                },
+                {"id": "bin", "name": "Bin", "type": "numeric"},
             ]
         )
     # RTL table layout places Dash's leading selection column on the right.
@@ -142,7 +173,8 @@ def performance_panel() -> Any:
                 className="coverage-performance-header",
             ),
             html.P(
-                "KDE scores for unseen configurations from coverage holes and the full search space.",
+                "KDE scores for unseen configurations from coverage holes "
+                "and the full search space.",
                 className="coverage-performance-description",
             ),
             html.Div(id=_id("performance-status"), role="status", **{"aria-live": "polite"}),
@@ -160,7 +192,7 @@ def performance_panel() -> Any:
             ),
             html.Div(
                 [
-                    html.H5("KDE score distribution · current pool"),
+                    html.H5("KDE score (Log Density Ratio) distribution"),
                     dcc.Loading(
                         dcc.Graph(
                             id=_id("performance-chart"),
@@ -181,7 +213,10 @@ def performance_panel() -> Any:
                                     outline=True,
                                     size="sm",
                                     disabled=True,
-                                    title="Select trials using the checkboxes to export their parameters.",
+                                    title=(
+                                        "Select trials using the checkboxes "
+                                        "to export their parameters."
+                                    ),
                                 ),
                                 id=_id("performance-export"),
                                 className="coverage-candidate-export",
@@ -202,11 +237,40 @@ def performance_panel() -> Any:
                             for value, label in (
                                 ("overall", "Best overall candidates"),
                                 ("holes", "Best candidate per hole"),
-                                ("plan", "Recommended trials"),
-                                ("full_space", "Best candidates: full search space"),
+                                ("full_space", "Best candidates: KDE + exploration"),
                             )
                         ],
                         className="coverage-candidate-tabs",
+                    ),
+                    html.Div(
+                        [
+                            html.P(
+                                "Half of the candidates are selected by global KDE ranking. "
+                                "The other half explore different distances from the incumbent. "
+                                "Each distance bin is supplied with at least 1,000 candidates "
+                                "before selection.",
+                                className="coverage-performance-interpretation",
+                            ),
+                            dcc.RadioItems(
+                                id=_id("performance-mode"),
+                                options=[
+                                    {"label": "Recommended", "value": "recommended"},
+                                    {"label": "All candidates", "value": "all"},
+                                ],
+                                value="recommended",
+                                inline=True,
+                                labelStyle={
+                                    "display": "inline-flex",
+                                    "alignItems": "center",
+                                    "gap": "5px",
+                                    "marginRight": "16px",
+                                },
+                                inputStyle={"width": "auto", "margin": "0"},
+                                style={"fontSize": "12px"},
+                            ),
+                        ],
+                        id=_id("performance-mode-controls"),
+                        style={"display": "none"},
                     ),
                     html.P(
                         id=_id("performance-pool-summary"),
@@ -222,7 +286,15 @@ def performance_panel() -> Any:
                         selected_row_ids=[],
                         page_size=8,
                         page_action="native",
-                        sort_action="none",
+                        sort_action="native",
+                        sort_by=[],
+                        tooltip_header={
+                            "good_probability": (
+                                "Modelled membership in the best trial group, using the KDE "
+                                "densities and actual good/bad group sizes. "
+                                "Uncalibrated model estimate."
+                            ),
+                        },
                         style_table={"overflowX": "auto"},
                         style_as_list_view=True,
                         style_cell={
@@ -246,13 +318,25 @@ def performance_panel() -> Any:
                                 "textAlign": "right",
                                 "fontVariantNumeric": "tabular-nums",
                             }
-                            for c in ("relative_score", "hole_radius")
+                            for c in (
+                                "kde_score",
+                                "relative_score",
+                                "good_probability",
+                                "hole_radius",
+                            )
                         ],
                         style_data_conditional=[
                             {
                                 "if": {"state": "active"},
                                 "backgroundColor": "#f0e9ff",
                                 "border": "1px solid #d8c8f5",
+                            },
+                            {
+                                "if": {
+                                    "filter_query": "{good_probability} > 0.5",
+                                    "column_id": ["good_probability", "kde_score"],
+                                },
+                                "color": "#13944c",
                             },
                             {
                                 "if": {
@@ -279,7 +363,8 @@ def performance_panel() -> Any:
                 "bad = remaining 80% of completed trials. "
                 "The best observed trial is an in-sample reference, not independent validation. "
                 "Scores are neither predicted objective values nor success probabilities. "
-                "This sequential CHR plan is separate from Improve Coverage's covering-array plan.",
+                "Top-20% probability uses the actual good/bad group sizes and is an "
+                "uncalibrated KDE model estimate.",
                 className="coverage-performance-footnote",
             ),
         ],
@@ -343,16 +428,15 @@ def performance_figure(result: Any, tab: str = "overall") -> go.Figure:
 
 
 def candidate_pool(result: Dict, tab: str) -> list:
-    """Keep the global random pool separate from CHR candidates and planning."""
+    """Keep the augmented full-space pool separate from CHR candidates."""
     return result.get("full_space_candidates", []) if tab == "full_space" else result["candidates"]
 
 
-def ranking_candidates(result: Dict, tab: str) -> list:
-    """Rank each pool by KDE score; preserve sequential CHR plan order."""
+def ranking_candidates(result: Dict, tab: str, mode: str = "recommended") -> list:
+    """Rank each pool by KDE score, optionally keeping the best per hole."""
+    if tab == "full_space" and mode == "recommended":
+        return result.get("recommendations", [])
     ordered = sorted(candidate_pool(result, tab), key=lambda c: (-c["kde_score"], c["id"]))
-    if tab == "plan":
-        lookup = {c["id"]: c for c in ordered}
-        return [lookup[identifier] for identifier in result["plan"]]
     if tab == "holes":
         best: Dict[str, Dict] = {}
         for candidate in ordered:
@@ -361,31 +445,31 @@ def ranking_candidates(result: Dict, tab: str) -> list:
     return ordered
 
 
-def ranking_rows(result: Dict, tab: str) -> list:
-    """Keep read-only plan membership distinct from the clicked detail row."""
+def ranking_rows(result: Dict, tab: str, mode: str = "recommended") -> list:
+    """Build numeric rankings with stable candidate IDs for detail selection."""
     labels = {h["id"]: f"Hole {i + 1}" for i, h in enumerate(result["holes"])}
+    model = result["model"]
+    log_prior_odds = np.log(len(model["good_trials"]) / len(model["bad_trials"]))
+    selections = {c["id"]: c["selection"] for c in result.get("recommendations", [])}
     rows = [
         {
             "id": c["id"],
             "rank": i + 1,
+            "selection": selections.get(c["id"], c.get("selection", "—")),
+            "kde_rank": c.get("kde_rank", i + 1),
+            "distance": c.get("distance"),
+            "bin": c.get("bin"),
+            "kde_score": c["kde_score"],
+            "good_probability": float(expit(c["kde_score"] + log_prior_odds)),
             "relative_score": c["relative_score"],
-            "hole_id": (
-                None
-                if tab == "full_space"
-                else labels[c.get("plan_hole_id", c["hole_id"]) if tab == "plan" else c["hole_id"]]
-            ),
-            "hole_radius": (
-                None
-                if tab == "full_space"
-                else c["selection_radius_before"] if tab == "plan" else c["hole_radius"]
-            ),
+            "hole_id": None if tab == "full_space" else labels[c["hole_id"]],
+            "hole_radius": None if tab == "full_space" else c["hole_radius"],
             "configuration": ", ".join(
                 f"{k}={v:.4g}" if isinstance(v, float) else f"{k}={v}"
                 for k, v in c["configuration"].items()
             ),
-            "selected": f"✓ {c['plan_order']}" if c["selected"] else "",
         }
-        for i, c in enumerate(ranking_candidates(result, tab))
+        for i, c in enumerate(ranking_candidates(result, tab, mode))
     ]
     if tab == "holes":
         represented = {c["hole_id"] for c in result["candidates"]}
@@ -393,11 +477,12 @@ def ranking_rows(result: Dict, tab: str) -> list:
             {
                 "id": f"empty-{hole['id']}",
                 "rank": None,
+                "kde_score": None,
+                "good_probability": None,
                 "relative_score": None,
                 "hole_id": labels[hole["id"]],
                 "hole_radius": hole["radius"],
                 "configuration": "No candidate generated",
-                "selected": "",
             }
             for hole in result["holes"]
             if hole["id"] not in represented
@@ -445,23 +530,25 @@ def candidate_details(result: Dict, identifier: Any) -> Any:
         sampling = result["global_sampling"]
         search_title = "Full-space search"
         search_rows = [
-            ("Evaluated unseen configurations", f"{sampling['count']:,}"),
-            ("Requested pool size", f"{sampling['requested']:,}"),
+            (
+                "Evaluated unseen configurations",
+                f"{result.get('supply', {}).get('final_count', sampling['count']):,}",
+            ),
+            ("Requested initial pool size", f"{sampling['requested']:,}"),
             ("Seed", str(sampling["seed"])),
         ]
-    if c["selected"]:
-        plan_hole_number = next(
-            i + 1 for i, h in enumerate(result["holes"]) if h["id"] == c["plan_hole_id"]
-        )
-        search_rows.extend(
-            [
-                ("Hole at plan selection", f"Hole {plan_hole_number}"),
-                (
-                    "Radius at selection",
-                    f"{c['selection_radius_before']:.5g} → {c['selection_radius_after']:.5g}",
-                ),
-            ]
-        )
+        if "distance" in c:
+            recommendation = next(
+                (r for r in result.get("recommendations", []) if r["id"] == c["id"]), {}
+            )
+            search_rows.extend(
+                [
+                    ("Selection", recommendation.get("selection", "Not recommended")),
+                    ("KDE rank", str(c["kde_rank"])),
+                    ("Distance to incumbent (RMS)", f"{c['distance']:.5g}"),
+                    ("Distance bin", str(c["bin"])),
+                ]
+            )
     config_group = group("Configuration", [(k, str(v)) for k, v in c["configuration"].items()][:5])
     config_group.children.append(
         html.Details(
@@ -474,10 +561,7 @@ def candidate_details(result: Dict, identifier: Any) -> Any:
     )
     return [
         html.Div(
-            [
-                html.H4("Selected candidate details"),
-                html.Small(f"Included in CHR plan · #{c['plan_order']}" if c["selected"] else ""),
-            ],
+            html.H4("Selected candidate details"),
             className="coverage-candidate-details-header",
         ),
         html.Div(
@@ -528,11 +612,11 @@ def register_performance_callbacks(app: Any, jobs: Any, run_handler: Any) -> Non
         objective_state: Any,
         pool_size: Any,
         holes: Any,
-        plan_size: Any,
         reference_samples: Any,
         seed: Any,
         global_pool_size: Any,
         global_seed: Any,
+        number_of_candidates: Any,
         active_run: str,
         previous: Any,
     ) -> Any:
@@ -546,11 +630,11 @@ def register_performance_callbacks(app: Any, jobs: Any, run_handler: Any) -> Non
                 dict(
                     pool_size=pool_size,
                     holes=holes,
-                    plan_size=plan_size,
                     reference_samples=reference_samples,
                     seed=seed,
                     global_pool_size=global_pool_size,
                     global_seed=global_seed,
+                    number_of_candidates=number_of_candidates,
                 )
             )
         except ValueError as exception:
@@ -608,19 +692,14 @@ def register_performance_callbacks(app: Any, jobs: Any, run_handler: Any) -> Non
                 result = None
             if result and result.get("error"):
                 error, result = result["error"], None
-            stale = bool(result) and (
-                result.get("source_key") != source_key
-                or result.get("options") != options
-                or result.get("candidate_version") != CANDIDATE_VERSION
-            )
+            if result and (
+                result.get("source_key") != source_key or result.get("options") != options
+            ):
+                result = None
             status = error or (
-                "Sampling full-space candidates, scoring candidates and updating CHR geometry…"
+                "Detecting coverage holes, sampling and scoring candidates…"
                 if running
-                else (
-                    str(entry.get("error"))
-                    if entry.get("status") == "failed"
-                    else "Study or settings changed · Refresh to update." if stale else ""
-                )
+                else (str(entry.get("error")) if entry.get("status") == "failed" else "")
             )
             view = {
                 "run_id": run.id,
@@ -653,9 +732,18 @@ def register_performance_callbacks(app: Any, jobs: Any, run_handler: Any) -> Non
             result
             and "candidates" in result
             and result.get("cache_key") == payload.get("cache_key")
+            and result.get("source_key")
+            == scoring_source_key(run_handler.get_run(context["run_id"]), result["objective_id"])
         ):
             return result
         return None
+
+    @app.callback(  # type: ignore[untyped-decorator]
+        Output(_id("performance-mode-controls"), "style"),
+        Input(_id("performance-tab"), "value"),
+    )
+    def performance_mode(tab: str) -> Dict:
+        return {} if tab == "full_space" else {"display": "none"}
 
     @app.callback(  # type: ignore[untyped-decorator]
         Output(_id("performance-chart"), "figure"),
@@ -678,39 +766,50 @@ def register_performance_callbacks(app: Any, jobs: Any, run_handler: Any) -> Non
         Output(_id("performance-ranking"), "selected_row_ids"),
         Output(_id("performance-ranking"), "columns"),
         Output(_id("performance-pool-summary"), "children"),
+        Output(_id("performance-ranking"), "sort_by"),
         Input(_id("performance-data"), "data"),
         Input(_id("performance-tab"), "value"),
+        Input(_id("performance-mode"), "value"),
         State(_id("context"), "data"),
     )
-    def performance_results(payload: Any, tab: Any, context: Any) -> Any:
+    def performance_results(payload: Any, tab: Any, mode: Any, context: Any) -> Any:
         result = current_result(payload, context)
         columns = ranking_columns(tab)
         if not result:
-            return "—", "—", "—", "—", [], None, 0, [], [], columns, ""
-        rows = ranking_rows(result, tab)
+            return "—", "—", "—", "—", [], None, 0, [], [], columns, "", []
+        rows = ranking_rows(result, tab, mode)
         pool = candidate_pool(result, tab)
         top = max((c["relative_score"] for c in pool), default=None)
         if tab == "full_space" and "global_sampling" not in result:
             summary = "Refresh to generate full-space candidates."
         elif tab == "full_space":
             sampling = result["global_sampling"]
-            summary = (
-                f"Best among {len(pool):,} sampled, unseen configurations · Seed {sampling['seed']}. "
-                "Sampling follows the declared parameter distributions."
-            )
+            summary = ""
             if sampling["count"] < sampling["requested"]:
                 summary += (
-                    " No unseen configurations remain in the finite search space."
+                    "No unseen configurations remain in the finite search space."
                     if sampling["stop_reason"] == "finite_space_exhausted"
-                    else f" Requested {sampling['requested']:,}; sampling limit reached after "
+                    else f"Requested {sampling['requested']:,}; sampling limit reached after "
                     f"{sampling['draws']:,} valid draws."
                 )
+            if "supply" in result:
+                supply, hybrid = result["supply"], result["hybrid"]
+                occupancy = " · ".join(f"B{b['bin']}: {b['count']:,}" for b in supply["bins"])
+                summary += (
+                    f" Initial: {supply['initial_count']:,} · Added: {supply['added_count']:,}"
+                    f" · Pool: {supply['final_count']:,} · Global KDE: {hybrid['global_count']}"
+                    f" · Exploration: {hybrid['exploration_count']} · {occupancy}"
+                )
+                if hybrid.get("error"):
+                    summary += f". {hybrid['error']}"
+            else:
+                summary += " Refresh to prepare KDE + exploration recommendations."
         else:
-            summary = f"{len(pool):,} candidates from coverage holes."
+            summary = ""
         cell = (
             {
                 "row": 0,
-                "column": 0 if tab == "full_space" else 2,
+                "column": next(i for i, c in enumerate(columns) if c["id"] == "relative_score"),
                 "column_id": "relative_score",
                 "row_id": rows[0]["id"],
             }
@@ -729,6 +828,7 @@ def register_performance_callbacks(app: Any, jobs: Any, run_handler: Any) -> Non
             [],
             columns,
             summary,
+            [],
         )
 
     @app.callback(  # type: ignore[untyped-decorator]
@@ -736,15 +836,18 @@ def register_performance_callbacks(app: Any, jobs: Any, run_handler: Any) -> Non
         Input(_id("performance-ranking"), "selected_row_ids"),
         Input(_id("performance-data"), "data"),
         Input(_id("performance-tab"), "value"),
+        Input(_id("performance-mode"), "value"),
         State(_id("context"), "data"),
     )
-    def performance_export(selected_ids: Any, payload: Any, tab: Any, context: Any) -> Any:
+    def performance_export(
+        selected_ids: Any, payload: Any, tab: Any, mode: Any, context: Any
+    ) -> Any:
         result = current_result(payload, context)
         selected = set(selected_ids or [])
         trials = (
             [
                 {"parameters": c["configuration"]}
-                for c in ranking_candidates(result, tab)
+                for c in ranking_candidates(result, tab, mode)
                 if c["id"] in selected
             ]
             if result

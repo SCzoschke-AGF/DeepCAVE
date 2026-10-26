@@ -305,6 +305,9 @@ class OptunaRun(Run):
         model_family = optuna_study.user_attrs.get("model_family")
         if model_family is not None:
             meta["model_family"] = model_family
+        study_description = optuna_study.user_attrs.get("study_name")
+        if study_description is not None:
+            meta["study_name"] = study_description
         meta["user_attr_objectives"] = {
             name: user_attr_objective_offset + index
             for index, name in enumerate(user_attr_objective_names)

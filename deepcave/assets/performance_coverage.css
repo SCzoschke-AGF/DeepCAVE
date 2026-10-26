@@ -82,6 +82,16 @@
 }
 #search_space_coverage-performance-ranking .dash-spreadsheet-inner th,
 #search_space_coverage-performance-ranking .dash-spreadsheet-inner td { direction: ltr; }
+#search_space_coverage-performance-ranking th[data-dash-column="rank"],
+#search_space_coverage-performance-ranking td[data-dash-column="rank"] {
+    width: 46px !important;
+    min-width: 46px !important;
+    max-width: 46px !important;
+}
+#search_space_coverage-performance-ranking .column-header-name {
+    white-space: normal;
+    line-height: 1.35;
+}
 #search_space_coverage-performance-ranking .dash-select-header,
 #search_space_coverage-performance-ranking .dash-select-cell {
     width: 52px !important;

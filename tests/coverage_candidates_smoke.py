@@ -201,7 +201,21 @@ def main():
             assert page.locator(plot).evaluate("p => p.layout.shapes[0].x0") == 0
             page.screenshot(path=str(args.output / "dashboard.png"), full_page=True)
 
-            page.get_by_text("Best candidates: full search space", exact=True).click()
+            page.get_by_text("Best candidates: KDE + exploration", exact=True).click()
+            page.get_by_text("Recommended", exact=True).wait_for()
+            table = page.locator(f"#{_id('performance-ranking')}")
+            if result["hybrid"]["available"]:
+                table.get_by_text("Global KDE", exact=True).first.wait_for()
+                assert len(result["recommendations"]) == 20
+                table.locator("button.next-page").click()
+                table.get_by_text("Exploration", exact=True).first.wait_for()
+                page.screenshot(path=str(args.output / "recommended.png"), full_page=True)
+            else:
+                assert (
+                    "Hybrid selection unavailable"
+                    in page.locator(f"#{_id('performance-pool-summary')}").inner_text()
+                )
+            page.get_by_text("All candidates", exact=True).click()
             page.get_by_text("Full-space search", exact=True).wait_for()
             table = page.locator(f"#{_id('performance-ranking')}")
             assert "Coverage hole" not in table.inner_text()
@@ -209,10 +223,7 @@ def main():
             assert "Toggle Columns" not in table.inner_text()
             count = len(result["full_space_candidates"])
             assert page.locator(f"#{_id('performance-candidates')}").inner_text() == f"{count:,}"
-            assert (
-                f"{count:,} sampled, unseen configurations"
-                in page.locator(f"#{_id('performance-pool-summary')}").inner_text()
-            )
+            assert "Initial:" in page.locator(f"#{_id('performance-pool-summary')}").inner_text()
             page.wait_for_function(
                 "([selector, count]) => document.querySelector(selector).data[0].y"
                 ".reduce((a, b) => a + b, 0) === count",
@@ -231,8 +242,8 @@ def main():
             page.screenshot(path=str(args.output / "full-space.png"), full_page=True)
             page.get_by_text("Show full config", exact=True).click()
 
-            page.get_by_text("Recommended trials", exact=True).click()
-            page.get_by_text("Included in CHR plan · #1", exact=True).wait_for()
+            page.get_by_text("Best overall candidates", exact=True).click()
+            page.get_by_text("Coverage contribution", exact=True).wait_for()
             table = page.locator(f"#{_id('performance-ranking')}")
             row = table.locator("tr").nth(1)
             assert row.evaluate("r => getComputedStyle(r).display") == "table-row"
@@ -242,6 +253,8 @@ def main():
             )
             assert visible_columns == [
                 "rank",
+                "good_probability",
+                "kde_score",
                 "relative_score",
                 "hole_id",
                 "hole_radius",
@@ -250,21 +263,27 @@ def main():
             assert row.evaluate(
                 "r => { const bounds = r.closest('.dash-table-container').getBoundingClientRect(); "
                 "return [...r.cells].every(c => { const b = c.getBoundingClientRect(); "
-                "return b.width > 0 && b.left >= bounds.left - 1 && b.right <= bounds.right + 1; }); }"
+                "return b.width > 0 && b.left >= bounds.left - 1 "
+                "&& b.right <= bounds.right + 1; }); }"
             )
             row.locator('input[type="checkbox"]').check()
             page.locator(f"#{_id('performance-export')} a[download]").wait_for()
             table.locator('td[data-dash-row="1"][data-dash-column="relative_score"]').click()
-            page.get_by_text("Included in CHR plan · #2", exact=True).wait_for()
+            ranked = sorted(result["candidates"], key=lambda c: (-c["kde_score"], c["id"]))
+            chosen = ranked[1]
+            page.wait_for_function(
+                "expected => JSON.stringify(JSON.parse(document.querySelector("
+                "'.coverage-candidate-full-config pre').textContent)) === JSON.stringify(expected)",
+                arg=chosen["configuration"],
+            )
             page.get_by_text("Show full config", exact=True).click()
             config = json.loads(page.locator(".coverage-candidate-full-config pre").inner_text())
-            chosen = next(c for c in result["candidates"] if c["id"] == result["plan"][1])
             assert config == chosen["configuration"]
-            page.screenshot(path=str(args.output / "selected-plan.png"), full_page=True)
+            page.screenshot(path=str(args.output / "selected-candidate.png"), full_page=True)
             page.get_by_text("Show full config", exact=True).click()
             page.get_by_text("Best candidate per hole", exact=True).click()
             assert "KDE vs. reference" in table.inner_text()
-            assert queue.calls == 0  # Tabs and row selection never fit or plan.
+            assert queue.calls == 0  # Tabs and row selection never start scoring.
             page.locator(f"#{_id('performance-run')}").click()
             assert queue.submitted.wait(timeout=15)
             page.wait_for_function(
@@ -289,7 +308,6 @@ def main():
                 "holes_analyzed": len(result["holes"]),
                 "generated_candidates": len(result["candidates"]),
                 "full_space_sampling": result["global_sampling"],
-                "plan_size": len(result["plan"]),
                 "reference_score": result["reference_score"],
                 "top_relative_score": result["top_relative_score"],
                 "reference_trial_number": result["reference_trial_number"],

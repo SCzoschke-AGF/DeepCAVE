@@ -54,16 +54,18 @@ Five internal tabs keep each question in its own view:
 * **Global** places **Performance scoring of coverage candidates** to the right
   of Coverage Array and Improve Coverage (stacked on narrow screens). Its own
   **Refresh** runs independent coverage-hole detection, candidate generation,
-  KDE scoring and sequential CHR planning for the sidebar's **Main Objective**.
+  and KDE scoring for the sidebar's **Main Objective**.
   Opening the page and changing controls never submit an expensive job.
   The compact histogram shows all generated candidates' log-density ratios
   relative to the best observed trial, with a dashed reference at zero.
-  The ranking tabs show all candidates, the best generated candidate per hole,
-  or the actual CHR plan in selection order. Click a table cell to inspect the
-  configuration, raw/reference/relative scores, empirical pool percentile and
-  geometric radius reduction. **Show full config** expands the complete values.
-  Plan membership is read-only; inspecting a row never changes the plan.
-  This plan is separate from the left covering-array plan.
+  The ranking tabs show all hole-guided candidates, the best generated candidate
+  per hole, or hybrid **KDE + exploration** recommendations from an augmented
+  full-space pool. **Recommended** shows the hybrid selection; **All candidates**
+  retains the complete global KDE ranking. Click a table
+  cell to inspect the configuration, raw/reference/relative scores, empirical
+  pool percentile and geometric radius reduction. **Show full config** expands
+  the complete values.
+  Select rows to export their configurations as TOML.
 * The left **Global** column starts with **Combinatorial Coverage**: a measured resolution/strength
   **Coverage Array** for 2, 3, 4, and 8 levels. Each resolution shows the achieved
   strength and coverage at the next strength, so near-complete interactions remain
@@ -433,15 +435,14 @@ Coverage-hole-guided KDE scoring
 -------------------------------
 
 ``deepcave.evaluators.coverage_candidates.score_coverage_candidates(run,
-objective_id, directory, options)`` returns the shared candidate collection,
-sampled hole centers, reference metadata, sequential plan IDs, and a geometric
-trace of each virtual insertion. Options are ``pool_size`` (default 2,000),
-``holes`` per step (15), ``plan_size`` (8), ``reference_samples`` (2,048), and
-``seed`` (42). The pool size is a generation target, not a trial budget.
-Deduplication or a finite space can produce fewer candidates. Newly exposed
-holes can add their valid centers to the same pool during sequential planning.
-The summary counts all distinct centers analyzed across planning steps and all
-actually generated candidates, including these additions.
+objective_id, directory, options)`` returns the hole-guided and full-space
+candidate collections, sampled hole centers, and reference metadata.
+Options are ``pool_size`` (default 2,000), ``holes`` (15),
+``reference_samples`` (2,048), ``seed`` (42), ``global_pool_size`` (10,000),
+and ``global_seed`` (42). Pool sizes are generation targets, not trial budgets.
+``number_of_candidates`` (20) controls the final hybrid recommendation budget.
+Deduplication or a finite space can produce fewer candidates.
+The summary counts the detected hole centers and actually generated candidates.
 
 Coverage reuses ``prepare_coverage``, ``sample_reference_design`` and the existing
 nearest-trial RMS sampling-space distance. It never uses objectives, fANOVA
@@ -458,16 +459,10 @@ current hole center and requires both:
   distance, placing it in the center's Voronoi cell against observed sites.
 
 Generation allocates alternatives preferentially to larger balls, without KDE
-input. Selection always addresses the currently largest sampled hole, choosing
-the highest KDE score only within that hole's admissible alternatives. It then
-virtually inserts the point, recomputes radii on the same reference design,
-reassigns remaining alternatives and adds new centers when necessary. Neither
-observed trials nor the original ConfigSpace RNG are modified. Each step stores
-the target-center radius before/after selection and the global sampled maximum
-radius before/after. No count of allegedly closed holes is inferred. A
-candidate retains its original generation-hole attribution; ``plan_hole_id``
-and ``selection_radius_before/after`` describe its possibly different role in
-the current sequential plan. The plan tab displays that selection-time geometry.
+input. Hole detection and candidate generation each run once against the
+observed configurations. Candidates retain their generation-hole attribution
+and are ranked by KDE score. Neither observed trials nor the original
+ConfigSpace RNG are modified.
 
 ``deepcave.evaluators.kde`` contains the production statistical primitives shared
 with ``examples/api/benchmark_tpe_kde.py``. The Gaussian/Wang-Ryzin kernels,
@@ -483,8 +478,7 @@ the model. The best ``ceil(0.2 * n)`` trials form good; all remaining trials for
 bad. Ordering respects the selected objective's direction, with ties broken by
 original trial number then history row. Both groups need more observations
 than nonconstant dimensions. Duplicated historical configurations remain training
-observations. Generated configurations never become training observations during
-virtual planning.
+observations. Generated configurations never become training observations.
 
 Scores are ``log p(x | good) - log p(x | bad)``. The best historical configuration
 is evaluated by exactly the same fitted model; its raw reference score is normally
@@ -495,7 +489,7 @@ not predicted accuracy, expected improvement or a success probability.
 
 Fits are persisted as numerical arrays without pickle, keyed by the study's
 configuration/distribution/status/objective fingerprint and implementation
-version. Generated pools/plans use a separate options-sensitive cache. Changes
+version. Generated pools use a separate options-sensitive cache. Changes
 to CHR settings reuse the historical fit and reference; changed trials or the
 objective require a new fit after explicit Refresh. Worker failures and missing
 prerequisites show concrete messages without example scores.
@@ -509,6 +503,71 @@ scorer, even where the separate coverage diagnostics support them. The Optuna
 converter retains a source-distribution audit to prevent silently fitting an
 intersection of a changing space. A sidebar objective is scored individually;
 there is no multi-objective acquisition or combined coverage/performance score.
+
+Hybrid KDE + exploration recommendations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The initial full-space sample remains objective-independent, excludes every
+historical configuration regardless of status, and preserves the configured
+sampling distributions. Geometry then uses the selected objective's best
+successful finite historical trial as incumbent and the best ``ceil(0.1 * n)``
+trials as elite. The elite differs from the KDE's best-20% good group.
+
+``deepcave.evaluators.candidate_geometry`` reuses Lighthouse's normalized
+ConfigSpace vectors and distance components. Distance is unweighted RMS over
+nonconstant parameters, including logarithmic transformations. These are the
+same ConfigSpace distances used by the near-optimal and performance-distance
+analyses and the archived hybrid studies; coverage diagnostics retain their
+existing sampling-CDF coordinates. Let ``R`` be the maximum elite distance from
+the incumbent. Five equal-width bins have internal boundaries
+``R/5, 2R/5, 3R/5, 4R/5``. Equality belongs to the right bin; bin 5 includes every
+larger distance, including distances above ``R``.
+
+Before selection, every bin must contain at least 1,000 unique legal unseen
+configurations. Only deficient bins receive additional configurations. Radial
+sampling uses independent seed-derived streams per bin, random directions and
+dimension-adjusted shell-volume radii within each feasible ray's box bounds.
+It never clips out-of-bounds proposals. Decoding respects numerical grids;
+the actual normalized distance is checked again after quantization, together
+with distribution and forbidden-clause validation. Neither objective values
+nor KDE scores guide these proposals once the geometry is defined.
+
+Small finite grids (at most 50,000 combinations before forbidden-clause checks)
+are enumerated to supply deficient bins or establish their exact shortage.
+Other spaces have a limit of 100,000 radial proposals per deficient bin. A
+degenerate ``R=0``, finite exhaustion or sampling limit produces an explicit
+bin/count/reason diagnostic and no hybrid recommendations. The scored full pool
+and other coverage tabs remain available. A sampling limit does not certify
+impossibility and never causes a silent switch to another selection strategy.
+
+``deepcave.evaluators.candidate_selection`` selects ``ceil(N/2)`` global KDE
+winners from the combined pool, then fills the remaining slots in bin order
+1 through 5, repeatedly taking each bin's highest-scoring unused configuration.
+Empty queues are skipped. Candidate IDs break score ties deterministically.
+Exactly ``N`` unique configurations are required; an oversized budget is an
+explicit error. The model pair, raw and reference-relative scores, and the
+uncalibrated top-20% probability are shared across all candidate origins.
+
+The UI shows recommendation rank separately from global KDE rank, selection
+phase, RMS distance and bin. A compact summary reports initial/added/final pool
+counts, phase counts and final bin occupancy. Details and checkbox-based TOML
+export work in both modes and preserve the exact parameter configurations.
+
+Cache stages distinguish the objective-independent initial pool, objective-aware
+geometry and augmentation, historical KDE models, scored pools and final
+selection. Changing only ``number_of_candidates`` reuses the scored pool without
+sampling, fitting or scoring again. Changed objectives, directions, values or
+history invalidate affected stages. Old results are hidden until explicit
+Refresh recomputes the requested settings. KDE model versioning is independent
+of sampling/selection versions.
+
+``tests/test_evaluators/test_candidate_hybrid.py`` checks general geometry,
+generation and selection contracts and uses self-contained frozen fixtures.
+The archived CatBoost pool reproduces the exact 27 identities for the 14/13
+split, mean score 5.0177401959435866 and mean pairwise RMS 0.27532818453370506.
+The two XGBoost proposal-arm fixtures check the archived retrospective
+exploitation/exploration splits. These are validation data only, with no
+production dependencies on diagnostic scripts or model-specific rules.
 
 ``uv run --locked python -m tests.coverage_candidates_smoke`` computes a real
 Fashion-MNIST study from ``logs/Optuna/nn_fashionmnist_mo/run_1``, renders the actual

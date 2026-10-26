@@ -1,16 +1,17 @@
-"""Objective-independent CHR and full-space candidates scored by one good/bad KDE.
+"""CHR candidates and hybrid full-space recommendations scored by one good/bad KDE.
 
 CHR describes sampled empty balls, not covering-array tuples. A candidate is
 eligible for its nearest hole center only if it is inside that empty ball AND
-closer to the center than to any observed/virtually selected configuration.
+closer to the center than to any observed configuration.
 This Voronoi criterion introduces no coverage tolerance or performance weight.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import json
 import math
 from dataclasses import dataclass
+from itertools import product
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -24,6 +25,23 @@ from ConfigSpace.hyperparameters import (
 )
 from scipy.spatial.distance import cdist
 
+from deepcave.evaluators.candidate_geometry import (
+    BIN_COUNT,
+    GEOMETRY_VERSION,
+    MIN_BIN_CANDIDATES,
+    distance_bins,
+    historical_geometry,
+    incumbent_distances,
+    radial_configurations,
+)
+from deepcave.evaluators.candidate_selection import (
+    SELECTION_VERSION,
+)
+from deepcave.evaluators.candidate_selection import configuration_key as _key
+from deepcave.evaluators.candidate_selection import (
+    rank_candidates,
+    select_hybrid_candidates,
+)
 from deepcave.evaluators.coverage import (
     CoverageAxis,
     CoverageData,
@@ -35,21 +53,25 @@ from deepcave.evaluators.coverage import (
 from deepcave.evaluators.performance_coverage import _digest, performance_source_key
 from deepcave.runs.status import Status
 
-CANDIDATE_VERSION = 3
+CANDIDATE_VERSION = 5
+KDE_VERSION = 4  # Recommendation rules do not invalidate historical KDE fits.
+SAMPLING_VERSION = 1
+BIN_SAMPLING_BUDGET = 100000
+FINITE_ENUMERATION_LIMIT = 50000
 
 
 def candidate_options(inputs: Optional[Dict[str, Any]] = None) -> Dict[str, int]:
-    """Validate pool/planning sizes independently of KDE model settings."""
+    """Validate candidate pool sizes independently of KDE model settings."""
     inputs = inputs or {}
     result = {}
     for name, default, low, high in (
         ("pool_size", 2000, 1, 10000),
         ("holes", 15, 1, 100),
-        ("plan_size", 8, 1, 100),
         ("reference_samples", 2048, 32, 16384),
         ("seed", 42, 0, 2**32 - 2),
         ("global_pool_size", 10000, 1, 100000),
         ("global_seed", 42, 0, 2**32 - 2),
+        ("number_of_candidates", 20, 1, 100000),
     ):
         value = inputs.get(name, default)
         if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -107,15 +129,11 @@ def scoring_source_key(run: Any, objective_id: int) -> str:
     """Include source-distribution audits in the study/objective fingerprint."""
     return _digest(
         [
-            CANDIDATE_VERSION,
+            KDE_VERSION,
             performance_source_key(run, objective_id),
             getattr(run, "meta", {}).get("optuna_space_error"),
         ]
     )
-
-
-def _key(config: Dict[str, Any]) -> str:
-    return json.dumps(config, sort_keys=True)
 
 
 def _encode(configs: List[Dict[str, Any]], space: Dict[str, Any]) -> np.ndarray:
@@ -313,8 +331,6 @@ def generate_candidates(
                 "hole_radius": hole["radius"],
                 "center_distance": float(distances[index]),
                 "radius_reduction": hole["radius"] - float(distances[index]),
-                "selected": False,
-                "plan_order": None,
             }
         )
     return selected
@@ -348,8 +364,6 @@ def generate_full_space_candidates(run: Any, options: Dict[str, int]) -> tuple:
                 {
                     "id": f"G-{_digest(config)[:16]}",
                     "configuration": config,
-                    "selected": False,
-                    "plan_order": None,
                 }
             )
             if len(candidates) == target:
@@ -372,23 +386,225 @@ def generate_full_space_candidates(run: Any, options: Dict[str, int]) -> tuple:
     }
 
 
+def augment_full_space_candidates(
+    run: Any, initial: List[Dict], geometry: Dict, seed: int
+) -> Dict[str, Any]:
+    """Supply deficient shells using only geometry, with bounded, deterministic sampling."""
+    space = numeric_space(run)
+    pool = [dict(c, origin="global") for c in initial]
+    seen = {_key(dict(run.get_config(t.config_id))) for t in run.history}
+    seen.update(_key(c["configuration"]) for c in pool)
+    reference, radius = geometry["incumbent"], geometry["radius"]
+    counts = np.zeros(BIN_COUNT, dtype=int)
+
+    def annotate(rows: List[Dict]) -> None:
+        distances = incumbent_distances(
+            run.configspace, reference, [c["configuration"] for c in rows]
+        )
+        bins = distance_bins(distances, radius)
+        for row, distance, bin_id in zip(rows, distances, bins):
+            row.update(distance=float(distance), bin=int(bin_id))
+            counts[bin_id - 1] += 1
+
+    annotate(pool)
+    initial_count = len(pool)
+    reasons, attempts = {}, np.zeros(BIN_COUNT, dtype=int)
+
+    def accept(configs: List[Dict], target_bin: Optional[int] = None) -> None:
+        new = []
+        for config in configs:
+            key = _key(config)
+            if key in seen:
+                continue
+            try:
+                _validate_config(run, config, space)
+            except ValueError:
+                continue
+            seen.add(key)
+            new.append(
+                {"id": f"G-{_digest(config)[:16]}", "configuration": config, "origin": "targeted"}
+            )
+        distances = incumbent_distances(
+            run.configspace, reference, [c["configuration"] for c in new]
+        )
+        for row, distance, bin_id in zip(new, distances, distance_bins(distances, radius)):
+            if (target_bin is None or bin_id == target_bin) and counts[
+                bin_id - 1
+            ] < MIN_BIN_CANDIDATES:
+                row.update(distance=float(distance), bin=int(bin_id))
+                counts[bin_id - 1] += 1
+                pool.append(row)
+            else:
+                # A proposal rejected for this bin can still be proposed for its actual bin.
+                seen.remove(_key(row["configuration"]))
+
+    axes = [CoverageAxis(hp) for hp in run.configspace.values()]
+    sizes = [axis.size for axis in axes]
+    cardinality = math.prod(sizes) if all(size is not None for size in sizes) else None
+    if radius == 0:
+        reasons = {
+            b: "Degenerate historical elite radius R=0; bins 1–4 are empty."
+            for b in range(1, BIN_COUNT + 1)
+        }
+    elif cardinality is not None and cardinality <= FINITE_ENUMERATION_LIMIT:
+        # Exhaust small grids exactly, including forbidden clauses, instead of retrying duplicates.
+        supports = [axis.values_at(np.arange(axis.size)) for axis in axes]
+        batch = []
+        for values in product(*supports):
+            batch.append(dict(zip(run.configspace.keys(), values)))
+            if len(batch) == 1024:
+                accept(batch)
+                batch = []
+        accept(batch)
+        reasons = {
+            b: "Finite legal search space exhausted for this bin." for b in range(1, BIN_COUNT + 1)
+        }
+    else:
+        for bin_id in range(1, BIN_COUNT + 1):
+            if counts[bin_id - 1] >= MIN_BIN_CANDIDATES:
+                continue
+            # Independent streams prevent deficits in one bin from changing another's proposals.
+            rng = np.random.RandomState(
+                np.random.SeedSequence([seed, SAMPLING_VERSION, bin_id]).generate_state(1)[0]
+            )
+            lower = (bin_id - 1) * radius / BIN_COUNT
+            upper = bin_id * radius / BIN_COUNT if bin_id < BIN_COUNT else 1.0
+            while (
+                counts[bin_id - 1] < MIN_BIN_CANDIDATES
+                and attempts[bin_id - 1] < BIN_SAMPLING_BUDGET
+            ):
+                count = min(1024, BIN_SAMPLING_BUDGET - attempts[bin_id - 1])
+                configs = radial_configurations(
+                    run.configspace, reference, lower, upper, rng, count
+                )
+                attempts[bin_id - 1] += count
+                accept(configs, bin_id)
+            reasons[bin_id] = (
+                "Geometric sampling budget reached; "
+                "constraints or discrete support may limit this bin."
+            )
+    bins = [
+        {
+            "bin": b,
+            "count": int(counts[b - 1]),
+            "attempts": int(attempts[b - 1]),
+            "reason": reasons.get(b) if counts[b - 1] < MIN_BIN_CANDIDATES else None,
+        }
+        for b in range(1, BIN_COUNT + 1)
+    ]
+    return {
+        "candidates": pool,
+        "supply": {
+            "ready": bool(np.all(counts >= MIN_BIN_CANDIDATES)),
+            "initial_count": initial_count,
+            "added_count": len(pool) - initial_count,
+            "final_count": len(pool),
+            "minimum_per_bin": MIN_BIN_CANDIDATES,
+            "bins": bins,
+        },
+    }
+
+
+def _cached_json(path: Path, compute: Callable[[], Any]) -> Any:
+    """Persist one deterministic stage atomically, independently of later selection settings."""
+    if path.exists():
+        return json.loads(path.read_text())
+    result = compute()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(f".{uuid4().hex}.tmp")
+    temporary.write_text(json.dumps(result, allow_nan=False))
+    temporary.replace(path)
+    return result
+
+
 def score_coverage_candidates(
     run: Any, objective_id: int, directory: str, inputs: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
-    """Detect → generate → score → sequentially select against virtual geometry."""
+    """Cache historical KDE scoring separately from the hybrid recommendation budget."""
     options = candidate_options(inputs)
     numeric_space(run)
     source_key = scoring_source_key(run, objective_id)
-    cache_key = _digest([source_key, options, CANDIDATE_VERSION])
+    cache_key = _digest(
+        [
+            source_key,
+            options,
+            CANDIDATE_VERSION,
+            GEOMETRY_VERSION,
+            SAMPLING_VERSION,
+            SELECTION_VERSION,
+            BIN_COUNT,
+            MIN_BIN_CANDIDATES,
+            BIN_SAMPLING_BUDGET,
+            FINITE_ENUMERATION_LIMIT,
+        ]
+    )
     result_path = Path(directory) / "results" / f"{cache_key}.json"
-    if result_path.exists():
-        return json.loads(result_path.read_text())
+    return _cached_json(
+        result_path,
+        lambda: _recommendations(run, objective_id, directory, options, source_key, cache_key),
+    )
+
+
+def _recommendations(
+    run: Any, objective_id: int, directory: str, options: Dict, source_key: str, cache_key: str
+) -> Dict:
+    pool_options = {k: v for k, v in options.items() if k != "number_of_candidates"}
+    pool_key = _digest(
+        [
+            source_key,
+            pool_options,
+            CANDIDATE_VERSION,
+            GEOMETRY_VERSION,
+            SAMPLING_VERSION,
+            BIN_COUNT,
+            MIN_BIN_CANDIDATES,
+            BIN_SAMPLING_BUDGET,
+            FINITE_ENUMERATION_LIMIT,
+        ]
+    )
+    base = _cached_json(
+        Path(directory) / "scored" / f"{pool_key}.json",
+        lambda: _scored_pools(run, objective_id, directory, options, source_key),
+    )
+    recommendations, error = [], None
+    if not base["supply"]["ready"]:
+        error = "Hybrid selection unavailable. " + "; ".join(
+            f"Bin {b['bin']}: {b['count']}/{MIN_BIN_CANDIDATES} — {b['reason']}"
+            for b in base["supply"]["bins"]
+            if b["reason"]
+        )
+    else:
+        try:
+            recommendations = select_hybrid_candidates(
+                base["full_space_candidates"], options["number_of_candidates"]
+            )
+        except ValueError as exception:
+            error = f"Hybrid selection unavailable. {exception}"
+    return {
+        **base,
+        "cache_key": cache_key,
+        "options": options,
+        "recommendations": recommendations,
+        "hybrid": {
+            "available": error is None,
+            "error": error,
+            "version": SELECTION_VERSION,
+            "global_count": sum(c["selection"] == "Global KDE" for c in recommendations),
+            "exploration_count": sum(c["selection"] == "Exploration" for c in recommendations),
+        },
+    }
+
+
+def _scored_pools(
+    run: Any, objective_id: int, directory: str, options: Dict, source_key: str
+) -> Dict:
+    """Preserve CHR behavior and score every source with the same historical KDE pair."""
     data = prepare_coverage(run)
     references = sample_reference_design(
         run.configspace, options["reference_samples"], options["seed"]
     )
-    initial_holes = detect_holes(data, references, options["holes"])
-    candidates = generate_candidates(run, data, initial_holes, options)
+    holes = detect_holes(data, references, options["holes"])
+    candidates = generate_candidates(run, data, holes, options)
     fitted = fit_candidate_kde(run, objective_id, directory)
     reference_score = fitted.metadata["reference_score"]
 
@@ -406,101 +622,34 @@ def score_coverage_candidates(
                 )
 
     score(candidates)
-    full_space_candidates, global_sampling = generate_full_space_candidates(run, options)
+    global_key = _digest(
+        [
+            SAMPLING_VERSION,
+            run.id,
+            run.configspace.to_serialized_dict(),
+            sorted({_key(dict(run.get_config(t.config_id))) for t in run.history}),
+            options["global_pool_size"],
+            options["global_seed"],
+        ]
+    )
+    initial, global_sampling = _cached_json(
+        Path(directory) / "global" / f"{global_key}.json",
+        lambda: generate_full_space_candidates(run, options),
+    )
+    geometry = historical_geometry(run, objective_id)
+    geometry_key = _digest([source_key, geometry])
+    augmented_key = _digest(
+        [global_key, geometry_key, SAMPLING_VERSION, BIN_SAMPLING_BUDGET, FINITE_ENUMERATION_LIMIT]
+    )
+    augmented = _cached_json(
+        Path(directory) / "augmented" / f"{augmented_key}.json",
+        lambda: augment_full_space_candidates(run, initial, geometry, options["global_seed"]),
+    )
+    full_space_candidates = augmented["candidates"]
     score(full_space_candidates)
-    known_holes = {h["id"]: h for h in initial_holes}
-    virtual = data
-    plan, steps = [], []
-    excluded = {_key(dict(run.get_config(t.config_id))) for t in run.history}
-    for order in range(1, options["plan_size"] + 1):
-        holes = detect_holes(virtual, references, options["holes"])
-        if not holes:
-            break
-        additions = []
-        candidate_keys = {_key(c["configuration"]) for c in candidates}
-        for hole in holes:
-            if hole["id"] not in known_holes:
-                original = normalize_configurations(run.configspace, [hole["center"]])
-                known_holes[hole["id"]] = {
-                    **hole,
-                    "radius": float(_nearest_distances(data, original)[0]),
-                }
-                center = hole["center"]
-                if _key(center) not in candidate_keys and _key(center) not in excluded:
-                    h = known_holes[hole["id"]]
-                    additions.append(
-                        {
-                            "id": f"C-{_digest(center)[:16]}",
-                            "configuration": center,
-                            "hole_id": h["id"],
-                            "hole_radius": h["radius"],
-                            "center_distance": 0.0,
-                            "radius_reduction": h["radius"],
-                            "selected": False,
-                            "plan_order": None,
-                        }
-                    )
-                    candidate_keys.add(_key(center))
-        if additions:
-            score(additions)
-            candidates.extend(additions)
-        remaining = [c for c in candidates if not c["selected"]]
-        proposed = normalize_configurations(
-            run.configspace, [c["configuration"] for c in remaining]
-        )
-        assigned, distances = _membership(virtual, proposed, holes)
-        # A new largest hole can require a new candidate after virtual updates.
-        # Add its center (same fitted KDE), rather than skipping it for a lower hole.
-        if not np.any(assigned == 0):
-            center = holes[0]["center"]
-            existing = next((c for c in remaining if c["configuration"] == center), None)
-            if existing is None and _key(center) not in excluded:
-                h = known_holes[holes[0]["id"]]
-                existing = {
-                    "id": f"C-{_digest(center)[:16]}",
-                    "configuration": center,
-                    "hole_id": h["id"],
-                    "hole_radius": h["radius"],
-                    "center_distance": 0.0,
-                    "radius_reduction": h["radius"],
-                    "selected": False,
-                    "plan_order": None,
-                }
-                score([existing])
-                candidates.append(existing)
-                remaining.append(existing)
-                assigned = np.append(assigned, 0)
-                distances = np.append(distances, 0.0)
-        eligible = np.flatnonzero(assigned == 0)
-        if not len(eligible):
-            break
-        chosen_index = max(eligible, key=lambda i: remaining[i]["kde_score"])
-        chosen = remaining[chosen_index]
-        hole = holes[0]
-        chosen.update(
-            selected=True,
-            plan_order=order,
-            plan_hole_id=hole["id"],
-            selection_radius_before=hole["radius"],
-            selection_radius_after=float(distances[chosen_index]),
-        )
-        before = float(np.max(_nearest_distances(virtual, references)))
-        virtual = normalize_configurations(
-            run.configspace, virtual.values + [chosen["configuration"]]
-        )
-        after = float(np.max(_nearest_distances(virtual, references)))
-        steps.append(
-            {
-                "candidate_id": chosen["id"],
-                "hole_id": hole["id"],
-                "radius_before": hole["radius"],
-                "radius_after": chosen["selection_radius_after"],
-                "max_radius_before": before,
-                "max_radius_after": after,
-            }
-        )
-        plan.append(chosen["id"])
-        excluded.add(_key(chosen["configuration"]))
+    ranks = {c["id"]: c["kde_rank"] for c in rank_candidates(full_space_candidates)}
+    for row in full_space_candidates:
+        row["kde_rank"] = ranks[row["id"]]
     for pool in (candidates, full_space_candidates):
         all_scores = np.sort([c["kde_score"] for c in pool])
         for candidate in pool:
@@ -511,15 +660,19 @@ def score_coverage_candidates(
             )
     result = {
         "candidate_version": CANDIDATE_VERSION,
-        "cache_key": cache_key,
         "source_key": source_key,
-        "options": options,
-        "holes": list(known_holes.values()),
+        "stage_keys": {
+            "global": global_key,
+            "geometry": geometry_key,
+            "augmented": augmented_key,
+            "kde": source_key,
+        },
+        "holes": holes,
         "candidates": candidates,
         "full_space_candidates": full_space_candidates,
         "global_sampling": global_sampling,
-        "plan": plan,
-        "steps": steps,
+        "geometry": geometry,
+        "supply": augmented["supply"],
         "model": fitted.metadata,
         "objective_id": objective_id,
         "reference_score": reference_score,
@@ -527,8 +680,4 @@ def score_coverage_candidates(
         "reference_objective": fitted.metadata["reference_objective"],
         "top_relative_score": max((c["relative_score"] for c in candidates), default=None),
     }
-    result_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = result_path.with_suffix(f".{uuid4().hex}.tmp")
-    temporary.write_text(json.dumps(result, allow_nan=False))
-    temporary.replace(result_path)
     return result
