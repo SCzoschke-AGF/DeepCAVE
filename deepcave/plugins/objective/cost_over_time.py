@@ -25,7 +25,7 @@ It includes a corresponding plugin class.
     - CostOverTime: A plugin to provide a visualization for the cost over time.
 """
 
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 import dash_bootstrap_components as dbc
 import numpy as np
@@ -35,7 +35,7 @@ from dash.development.base_component import Component
 from dash.exceptions import PreventUpdate
 from plotly.subplots import make_subplots
 
-from deepcave import config, notification
+from deepcave import config, interactive, notification
 from deepcave.constants import COMBINED_BUDGET
 from deepcave.plugins.cost_efficiency import elite_figure
 from deepcave.plugins.dynamic import DynamicPlugin
@@ -43,15 +43,28 @@ from deepcave.plugins.objective.performance_cost import PerformanceCost
 from deepcave.runs import AbstractRun, check_equality
 from deepcave.runs.exceptions import NotMergeableError, RunInequality
 from deepcave.runs.status import Status
-from deepcave.utils.analysis_layout import analysis_toolbar_item, style_analysis
+from deepcave.utils.analysis_layout import (
+    analysis_card,
+    analysis_graph,
+    analysis_toolbar_item,
+    style_analysis,
+    style_analysis_panel,
+)
 from deepcave.utils.layout import get_select_options
 from deepcave.utils.performance_cost import (
     extract_trial_data,
     filter_trial_data,
     prepare_plot_data,
 )
+from deepcave.utils.run_comparison import (
+    DISTRIBUTION_MODE_ID,
+    STATE_ID,
+    comparison_layout,
+    comparison_state,
+    prepare_distribution,
+    register_comparison_callbacks,
+)
 from deepcave.utils.styled_plotty import (
-    get_color,
     get_hovertext_from_config,
     save_image,
 )
@@ -93,6 +106,29 @@ class CostOverTime(DynamicPlugin):
     icon = "fas fa-chart-line"
     help = "plugins/cost_over_time.html"
     allow_additional_runs = True
+    output_view_inputs = (("comparison_state", STATE_ID, "data"),)
+
+    @interactive
+    def register_callbacks(self) -> None:
+        """Extend the existing selection callbacks with compact comparison controls."""
+        super().register_callbacks()
+        if self.allow_additional_runs:
+            register_comparison_callbacks(self)
+
+    def _process_raw_outputs(
+        self,
+        inputs: Dict[str, Dict[str, str]],
+        raw_outputs: Dict[str, Any],
+        selected_runs: Optional[List[AbstractRun]] = None,
+        view_inputs: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """Use responsive cards in the app while preserving the combined figure API."""
+        return super()._process_raw_outputs(
+            inputs,
+            raw_outputs,
+            selected_runs,
+            {**(view_inputs or {}), "comparison_panels": True},
+        )
 
     @property
     def optuna_runs(self) -> List[AbstractRun]:
@@ -106,21 +142,8 @@ class CostOverTime(DynamicPlugin):
 
     @staticmethod
     def get_additional_run_input_layout(register: Callable) -> Component:
-        """Return the optional comparison studies as a compact toolbar control."""
-        return html.Div(
-            analysis_toolbar_item(
-                "Additional Runs",
-                dcc.Dropdown(
-                    id=register("additional_runs", ["value", "options"]),
-                    multi=True,
-                    placeholder="Add runs ...",
-                    className="cost-over-time__runs-dropdown",
-                    style={"flex": "1 1 auto", "minWidth": 0},
-                ),
-                width="20rem",
-            ),
-            className="analysis-toolbar cost-over-time-toolbar",
-        )
+        """Display the primary and additional runs in one comparison panel."""
+        return comparison_layout(register)
 
     def get_additional_run_candidates(self, active_run: AbstractRun) -> List[AbstractRun]:
         """Return compatible individual Optuna studies except for the active study."""
@@ -151,7 +174,6 @@ class CostOverTime(DynamicPlugin):
         ------
         NotMergeableError
             If the meta data of the runs are not equal.
-            If the configuration spaces of the runs are not equal.
             If the budgets of the runs are not equal.
             If the objective of the runs are not equal.
         """
@@ -160,15 +182,11 @@ class CostOverTime(DynamicPlugin):
             raise NotMergeableError("No Optuna studies are loaded.")
 
         try:
-            check_equality(optuna_runs, objectives=True, budgets=True)
+            check_equality(optuna_runs, configspace=False, objectives=True, budgets=True)
         except NotMergeableError as e:
             run_inequality = e.args[1]
             if run_inequality == RunInequality.INEQ_BUDGET:
                 notification.update("The budgets of the runs are not equal.", color="warning")
-            elif run_inequality == RunInequality.INEQ_CONFIGSPACE:
-                notification.update(
-                    "The configuration spaces of the runs are not equal.", color="warning"
-                )
             elif run_inequality == RunInequality.INEQ_META:
                 notification.update("The meta data of the runs is not equal.", color="warning")
             elif run_inequality == RunInequality.INEQ_OBJECTIVE:
@@ -213,23 +231,11 @@ class CostOverTime(DynamicPlugin):
                         id=register("budget_id", ["value", "options"], type=int),
                         style={"display": "none"},
                     ),
-                    analysis_toolbar_item(
-                        "X-Axis",
-                        dbc.Select(
-                            id=register(
-                                "xaxis",
-                                ["value", "options"],
-                                filter=True,
-                            ),
-                            placeholder="Select ...",
-                        ),
-                        width="12rem",
-                    ),
                     dbc.Checkbox(
                         id=register("show_pareto", "value", filter=True),
                         label="Pareto front",
                         value=True,
-                        className="mb-0",
+                        className="mb-0 cost-over-time__pareto",
                     ),
                     analysis_toolbar_item(
                         "Elite trials",
@@ -250,7 +256,7 @@ class CostOverTime(DynamicPlugin):
 
     @staticmethod
     def get_filter_layout(register: Callable) -> List[Any]:
-        """Return no separate filter card; the x-axis filter lives in the toolbar."""
+        """Return no separate filter card; the controls live in the comparison toolbar."""
         return []
 
     def load_inputs(self) -> Dict[str, Any]:
@@ -278,14 +284,6 @@ class CostOverTime(DynamicPlugin):
                     if len(self.budget_options) == 1
                     else self.budget_options[-2]["value"]
                 ),
-            },
-            "xaxis": {
-                "options": [
-                    {"label": "Time", "value": "times"},
-                    {"label": "Logarithmic Time", "value": "times_log"},
-                    {"label": "Evaluated trials", "value": "trials"},
-                ],
-                "value": "times",
             },
             "show_pareto": {"value": True},
             "elite_fraction": {"value": "0.05"},
@@ -345,7 +343,7 @@ class CostOverTime(DynamicPlugin):
         }
 
     @staticmethod
-    def get_output_layout(register: Callable) -> dcc.Graph:
+    def get_output_layout(register: Callable) -> Component:
         """
         Get the layout for the output block.
 
@@ -357,15 +355,49 @@ class CostOverTime(DynamicPlugin):
 
         Returns
         -------
-        dcc.Graph
-            The layouts for the output block.
+        Component
+            Four responsive plot cards in the existing comparison order.
         """
-        return dcc.Graph(
-            register("graph", "figure"),
-            responsive=True,
-            style={"width": "100%", "height": "1050px"},
-            config={"toImageButtonOptions": {"scale": config.FIGURE_DOWNLOAD_SCALE}},
+        distribution_source = register("distribution", "data")
+        layout = html.Div(
+            [
+                analysis_card(
+                    title,
+                    analysis_graph(
+                        (
+                            distribution_source + "-graph"
+                            if name == "distribution"
+                            else register(name, "figure")
+                        ),
+                        420,
+                        config.FIGURE_DOWNLOAD_SCALE,
+                    ),
+                )
+                for name, title in (
+                    ("distribution", "Objective Distribution"),
+                    ("running_best", "Running Best"),
+                    ("performance_cost", "Performance vs. Computational Cost"),
+                    ("elite", "Near-Optimal Cost Efficiency"),
+                )
+            ],
+            className="run-comparison-grid",
         )
+        header = layout.children[0].children[0]
+        header.children = [
+            html.Span(header.children),
+            dbc.RadioItems(
+                id=DISTRIBUTION_MODE_ID,
+                options=[
+                    {"label": "Count", "value": "count"},
+                    {"label": "Probability", "value": "probability"},
+                ],
+                value="probability",
+                className="multi-metrics-segmented run-comparison__distribution-mode",
+            ),
+        ]
+        header.className += " run-comparison__distribution-header"
+        layout.children[0].children.append(dcc.Store(id=distribution_source))
+        return layout
 
     @staticmethod
     def load_outputs(runs, inputs, outputs, *, trajectory_only=False) -> go.Figure:  # type: ignore
@@ -404,21 +436,26 @@ class CostOverTime(DynamicPlugin):
             cols=2,
             row_heights=[1] if trajectory_only else [0.45, 0.55],
             column_widths=[0.45, 0.55],
-            subplot_titles=("Objective Distribution", "Running Best") if trajectory_only else (
-                "Objective Distribution", "Running Best", "Performance vs. Computational Cost",
-                "Near-Optimal Cost Efficiency",
+            subplot_titles=(
+                ("Objective Distribution", "Running Best")
+                if trajectory_only
+                else (
+                    "Objective Distribution",
+                    "Running Best",
+                    "Performance vs. Computational Cost",
+                    "Near-Optimal Cost Efficiency",
+                )
             ),
             horizontal_spacing=0.1,
             vertical_spacing=0.15,
         )
+        state = comparison_state([run.id for run in runs], inputs.get("comparison_state") or {})
         visible_cost_rows = []
         visible_elite_rows = []
-        for idx, run in enumerate(runs):
+        for run in runs:
             objective = run.get_objective(inputs["objective_id"])
             ids = outputs[run.id]["ids"]
-            x = outputs[run.id]["times"]
-            if inputs["xaxis"] == "trials":
-                x = outputs[run.id]["ids"]
+            x = ids
 
             y = np.array(outputs[run.id]["costs_mean"])
             y_err = np.array(outputs[run.id]["costs_std"])
@@ -440,7 +477,7 @@ class CostOverTime(DynamicPlugin):
                 symbol = "circle"
                 mode = "lines+markers"
 
-            color = get_color(idx)
+            color = state["colors"][run.id]
             objective_values = outputs[run.id]["objective_values"]
             figure.add_trace(
                 go.Histogram(
@@ -466,6 +503,8 @@ class CostOverTime(DynamicPlugin):
                     x=best_value,
                     line_dash="dash",
                     line_color=color,
+                    name=run.id,
+                    visible=run.id not in state["hidden"],
                     row=1,
                     col=1,
                 )
@@ -479,7 +518,7 @@ class CostOverTime(DynamicPlugin):
                     line=dict(color=color),
                     hovertext=hovertext,
                     hoverinfo=hoverinfo,
-                    marker=dict(symbol=symbol),
+                    marker=dict(symbol=symbol, color=color),
                     mode=mode,
                     legendgroup=run.id,
                     showlegend=True,
@@ -504,7 +543,7 @@ class CostOverTime(DynamicPlugin):
                         if trace.mode == "lines+markers":
                             trace.marker.color = color
                             trace.line.color = color
-                        elif len(runs) > 1:
+                        else:
                             trace.marker.color = color
                         figure.add_trace(trace, row=2, col=1)
                     elite, _summary = elite_figure(
@@ -527,7 +566,8 @@ class CostOverTime(DynamicPlugin):
                 go.Scatter(
                     x=x,
                     y=y_upper,
-                    line=dict(color=get_color(idx, 0)),
+                    mode="lines",
+                    line=dict(color=color, width=0),
                     line_shape="hv",
                     hoverinfo="skip",
                     showlegend=False,
@@ -542,9 +582,10 @@ class CostOverTime(DynamicPlugin):
                 go.Scatter(
                     x=x,
                     y=y_lower,
+                    mode="lines",
                     fill="tonexty",
-                    fillcolor=get_color(idx, 0.2),
-                    line=dict(color=get_color(idx, 0)),
+                    fillcolor=color.rsplit(",", 1)[0] + ", 0.2)",
+                    line=dict(color=color, width=0),
                     line_shape="hv",
                     hoverinfo="skip",
                     showlegend=False,
@@ -555,20 +596,21 @@ class CostOverTime(DynamicPlugin):
                 col=2,
             )
 
+        for trace in figure.data:
+            trace.visible = trace.legendgroup not in state["hidden"]
+            trace.meta = {
+                "run_id": trace.legendgroup,
+                "comparison_opacity": trace.opacity if trace.opacity is not None else 1,
+            }
+
         if objective is None:
             raise PreventUpdate
 
-        type = None
-        if inputs["xaxis"] == "times_log":
-            type = "log"
-
-        xaxis_label = "Wallclock time [s]"
-        if inputs["xaxis"] == "trials":
-            xaxis_label = "Number of evaluated trials"
-
         figure.update_xaxes(title_text=objective.name, row=1, col=1)
         figure.update_yaxes(title_text="Trials", row=1, col=1)
-        figure.update_xaxes(title_text=xaxis_label, type=type, row=1, col=2)
+        figure.update_xaxes(
+            title_text="Number of evaluated trials", type="linear", row=1, col=2
+        )
         figure.update_yaxes(title_text=objective.name, row=1, col=2)
         if not trajectory_only:
             figure.update_xaxes(
@@ -623,4 +665,46 @@ class CostOverTime(DynamicPlugin):
         if not trajectory_only:
             save_image(figure, "cost_over_time.pdf")
 
+        if inputs.get("comparison_panels") and not trajectory_only:
+            return comparison_figures(figure, inputs)
+
         return figure
+
+
+def comparison_figures(figure: go.Figure, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    """Place the existing subplot traces and axes into four independently responsive cards."""
+    panels = {}
+    for index, name in enumerate(("distribution", "running_best", "performance_cost", "elite"), 1):
+        suffix = str(index) if index > 1 else ""
+        xref = f"x{suffix}"
+        panel = go.Figure()
+        for trace in figure.data:
+            if trace.xaxis == xref:
+                data = trace.to_plotly_json()
+                data.update(xaxis="x", yaxis="y", showlegend=False)
+                panel.add_trace(data)
+        for axis in ("x", "y"):
+            settings = figure.layout[f"{axis}axis{suffix}"].to_plotly_json()
+            settings.update(domain=[0, 1], anchor="y" if axis == "x" else "x")
+            panel.update_layout(**{f"{axis}axis": settings})
+        for shape in figure.layout.shapes:
+            if shape.xref == xref:
+                settings = shape.to_plotly_json()
+                settings.update(xref="x", yref="y domain")
+                panel.add_shape(settings)
+        for annotation in figure.layout.annotations:
+            if annotation.xref == f"{xref} domain":
+                settings = annotation.to_plotly_json()
+                settings.update(xref="x domain", yref="y domain")
+                panel.add_annotation(settings)
+        style_analysis_panel(panel, height=420, bottom=80, top=20)
+        if name == "distribution":
+            prepare_distribution(panel)
+        panel.update_layout(
+            barmode="overlay",
+            uirevision=":".join(
+                str(inputs.get(key)) for key in ("objective_id", "budget_id")
+            ),
+        )
+        panels[name] = {"data" if name == "distribution" else "figure": panel}
+    return panels

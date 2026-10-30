@@ -98,7 +98,7 @@ def test_combinatorial_settings_only_validate_consumed_controls():
     "field,label",
     [
         ("baseline_version", "Refresh to use the updated strength calculation"),
-        ("trial_estimate_version", "Refresh to compute heuristic trial estimates"),
+        ("trial_estimate_version", ""),
     ],
 )
 def test_saved_baselines_request_refresh_without_starting_jobs(
@@ -2428,9 +2428,15 @@ def test_dash_registers_callbacks_and_layout_contains_no_global_process(monkeypa
     )
     left, right = global_layout.children
     assert left.className == "coverage-global-left"
-    assert left.children[0].className == "coverage-card coverage-profile-card"
-    assert left.children[1].className == "coverage-planning"
-    assert right.className == "coverage-card coverage-performance"
+    assert left.children[0].className == "coverage-global-introduction"
+    assert left.children[1].className == "coverage-card coverage-profile-card"
+    assert left.children[2].className == "coverage-planning"
+    assert right.className == "coverage-global-right"
+    assert right.children[0].className == "coverage-global-introduction"
+    assert isinstance(right.children[0], html.Details)
+    assert right.children[0].open is False
+    assert isinstance(right.children[0].children, html.Summary)
+    assert right.children[1].className == "coverage-card coverage-performance"
     assert suite._id("performance-run") in tab_ids["global"]
     assert "Strength Profile" not in labels
     for name in ("planning-resolution", "planning-strength-mode"):

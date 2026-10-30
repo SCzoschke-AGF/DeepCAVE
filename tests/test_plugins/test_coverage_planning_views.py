@@ -3,6 +3,7 @@
 from itertools import product
 from urllib.parse import unquote
 
+import optuna
 import pytest
 from ConfigSpace import CategoricalHyperparameter, ConfigurationSpace
 from dash import dash_table, dcc, html
@@ -123,7 +124,10 @@ def test_toml_download_exports_all_trials_and_preserves_parameter_types(study):
     prefix, content = link.href.split(",", 1)
     assert prefix == "data:application/toml;charset=utf-8"
     parsed = tomllib.loads(unquote(content))
-    expected = {"trials": [trial["parameters"] for trial in plan["trials"]]}
+    expected = {
+        "trial_user_attrs": {"sampling_method": "coverage_guided"},
+        "trials": [trial["parameters"] for trial in plan["trials"]],
+    }
     if study:
         expected["study"] = study
         assert study["name"] not in text(view)
@@ -133,6 +137,28 @@ def test_toml_download_exports_all_trials_and_preserves_parameter_types(study):
     assert type(parsed["trials"][0]["learning_rate"]) is float
     table = next(c for c in children if isinstance(c, dash_table.DataTable))
     assert len(parsed["trials"]) > table.page_size
+
+
+@pytest.mark.parametrize("sampling_method", ["coverage_guided", "objective_guided"])
+def test_exported_sampling_method_survives_optuna_enqueue_and_execution(sampling_method):
+    content = plan_toml(
+        {"trials": [{"parameters": {"x": 0.5, "sampling_method": "parameter_value"}}]},
+        sampling_method=sampling_method,
+    )
+    assert content.endswith(f'[trial_user_attrs]\nsampling_method = "{sampling_method}"\n')
+    exported = tomllib.loads(content)
+    study = optuna.create_study()
+    for parameters in exported["trials"]:
+        study.enqueue_trial(parameters, user_attrs=exported["trial_user_attrs"])
+
+    def objective(trial):
+        assert trial.suggest_float("x", 0.0, 1.0) == 0.5
+        assert trial.suggest_categorical("sampling_method", ["parameter_value"]) == "parameter_value"
+        return 1.0
+
+    study.optimize(objective, n_trials=1)
+    assert study.trials[0].user_attrs == {"sampling_method": sampling_method}
+    assert study.trials[0].params == exported["trials"][0]
 
 
 def test_toml_download_is_disabled_for_values_toml_cannot_represent():

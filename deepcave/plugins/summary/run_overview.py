@@ -41,6 +41,7 @@ class RunOverview(CostOverTime):
     name = "Run Overview"
     activate_run_selection = True
     allow_additional_runs = False
+    output_view_inputs = ()
     help = "plugins/run_overview.html"
 
     @staticmethod
@@ -124,7 +125,6 @@ class RunOverview(CostOverTime):
         """Reuse the objective and budget defaults with objective importance selected."""
         inputs = super().load_inputs()
         inputs.pop("elite_fraction")
-        inputs.pop("xaxis")
         inputs.pop("show_pareto")
         inputs["highlight_mode"] = {"value": "pareto"}
         inputs["top_percent"] = {"value": 5}

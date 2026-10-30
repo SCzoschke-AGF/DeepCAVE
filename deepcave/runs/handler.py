@@ -39,6 +39,20 @@ from deepcave.utils.cache import Cache
 from deepcave.utils.logs import get_logger
 from deepcave.utils.run_caches import RunCaches
 
+OPTUNA_SAMPLER_ATTRIBUTE_CACHE_KEY = "optuna_sampler_attribute"
+RUN_ABBREV_ATTRIBUTES_CACHE_KEY = "optuna_run_abbrev_attributes"
+RUN_ABBREV_AS_NAME_CACHE_KEY = "optuna_run_abbrev_as_name"
+
+
+def get_run_abbreviation(run: Optional[AbstractRun], attributes: Optional[List[str]]) -> str:
+    """Join selected study attributes in order, skipping missing and empty values."""
+    user_attrs = run.get_meta().get("optuna_user_attrs", {}) if run is not None else {}
+    return "_".join(
+        str(user_attrs[attribute])
+        for attribute in attributes or []
+        if user_attrs.get(attribute) is not None and user_attrs[attribute] != ""
+    )
+
 
 class RunHandler:
     """
@@ -152,6 +166,52 @@ class RunHandler:
             working_dir, (str, Path)
         ), "Working directory of cache must be a string or a Path like."
         return Path(working_dir)
+
+    def _apply_optuna_sampler(self, run: AbstractRun) -> None:
+        """Map a study attribute or the distinct trial values to sampler metadata."""
+        if run.prefix != "Optuna":
+            return
+        original = run.meta.setdefault("optuna_original_sampler", run.meta.get("optuna_sampler"))
+        attribute = self.c.get(OPTUNA_SAMPLER_ATTRIBUTE_CACHE_KEY)
+        if not attribute:
+            run.meta["optuna_sampler"] = original
+            return
+        source, name = attribute.split(":", 1)
+        if source == "trial":
+            values = []
+            for trial in run.history:
+                attrs = trial.additional.get("user_attrs", {})
+                if name in attrs and attrs[name] not in values:
+                    values.append(attrs[name])
+            run.meta["optuna_sampler"] = values
+        else:
+            run.meta["optuna_sampler"] = run.meta.get("optuna_user_attrs", {}).get(name)
+
+    def set_optuna_sampler_attribute(self, attribute: Optional[str]) -> None:
+        """Persist the selection and apply it to all loaded Optuna runs."""
+        with self._update_lock:
+            self.c.set(OPTUNA_SAMPLER_ATTRIBUTE_CACHE_KEY, value=attribute)
+            for run in self.runs.values():
+                self._apply_optuna_sampler(run)
+            self.update_groups()
+
+    def _apply_optuna_run_name(self, run: AbstractRun) -> None:
+        """Set the display name without changing the study metadata or run identity."""
+        if run.prefix != "Optuna":
+            return
+        original_name = run.meta.get("optuna_study_name", run.name)
+        abbreviation = ""
+        if self.c.get(RUN_ABBREV_AS_NAME_CACHE_KEY):
+            abbreviation = get_run_abbreviation(run, self.c.get(RUN_ABBREV_ATTRIBUTES_CACHE_KEY))
+        run.name = abbreviation or original_name
+
+    def set_optuna_run_abbrev_as_name(self, enabled: bool) -> None:
+        """Persist the display preference and apply it to loaded runs without reloading them."""
+        with self._update_lock:
+            if self.c.get(RUN_ABBREV_AS_NAME_CACHE_KEY) != enabled:
+                self.c.set(RUN_ABBREV_AS_NAME_CACHE_KEY, value=enabled)
+            for run in self.runs.values():
+                self._apply_optuna_run_name(run)
 
     def get_available_run_paths(self) -> Dict[str, str]:
         """
@@ -418,6 +478,9 @@ class RunHandler:
         if run_path in self.runs:
             run = self.runs[run_path]
 
+            self._apply_optuna_sampler(run)
+            self._apply_optuna_run_name(run)
+
             # Create cache file and set name/hash. Clear cache if hash got changed.
             self.rc.update(run)
             return run
@@ -457,6 +520,8 @@ class RunHandler:
                 self.logger.warning(f"{run_class.prefix}: {exception}.")
         else:
             # Add to run cache
+            self._apply_optuna_sampler(run)
+            self._apply_optuna_run_name(run)
             self.rc.update(run)
 
         return run

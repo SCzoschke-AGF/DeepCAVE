@@ -66,6 +66,22 @@ Five internal tabs keep each question in its own view:
   pool percentile and geometric radius reduction. **Show full config** expands
   the complete values.
   Select rows to export their configurations as TOML.
+  Exports from this panel attach ``sampling_method = "objective_guided"`` in the
+  ``[trial_user_attrs]`` table. Improve Coverage exports use ``"coverage_guided"``.
+  The table applies to every configuration in the file and is separate from its
+  hyperparameters. An Optuna importer must pass it as trial user attributes::
+
+      import tomllib
+
+      with open("coverage-plan.toml", "rb") as file:
+          exported = tomllib.load(file)
+      for parameters in exported["trials"]:
+          study.enqueue_trial(parameters, user_attrs=exported["trial_user_attrs"])
+
+  Optuna retains these attributes when the queued trial is executed. In the
+  Sampler metadata selector, choose ``Trial: sampling_method`` to see the unique
+  methods used in the study. Existing files without this metadata cannot
+  distinguish the two origins automatically.
 * The left **Global** column starts with **Combinatorial Coverage**: a measured resolution/strength
   **Coverage Array** for 2, 3, 4, and 8 levels. Each resolution shows the achieved
   strength and coverage at the next strength, so near-complete interactions remain

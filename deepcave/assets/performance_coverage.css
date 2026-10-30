@@ -4,9 +4,28 @@
     align-items: start;
     gap: .75rem;
 }
-.coverage-global-left { min-width: 0; }
+.coverage-global-left,
+.coverage-global-right { min-width: 0; }
+.coverage-global-introduction {
+    margin: 0 0 .75rem;
+    padding: .85rem 1rem;
+    border: 1px solid #dfe1e5;
+    border-radius: .4rem;
+    background: #f1f2f4;
+    color: #505766;
+    font-size: .8rem;
+    line-height: 1.6;
+}
 .coverage-global-left > .coverage-profile-card,
 .coverage-global-left > .coverage-planning { width: 100%; }
+details.coverage-global-introduction > summary { cursor: pointer; list-style: none; }
+details.coverage-global-introduction > summary::-webkit-details-marker { display: none; }
+details.coverage-global-introduction:not([open]) > summary > span {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+}
 .coverage-performance { padding: .75rem; color: #232341; }
 .coverage-performance-header,
 .coverage-performance-title { display: flex; align-items: center; gap: .55rem; }
@@ -66,6 +85,13 @@
 .coverage-performance-method summary { cursor: pointer; }
 .coverage-performance-method p { margin: .4rem 0; }
 .coverage-performance-footnote { display: block; margin-top: .5rem; color: #8890a6; font-size: .65rem; line-height: 1.5; }
+.coverage-candidate-procedures { margin-top: 1rem; padding-top: .85rem; border-top: 1px solid #e7e9f5; color: #5c6382; font-size: .75rem; line-height: 1.6; }
+.coverage-candidate-procedures h4 { margin: 0 0 .6rem; color: #232341; font-size: .95rem; font-weight: 650; }
+.coverage-candidate-procedures h5 { margin: .9rem 0 .4rem; color: #393853; font-size: .8rem; font-weight: 600; }
+.coverage-candidate-procedures p { margin: 0 0 .6rem; }
+.coverage-candidate-procedures ol { padding-left: 1.3rem; margin-bottom: .75rem; }
+.coverage-candidate-procedures li + li { margin-top: .45rem; }
+.coverage-candidate-procedures > :last-child { margin-bottom: 0; }
 .coverage-performance-title h3 { font-size: 1.05rem; }
 .coverage-performance-body h5 { margin: .65rem 0 0; font-size: .75rem; font-weight: 600; }
 .coverage-performance-metrics > div { padding: 0 .5rem; }

@@ -211,6 +211,34 @@ def test_converter_retains_optuna_step_as_parameter_metadata(tmp_path: Path) -> 
     assert run.configspace["n_estimators"].meta["step"] == 50
 
 
+@pytest.mark.parametrize(
+    "name,distribution,value",
+    [
+        ("subsample", FloatDistribution(1.0, 1.0), 1.0),
+        ("subsample", FloatDistribution(0.5, 0.5, step=0.1), 0.5),
+        ("learning_rate", FloatDistribution(0.01, 0.01, log=True), 0.01),
+        ("max_depth", IntDistribution(6, 6, step=2), 6),
+        ("max_depth", IntDistribution(5, 5, log=True), 5),
+    ],
+)
+def test_converter_imports_fixed_numeric_parameters(
+    tmp_path: Path, name: str, distribution: Any, value: Any
+) -> None:
+    study = optuna.create_study(direction="minimize")
+    study.add_trial(
+        create_trial(params={name: value}, distributions={name: distribution}, value=0.4)
+    )
+
+    run = OptunaRun.from_path(_write_study(tmp_path / "run", study))
+
+    parameter = run.configspace[name]
+    assert parameter.value == value
+    assert type(parameter.value) is type(value)
+    assert parameter.meta["step"] == distribution.step
+    assert run.get_config(run.history[0].config_id)[name] == value
+    assert run.history[0].costs[0] == 0.4
+
+
 def test_converter_retains_model_family(tmp_path: Path) -> None:
     study = optuna.create_study(direction="minimize")
     study.set_user_attr("model_family", "xgboost")
@@ -224,7 +252,8 @@ def test_converter_retains_model_family(tmp_path: Path) -> None:
 
     run = OptunaRun.from_path(_write_study(tmp_path / "run", study))
 
-    assert run.meta["model_family"] == "xgboost"
+    assert run.meta["optuna_user_attrs"]["model_family"] == "xgboost"
+    assert "model_family" not in run.meta
 
 
 @pytest.mark.parametrize("study_description", [None, "opt-AP_v1", "", 0])
@@ -236,9 +265,23 @@ def test_converter_retains_study_name_attribute(tmp_path: Path, study_descriptio
 
     run = OptunaRun.from_path(_write_study(tmp_path / "run", study))
 
-    assert run.meta.get("study_name") == study_description
+    assert run.meta["optuna_user_attrs"].get("study_name") == study_description
+    assert "study_name" not in run.meta
     assert run.name == "full-study-name"
     assert run.meta["optuna_study_name"] == "full-study-name"
+
+
+def test_converter_preserves_arbitrary_study_user_attributes(tmp_path: Path) -> None:
+    study = optuna.create_study(study_name="original-name", direction="minimize")
+    attributes = {"experiment_label": "batch-42", "details": {"dataset": "example"}}
+    for key, value in attributes.items():
+        study.set_user_attr(key, value)
+    study.add_trial(create_trial(value=0.4))
+
+    run = OptunaRun.from_path(_write_study(tmp_path / "run", study))
+
+    assert run.meta["optuna_user_attrs"] == attributes
+    assert run.name == "original-name"
 
 
 def test_converter_retains_sampler_name(tmp_path: Path) -> None:

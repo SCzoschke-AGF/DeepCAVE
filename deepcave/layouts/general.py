@@ -38,6 +38,12 @@ from deepcave import app, c, notification, queue, rc, run_handler
 from deepcave.layouts import Layout
 from deepcave.runs import NotMergeableError, Status
 from deepcave.runs.converters.optuna import OptunaRun
+from deepcave.runs.handler import (
+    OPTUNA_SAMPLER_ATTRIBUTE_CACHE_KEY,
+    RUN_ABBREV_AS_NAME_CACHE_KEY,
+    RUN_ABBREV_ATTRIBUTES_CACHE_KEY,
+    get_run_abbreviation,
+)
 from deepcave.utils.hash import string_to_hash
 from deepcave.utils.layout import help_button
 from deepcave.utils.optuna import (
@@ -51,6 +57,10 @@ from deepcave.utils.optuna import (
 OPTUNA_DISCOVERY_STORE_ID = "general-optuna-discovery"
 GROUP_HYDRATION_STORE_ID = "general-group-hydration"
 CACHE_CLEARED_TRIGGER_ID = "general-cache-cleared-trigger"
+SAMPLER_ATTRIBUTE_ID = "general-sampler-attribute"
+RUN_ABBREV_ATTRIBUTES_ID = "general-run-abbrev-attributes"
+RUN_ABBREV_AS_NAME_ID = "general-run-abbrev-as-name"
+OPTUNA_METADATA_FIELDS = (("Sampler", SAMPLER_ATTRIBUTE_ID, OPTUNA_SAMPLER_ATTRIBUTE_CACHE_KEY),)
 SQLITE_EXTENSIONS = {".db", ".sqlite", ".sqlite3"}
 
 
@@ -69,6 +79,12 @@ class GeneralLayout(Layout):
         self._callback_browse_optuna_database()
         self._callback_discover_optuna_studies()
         self._callback_update_optuna_button()
+        for _label, component_id, cache_key in OPTUNA_METADATA_FIELDS:
+            self._callback_metadata_attribute(component_id, cache_key)
+        self._callback_metadata_attribute(
+            RUN_ABBREV_ATTRIBUTES_ID, RUN_ABBREV_ATTRIBUTES_CACHE_KEY, multi=True
+        )
+        self._callback_run_abbrev_as_name()
         self._callback_display_selected_runs()
         self._callback_manage_run()
         self._callback_display_groups()
@@ -286,16 +302,101 @@ class GeneralLayout(Layout):
 
             return "Load Study", False
 
+    def _callback_metadata_attribute(
+        self, component_id: str, cache_key: str, multi: bool = False
+    ) -> None:
+        """Offer user attributes from loaded runs, including trial attributes for Sampler."""
+
+        @app.callback(  # type: ignore
+            Output(component_id, "options"),
+            Output(component_id, "value"),
+            Input("general-selected-runs", "data"),
+            Input(component_id, "value"),
+        )
+        def callback(_run_paths: List[str], selected_attribute: Any) -> Any:
+            """List available keys while retaining a preference for future imports."""
+            if multi:
+                selected_attribute = selected_attribute or []
+            if ctx.triggered_id == component_id:
+                if c.get(cache_key) != selected_attribute:
+                    if component_id == SAMPLER_ATTRIBUTE_ID:
+                        run_handler.set_optuna_sampler_attribute(selected_attribute)
+                    else:
+                        c.set(cache_key, value=selected_attribute)
+            else:
+                # General is mounted in the root layout. Its initial field value may
+                # predate a saved preference, so hydrate before accepting user changes.
+                selected_attribute = c.get(cache_key)
+                if multi:
+                    selected_attribute = selected_attribute or []
+            attributes = {
+                name
+                for run in run_handler.runs.values()
+                for name in run.get_meta().get("optuna_user_attrs", {})
+            }
+            if component_id == SAMPLER_ATTRIBUTE_ID:
+                attributes = {f"study:{name}" for name in attributes}
+                attributes.update(
+                    f"trial:{name}"
+                    for run in run_handler.runs.values()
+                    for trial in run.history
+                    for name in trial.additional.get("user_attrs", {})
+                )
+            if selected_attribute:
+                if multi:
+                    attributes.update(selected_attribute)
+                else:
+                    attributes.add(selected_attribute)
+            options = [
+                {
+                    "label": (
+                        name.replace("study:", "Study: ", 1).replace("trial:", "Trial: ", 1)
+                        if component_id == SAMPLER_ATTRIBUTE_ID
+                        else name
+                    ),
+                    "value": name,
+                }
+                for name in sorted(attributes)
+            ]
+            return options, selected_attribute
+
+    def _callback_run_abbrev_as_name(self) -> None:
+        """Apply display names after the attribute selection has been persisted."""
+
+        @app.callback(  # type: ignore
+            Output(RUN_ABBREV_AS_NAME_ID, "value"),
+            Input(RUN_ABBREV_AS_NAME_ID, "value"),
+            Input(RUN_ABBREV_ATTRIBUTES_ID, "value"),
+            Input("general-selected-runs", "data"),
+        )
+        def callback(enabled: bool, _attributes: Any, _run_paths: Any) -> bool:
+            """Restore the saved checkbox and update names before refreshing the table."""
+            if ctx.triggered_id != RUN_ABBREV_AS_NAME_ID:
+                enabled = bool(c.get(RUN_ABBREV_AS_NAME_CACHE_KEY))
+            enabled = bool(enabled)
+            run_handler.set_optuna_run_abbrev_as_name(enabled)
+            return enabled
+
     def _callback_display_selected_runs(self) -> None:
         """Display the selected runs."""
         outputs = [
             Output("general-selected-runs-container", "children"),
             Output("general-selected-runs-count", "children"),
         ]
-        input = Input("general-selected-runs", "data")
+        inputs = [
+            Input("general-selected-runs", "data"),
+            Input(SAMPLER_ATTRIBUTE_ID, "value"),
+            Input(RUN_ABBREV_ATTRIBUTES_ID, "value"),
+            Input(RUN_ABBREV_AS_NAME_ID, "value"),
+        ]
 
-        @app.callback(outputs, input)  # type: ignore
-        def callback(run_paths: List[str]):
+        @app.callback(outputs, inputs)  # type: ignore
+        def callback(
+            run_paths: List[str],
+            sampler_attribute: Optional[str] = None,
+            abbrev_attributes: Optional[List[str]] = None,
+            use_abbrev_as_name: bool = False,
+        ):
             """
             Display the selected runs.
 
@@ -303,6 +404,12 @@ class GeneralLayout(Layout):
             ----------
             run_paths : List[str]
                 The run paths.
+            sampler_attribute : Optional[str]
+                Triggers a refresh after the sampler attribute selection changes.
+            abbrev_attributes : Optional[List[str]]
+                User attributes joined in selection order to form the run abbreviation.
+            use_abbrev_as_name : bool
+                Triggers a refresh after the central display-name preference is applied.
             """
             rows = []
 
@@ -318,7 +425,9 @@ class GeneralLayout(Layout):
                 sampler = (
                     (run.get_meta().get("optuna_sampler") or "Unknown") if run is not None else "—"
                 )
-                study_name = run.get_meta().get("study_name") if run is not None else None
+                if isinstance(sampler, list):
+                    sampler = str(sampler)
+                study_name = get_run_abbreviation(run, abbrev_attributes)
 
                 rows.append(
                     html.Tr(
@@ -330,7 +439,10 @@ class GeneralLayout(Layout):
                             ),
                             html.Td(
                                 dbc.Badge(
-                                    str(study_name), color="success", pill=True, className="text-wrap"
+                                    str(study_name),
+                                    color="success",
+                                    pill=True,
+                                    className="text-wrap",
                                 )
                                 if study_name is not None and study_name != ""
                                 else "—"
@@ -383,7 +495,7 @@ class GeneralLayout(Layout):
                         html.Tr(
                             [
                                 html.Th("Run Name", scope="col"),
-                                html.Th("Study Name", scope="col", className="general-run-batch"),
+                                html.Th("Run Abbrev.", scope="col", className="general-run-batch"),
                                 html.Th(
                                     "Successful Trials", scope="col", className="general-run-trials"
                                 ),
@@ -986,5 +1098,90 @@ class GeneralLayout(Layout):
                     ),
                 ],
                 className="general-management-grid",
+            ),
+            dbc.Card(
+                dbc.CardBody(
+                    [
+                        html.H2(
+                            "Optuna metadata (connect your user attributes)",
+                            className="general-card-title mb-3",
+                        ),
+                        *[
+                            dbc.Row(
+                                [
+                                    dbc.Col(
+                                        dbc.Label(
+                                            label,
+                                            html_for=component_id,
+                                            className="mb-0",
+                                        ),
+                                        xs=4,
+                                        md=3,
+                                    ),
+                                    dbc.Col(
+                                        dcc.Dropdown(
+                                            id=component_id,
+                                            options=[],
+                                            value=c.get(cache_key),
+                                            placeholder="None",
+                                            clearable=True,
+                                        ),
+                                        xs=8,
+                                        md=9,
+                                    ),
+                                ],
+                                className="align-items-center gx-3 gy-0 mb-2",
+                            )
+                            for label, component_id, cache_key in OPTUNA_METADATA_FIELDS
+                        ],
+                    ]
+                ),
+                className="general-management-card mt-2",
+            ),
+            dbc.Card(
+                dbc.CardBody(
+                    [
+                        html.H2(
+                            [
+                                "Construct Run Abbrev. from Metadata",
+                                html.Button(
+                                    html.I(
+                                        className="fas fa-info-circle", **{"aria-hidden": "true"}
+                                    ),
+                                    id="general-run-abbrev-info",
+                                    type="button",
+                                    className="btn btn-link p-0 text-reset",
+                                    **{"aria-label": "About constructing Run Abbrev."},
+                                ),
+                            ],
+                            className="general-card-title mb-3",
+                        ),
+                        dbc.Popover(
+                            "Select user attributes in the desired order. Values are joined with "
+                            "underscores; missing values are skipped. With no selection, "
+                            "Run Abbrev. remains empty. Enable the checkbox to use abbreviations "
+                            "as run names. Runs without an abbreviation keep their original names.",
+                            target="general-run-abbrev-info",
+                            trigger="hover focus",
+                            placement="top",
+                            body=True,
+                        ),
+                        dcc.Dropdown(
+                            id=RUN_ABBREV_ATTRIBUTES_ID,
+                            options=[],
+                            value=c.get(RUN_ABBREV_ATTRIBUTES_CACHE_KEY) or [],
+                            multi=True,
+                            clearable=True,
+                            placeholder="Select attributes…",
+                        ),
+                        dbc.Checkbox(
+                            id=RUN_ABBREV_AS_NAME_ID,
+                            label="Use Run Abbrev. as Run Name",
+                            value=bool(c.get(RUN_ABBREV_AS_NAME_CACHE_KEY)),
+                            className="mt-3",
+                        ),
+                    ]
+                ),
+                className="general-management-card mt-2",
             ),
         ]

@@ -94,17 +94,7 @@ def ranking_columns(tab: str = "overall") -> list:
             {"id": "selection", "name": "Selection"},
             {"id": "kde_rank", "name": "KDE rank", "type": "numeric"},
         ]
-        columns.extend(
-            [
-                {
-                    "id": "distance",
-                    "name": "Distance",
-                    "type": "numeric",
-                    "format": Format(precision=4, scheme=Scheme.fixed),
-                },
-                {"id": "bin", "name": "Bin", "type": "numeric"},
-            ]
-        )
+        columns.append({"id": "bin", "name": "Distance bin", "type": "numeric"})
     # RTL table layout places Dash's leading selection column on the right.
     return columns[::-1]
 
@@ -172,11 +162,6 @@ def performance_panel() -> Any:
                 ],
                 className="coverage-performance-header",
             ),
-            html.P(
-                "KDE scores for unseen configurations from coverage holes "
-                "and the full search space.",
-                className="coverage-performance-description",
-            ),
             html.Div(id=_id("performance-status"), role="status", **{"aria-live": "polite"}),
             html.Div(
                 [
@@ -235,22 +220,15 @@ def performance_panel() -> Any:
                                 selected_className="coverage-candidate-tab-selected",
                             )
                             for value, label in (
-                                ("overall", "Best overall candidates"),
-                                ("holes", "Best candidate per hole"),
-                                ("full_space", "Best candidates: KDE + exploration"),
+                                ("overall", "Coverage Holes: Best candidates overall"),
+                                ("holes", "Coverage Holes: Best candidate per hole"),
+                                ("full_space", "Best candidates: Full search space"),
                             )
                         ],
                         className="coverage-candidate-tabs",
                     ),
                     html.Div(
                         [
-                            html.P(
-                                "Half of the candidates are selected by global KDE ranking. "
-                                "The other half explore different distances from the incumbent. "
-                                "Each distance bin is supplied with at least 1,000 candidates "
-                                "before selection.",
-                                className="coverage-performance-interpretation",
-                            ),
                             dcc.RadioItems(
                                 id=_id("performance-mode"),
                                 options=[
@@ -271,10 +249,6 @@ def performance_panel() -> Any:
                         ],
                         id=_id("performance-mode-controls"),
                         style={"display": "none"},
-                    ),
-                    html.P(
-                        id=_id("performance-pool-summary"),
-                        className="coverage-performance-interpretation",
                     ),
                     dash_table.DataTable(
                         id=_id("performance-ranking"),
@@ -354,6 +328,19 @@ def performance_panel() -> Any:
                             },
                         ],
                     ),
+                    html.P(
+                        "Half of the candidates are selected by global KDE ranking. "
+                        "The other half explore different distances from the incumbent. "
+                        "Each distance bin is supplied with at least 1,000 candidates "
+                        "before selection.",
+                        id=_id("performance-selection-description"),
+                        className="coverage-performance-interpretation",
+                        style={"display": "none"},
+                    ),
+                    html.P(
+                        id=_id("performance-pool-summary"),
+                        className="coverage-performance-interpretation",
+                    ),
                 ],
                 className="coverage-performance-body",
             ),
@@ -366,6 +353,81 @@ def performance_panel() -> Any:
                 "Top-20% probability uses the actual good/bad group sizes and is an "
                 "uncalibrated KDE model estimate.",
                 className="coverage-performance-footnote",
+            ),
+            html.Section(
+                [
+                    html.H4("How candidates are selected"),
+                    html.P(
+                        "A candidate is a parameter configuration that has not been tried yet. "
+                        "Both procedures use the same KDE model (kernel density estimation). "
+                        "It learns which parameter combinations are typical of the best 20% "
+                        "of completed trials and which are typical of the remaining trials. "
+                        "A higher score means a candidate looks more like the better group."
+                    ),
+                    html.H5("Coverage Holes: Explore gaps in previous trials"),
+                    html.Ol(
+                        [
+                            html.Li(
+                                "Find gaps: Sample points across the search space and measure "
+                                "their distance to the nearest tried configuration. Points "
+                                "with large distances mark coverage holes: regions with "
+                                "little previous exploration. Objective values do not "
+                                "influence this step."
+                            ),
+                            html.Li(
+                                "Generate candidates: Keep untried configurations inside "
+                                "these holes, giving larger holes more candidates. Then "
+                                "score the candidates with the KDE model."
+                            ),
+                            html.Li(
+                                "Choose a view: 'Best candidates overall' ranks all hole "
+                                "candidates by score, so several may come from the same hole. "
+                                "'Best candidate per hole' keeps only the highest-scoring "
+                                "candidate from each hole that has candidates."
+                            ),
+                        ]
+                    ),
+                    html.H5("Full search space: KDE + exploration"),
+                    html.Ol(
+                        [
+                            html.Li(
+                                "Start broadly: Sample untried configurations across the "
+                                "full search space, including regions outside coverage holes."
+                            ),
+                            html.Li(
+                                "Group by distance: The incumbent is the best configuration "
+                                "observed so far. Put candidates into five distance bins "
+                                "around it: bin 1 is closest and bin 5 is farthest. Parameter "
+                                "ranges are normalized so different units are comparable. "
+                                "The spread of the best 10% of trials sets the distance scale; "
+                                "bin 5 also includes candidates beyond that spread. Add "
+                                "candidates where needed to supply at least 1,000 per bin "
+                                "before selection."
+                            ),
+                            html.Li(
+                                "Select global winners: Fill half of the requested places "
+                                "with the highest KDE scores across the entire candidate "
+                                "pool. For an odd number of places, this half gets one extra."
+                            ),
+                            html.Li(
+                                "Add exploration: Fill the remaining places by cycling "
+                                "through bins 1 to 5, taking the highest-scoring candidate "
+                                "still available in each bin without selecting duplicates. "
+                                "For 20 recommendations, this gives 10 global winners and "
+                                "10 exploration candidates, two from each bin. Exploration "
+                                "therefore still uses KDE scores while covering different "
+                                "distances from the incumbent."
+                            ),
+                        ]
+                    ),
+                    html.P(
+                        "'Recommended' shows this combined selection. 'All candidates' "
+                        "shows the full pool sorted by KDE score. The procedures propose "
+                        "configurations; their actual performance is only known after "
+                        "running new trials."
+                    ),
+                ],
+                className="coverage-candidate-procedures",
             ),
         ],
         className="coverage-card coverage-performance",
@@ -740,10 +802,12 @@ def register_performance_callbacks(app: Any, jobs: Any, run_handler: Any) -> Non
 
     @app.callback(  # type: ignore[untyped-decorator]
         Output(_id("performance-mode-controls"), "style"),
+        Output(_id("performance-selection-description"), "style"),
         Input(_id("performance-tab"), "value"),
     )
-    def performance_mode(tab: str) -> Dict:
-        return {} if tab == "full_space" else {"display": "none"}
+    def performance_mode(tab: str) -> tuple:
+        style = {} if tab == "full_space" else {"display": "none"}
+        return style, style
 
     @app.callback(  # type: ignore[untyped-decorator]
         Output(_id("performance-chart"), "figure"),
@@ -860,7 +924,10 @@ def register_performance_callbacks(app: Any, jobs: Any, run_handler: Any) -> Non
                 return html.A(
                     _export_label(),
                     href="data:application/toml;charset=utf-8,"
-                    + quote(plan_toml({"trials": trials}, study), safe=""),
+                    + quote(
+                        plan_toml({"trials": trials}, study, sampling_method="objective_guided"),
+                        safe="",
+                    ),
                     download=(
                         "full-space-candidates.toml"
                         if tab == "full_space"

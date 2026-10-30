@@ -216,7 +216,7 @@ def test_panel_titles_loading_settings_and_candidate_selection():
     panel = views.performance_panel()
     text = visible_text(panel)
     assert "Performance scoring of coverage candidates" in text
-    assert "Best candidate per hole" not in text  # Tab labels are props, not children.
+    assert "Coverage Holes: Best candidate per hole" not in text  # Labels are props.
     assert "Scores are neither predicted objective values nor success probabilities." in text
 
     def walk(component):
@@ -250,7 +250,11 @@ def test_panel_titles_loading_settings_and_candidate_selection():
     assert probability_column["format"].to_plotly_json()["specifier"] == ".2%"
     assert "Uncalibrated" in table.tooltip_header["good_probability"]
     tabs = next(c for c in components if getattr(c, "id", None) == suite._id("performance-tab"))
-    assert tabs.children[-1].label == "Best candidates: KDE + exploration"
+    assert [tab.label for tab in tabs.children] == [
+        "Coverage Holes: Best candidates overall",
+        "Coverage Holes: Best candidate per hole",
+        "Best candidates: Full search space",
+    ]
     assert tabs.children[-1].value == "full_space"
     assert [tab.value for tab in tabs.children] == ["overall", "holes", "full_space"]
     assert not any(
@@ -286,7 +290,10 @@ def test_selected_trials_export_full_parameters_in_ranking_order(callbacks, tab,
     prefix, content = link.href.split(",", 1)
     assert prefix == "data:application/toml;charset=utf-8"
     exported = tomllib.loads(unquote(content))
-    expected = {"trials": [c["configuration"] for c in chosen]}
+    expected = {
+        "trial_user_attrs": {"sampling_method": "objective_guided"},
+        "trials": [c["configuration"] for c in chosen],
+    }
     if study:
         expected["study"] = study
     assert exported == expected
@@ -333,7 +340,6 @@ def test_full_space_tab_ranks_its_pool_and_shows_sampling_details(callbacks):
     assert rendered[7:9] == ([], [])
     assert [column["id"] for column in rendered[9]] == [
         "bin",
-        "distance",
         "relative_score",
         "kde_score",
         "good_probability",
@@ -341,6 +347,7 @@ def test_full_space_tab_ranks_its_pool_and_shows_sampling_details(callbacks):
         "selection",
         "rank",
     ]
+    assert rendered[9][0]["name"] == "Distance bin"
     assert [row["kde_score"] for row in rendered[4]] == [c["kde_score"] for c in ranked]
     probabilities = [r["good_probability"] for r in rendered[4]]
     assert probabilities == sorted(probabilities, reverse=True)
@@ -378,8 +385,8 @@ def test_recommended_view_keeps_selection_order_kde_rank_and_geometry(callbacks)
         functions["performance_detail"]({"row_id": rows[-1]["id"]}, complete[0], context)
     )
     assert "Exploration" in detail and "Distance to incumbent (RMS)" in detail
-    assert functions["performance_mode"]("overall") == {"display": "none"}
-    assert functions["performance_mode"]("full_space") == {}
+    assert functions["performance_mode"]("overall") == ({"display": "none"},) * 2
+    assert functions["performance_mode"]("full_space") == ({}, {})
 
 
 def test_failed_supply_never_falls_back_and_keeps_full_ranking_available(callbacks):

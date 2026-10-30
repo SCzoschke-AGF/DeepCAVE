@@ -220,10 +220,11 @@ def test_all_plots_are_immediate(monkeypatch):
     objective = Objective("Accuracy", optimize="upper")
     hyperparameter = CategoricalHyperparameter("kind", choices=["a", "b"])
     run = SimpleNamespace(
-        configspace={"kind": hyperparameter},
+        configspace={"x": UniformFloatHyperparameter("x", 0.0, 1.0), "kind": hyperparameter},
         get_objective=lambda _objective_id: objective,
     )
     outputs = {
+        "importances": {"objective": {"x": 0.2, "kind": 0.7}, "errors": {}},
         "trials": [
             {"trial_number": 2, "hyperparameter_value": "a", "objective": 0.7},
             {"trial_number": 5, "hyperparameter_value": "b", "objective": 0.9},
@@ -238,6 +239,7 @@ def test_all_plots_are_immediate(monkeypatch):
                 "elite_median_rank": None,
                 "objective_median": 0.7,
                 "objective_tail": 0.7,
+                "objective_max": 0.7,
             },
             {
                 "range": "b",
@@ -248,6 +250,7 @@ def test_all_plots_are_immediate(monkeypatch):
                 "elite_median_rank": 1.0,
                 "objective_median": 0.9,
                 "objective_tail": 0.9,
+                "objective_max": 0.9,
             },
         ],
         "tail_quantile": 0.9,
@@ -260,15 +263,56 @@ def test_all_plots_are_immediate(monkeypatch):
         "elite_proportion": 0.1,
     }
 
-    trials_figure, performance_figure, enrichment_figure = (
+    importance_figure, trials_figure, enrichment_figure = (
         analysis.OneDimensionalAnalysis.load_outputs(
             run,
             base_inputs,
             outputs,
         )
     )
-    assert [trace.type for trace in trials_figure.data] == ["scatter"]
-    assert [trace.type for trace in performance_figure.data] == ["scatter", "scatter"]
+    assert importance_figure.layout.xaxis.title.text == "Objective Importance"
+    assert list(importance_figure.data[0].customdata) == ["kind", "x"]
+    assert importance_figure.data[0].orientation == "h"
+    assert importance_figure.layout.annotations[0].captureevents is True
+    assert [trace.type for trace in trials_figure.data] == ["scatter"] * 7
+    assert trials_figure.data[0].marker.color == importance_figure.data[0].marker.color[0]
+    assert trials_figure.data[0].marker.colorscale is None
+    assert trials_figure.data[0].marker.size == 7
+    assert trials_figure.data[0].marker.opacity == 0.6
+    assert trials_figure.layout.font == importance_figure.layout.font
+    assert trials_figure.layout.margin.t == importance_figure.layout.margin.t
+    assert trials_figure.layout.margin.b == importance_figure.layout.margin.b
+    assert trials_figure.layout.margin.r == importance_figure.layout.margin.r
+    assert trials_figure.layout.title.text is None
+    assert trials_figure.layout.height is None
+    assert importance_figure.layout.height is None
+    assert not any(annotation.text == "Trial" for annotation in trials_figure.layout.annotations)
+    assert [trace.name for trace in trials_figure.data[:4]] == ["Trials", "q90", "Median", "Best"]
+    assert [trace.mode for trace in trials_figure.data] == ["markers"] + ["lines+markers"] * 3 + [
+        "lines"
+    ] * 3
+    assert list(trials_figure.data[1].x) == ["a", "b"]
+    assert list(trials_figure.data[2].y) == pytest.approx([0.7, 0.9])
+    assert trials_figure.layout.showlegend is True
+    assert [trace.name for trace in trials_figure.data if trace.showlegend] == [
+        "q90",
+        "Median",
+        "Best",
+    ]
+    assert trials_figure.data[0].showlegend is False
+    assert trials_figure.data[0].visible is None
+    for main, mean in zip(trials_figure.data[1:4], trials_figure.data[4:]):
+        assert main.legendgroup == mean.legendgroup
+        assert main.visible == mean.visible == "legendonly"
+        assert main.line.color == mean.line.color
+        assert mean.showlegend is False
+        assert mean.line.dash == "dash"
+    assert trials_figure.layout.legend.title.text == "Show lines:"
+    assert trials_figure.layout.legend.groupclick == "togglegroup"
+    assert trials_figure.layout.legend.itemclick == "toggle"
+    assert trials_figure.layout.legend.itemdoubleclick is False
+    assert trials_figure.layout.legend.orientation == "h"
+    assert trials_figure.layout.legend.yref == "container"
     ranked, without_rank, baseline = enrichment_figure.data
     assert list(ranked.y) == pytest.approx([2.0])
     assert list(ranked.marker.color) == pytest.approx([1.0])
@@ -335,6 +379,7 @@ def test_top_trials_rug_uses_exact_continuous_positions_and_objective_order(monk
             "elite_proportion": 0.2,
         },
         {
+            "importances": {"objective": {"x": 0.7}, "errors": {}},
             "trials": trials.to_dict(orient="records"),
             "summary": summary,
             "tail_quantile": tail_quantile,
@@ -375,7 +420,7 @@ def test_rug_markers_are_centered_and_spread_horizontally_inside_their_bin():
     assert positions[3:] == pytest.approx([0.6875, 0.7125])
 
 
-def test_range_panels_stay_aligned_and_fit_next_to_the_trials_panel(monkeypatch):
+def test_combined_plot_reuses_scatter_without_accumulating_summary_traces(monkeypatch):
     monkeypatch.setattr(analysis, "save_image", lambda *_args: None)
     analysis.clear_one_dimensional_figure_cache()
     original_trials_figure = analysis._trials_figure
@@ -396,6 +441,7 @@ def test_range_panels_stay_aligned_and_fit_next_to_the_trials_panel(monkeypatch)
         get_objective=lambda _objective_id: objective,
     )
     outputs = {
+        "importances": {"objective": {"kind": 0.7}, "errors": {}},
         "trials": [{"trial_number": 2, "hyperparameter_value": "a", "objective": 0.7}],
         "summary": [
             {
@@ -407,6 +453,7 @@ def test_range_panels_stay_aligned_and_fit_next_to_the_trials_panel(monkeypatch)
                 "elite_median_rank": 1.0,
                 "objective_median": 0.7,
                 "objective_tail": 0.7,
+                "objective_max": 0.7,
             }
         ],
         "tail_quantile": 0.9,
@@ -414,18 +461,16 @@ def test_range_panels_stay_aligned_and_fit_next_to_the_trials_panel(monkeypatch)
         "elite_count": 1,
     }
 
-    trials_figure, performance_figure, enrichment_figure = (
-        analysis.OneDimensionalAnalysis.load_outputs(
-            run,
-            {
-                "objective_id": 0,
-                "hyperparameter_name": "kind",
-                "elite_proportion": 0.1,
-            },
-            outputs,
-        )
+    _, trials_figure, enrichment_figure = analysis.OneDimensionalAnalysis.load_outputs(
+        run,
+        {
+            "objective_id": 0,
+            "hyperparameter_name": "kind",
+            "elite_proportion": 0.1,
+        },
+        outputs,
     )
-    analysis.OneDimensionalAnalysis.load_outputs(
+    _, updated_figure, _ = analysis.OneDimensionalAnalysis.load_outputs(
         run,
         {
             "objective_id": 0,
@@ -435,39 +480,200 @@ def test_range_panels_stay_aligned_and_fit_next_to_the_trials_panel(monkeypatch)
         outputs,
     )
     assert len(calls) == 1
+    assert len(trials_figure.data) == len(updated_figure.data) == 7
+    assert not trials_figure.layout.shapes
+    assert [trace.legendgroup for trace in updated_figure.data] == [
+        None,
+        "tail",
+        "median",
+        "best",
+        "tail",
+        "median",
+        "best",
+    ]
 
-    # Identical bins, order and left margin are what couples the two range panels.
-    for figure in (performance_figure, enrichment_figure):
-        assert list(figure.layout.xaxis.categoryarray) == ["a"]
+    assert list(trials_figure.layout.xaxis.categoryarray) == ["a", "b"]
+    assert list(enrichment_figure.layout.xaxis.categoryarray) == ["a"]
+    for figure in (trials_figure, enrichment_figure):
         assert figure.layout.xaxis.categoryorder == "array"
         assert figure.layout.margin.l == analysis.PANEL_LEFT_MARGIN
-        assert figure.layout.xaxis.automargin is False
-        assert figure.layout.yaxis.automargin is False
+    assert trials_figure.layout.xaxis.automargin is True
+    assert trials_figure.layout.yaxis.automargin is True
+    assert enrichment_figure.layout.xaxis.automargin is False
+    assert enrichment_figure.layout.yaxis.automargin is False
 
-    # The stacked range panels plus the grid gap add up to the trials panel height.
-    assert (
-        analysis.PERFORMANCE_HEIGHT + analysis.ENRICHMENT_HEIGHT + analysis.GRID_GAP
-        == analysis.TRIALS_HEIGHT
+    assert trials_figure.layout.showlegend is True
+
+
+@pytest.mark.parametrize(
+    ("hyperparameter", "expected_centers"),
+    [
+        (UniformFloatHyperparameter("x", 0.0, 1.0), [0.05, 0.95]),
+        (
+            UniformFloatHyperparameter("x", 1.0, 100.0, log=True),
+            [100**0.05, 100**0.95],
+        ),
+    ],
+)
+def test_summary_lines_use_linear_or_geometric_bin_centers(hyperparameter, expected_centers):
+    trials = pd.DataFrame(
+        {
+            "trial_number": [0, 1, 2, 3],
+            "hyperparameter_value": [hyperparameter.lower] * 2 + [hyperparameter.upper] * 2,
+            "objective": [1.0, 3.0, 5.0, 7.0],
+        }
     )
-    # No panel reserves space for a bottom legend block.
-    assert trials_figure.layout.showlegend is False
-    assert performance_figure.layout.legend.y > 1
+    summary, *_ = analysis._summarize_trials(trials, hyperparameter, "lower", 0.5)
+    figure = analysis._trials_figure(trials, hyperparameter, "x", "Loss", "blue")
+    analysis._add_performance_summary(figure, trials, pd.DataFrame(summary), hyperparameter, 10)
+
+    raw, tail, median, best = figure.data
+    assert list(raw.y) == [1.0, 3.0, 5.0, 7.0]
+    assert tail.name == "q10"
+    assert best.name == "Best"
+    for trace, expected_y in ((tail, [1.2, 5.2]), (median, [2.0, 6.0]), (best, [3.0, 7.0])):
+        assert trace.mode == "lines+markers"
+        assert list(trace.x) == pytest.approx(expected_centers)
+        assert trace.connectgaps is False
+        assert list(trace.y) == pytest.approx(expected_y)
+        assert list(trace.customdata[0][1:]) == [2, 2.0, 1.2, 3.0]
+        assert "Best (max):" in trace.hovertemplate
+        assert "Trials:" in trace.hovertemplate
+    assert figure.layout.xaxis.type == ("log" if hyperparameter.log else None)
 
 
-def test_output_layout_is_one_grid_of_three_cards():
+def test_discrete_numeric_summary_lines_keep_numeric_coordinates():
+    hyperparameter = UniformIntegerHyperparameter("depth", 1, 3)
+    trials = pd.DataFrame(
+        {"trial_number": [0, 1], "hyperparameter_value": [1, 3], "objective": [4.0, 2.0]}
+    )
+    summary, *_ = analysis._summarize_trials(trials, hyperparameter, "lower", 0.5)
+    figure = analysis._trials_figure(trials, hyperparameter, "depth", "Loss", "blue")
+    analysis._add_performance_summary(figure, trials, pd.DataFrame(summary), hyperparameter, 10)
+    for trace in figure.data[1:]:
+        assert trace.mode == "lines+markers"
+        assert list(trace.x) == [1.0, 3.0]
+        assert list(trace.y) == [4.0, 2.0]
+
+
+def test_output_layout_places_importance_left_of_combined_plot_above_enrichment():
     registered = []
     layout = analysis.OneDimensionalAnalysis.get_output_layout(
         lambda name, *_args, **_kwargs: registered.append(name) or name
     )
 
     (grid,) = layout
-    assert grid.className == "analysis-grid"
-    assert registered == ["trials_graph", "performance_graph", "enrichment_graph"]
+    assert grid.className == "analysis-grid analysis-grid--one-dimensional"
+    assert registered == [
+        "importance_graph",
+        "trials_graph",
+        "enrichment_graph",
+    ]
     assert [card.className for card in grid.children] == [
-        "analysis-card analysis-card--tall",
+        "analysis-card",
         "analysis-card",
         "analysis-card",
     ]
+    assert grid.children[-1].style == {"gridColumn": "1 / -1"}
+    (graph,) = grid.children[1].children
+    assert graph.id == "trials_graph"
+    assert "height" not in graph.style
+    assert "minHeight" not in graph.style
+    assert grid.children[1].style == {"alignSelf": "start"}
+    assert grid.children[0].children.className == graph.className == "one-dimensional-primary-graph"
+    assert "height" not in grid.children[0].children.style
+    assert not analysis.OneDimensionalAnalysis.output_view_inputs
+
+
+def test_bin_means_weight_finite_bins_equally_and_share_native_legend_groups():
+    summary = pd.DataFrame(
+        {
+            "n": [1, 100, 5, 2],
+            "objective_tail": [2.0, 8.0, float("nan"), float("inf")],
+            "objective_median": [1.0, 5.0, float("nan"), float("-inf")],
+            "objective_max": [3.0, 11.0, float("nan"), float("nan")],
+        }
+    )
+    figure = go.Figure([go.Scatter(name=name) for name in ("Trials", "q90", "Median", "Best")])
+    analysis._add_bin_means(figure, summary)
+    means = figure.data[4:]
+    assert [trace.y[0] for trace in means] == pytest.approx([5.0, 3.0, 7.0])
+    assert [trace.y[1] for trace in means] == pytest.approx([5.0, 3.0, 7.0])
+    assert [trace.line.color for trace in means] == [
+        analysis.TAIL_COLOR,
+        analysis.MEDIAN_COLOR,
+        analysis.BEST_COLOR,
+    ]
+    assert [trace.legendgroup for trace in means] == ["tail", "median", "best"]
+    for trace in means:
+        assert trace.line.dash == "dash"
+        assert trace.line.width < 3
+        assert trace.opacity < 1
+        assert trace.showlegend is False
+        assert list(trace.x) == [0, 1]
+        assert trace.xaxis == "x2"
+    assert figure.layout.xaxis2.overlaying == "x"
+    assert tuple(figure.layout.xaxis2.range) == (0, 1)
+    assert figure.layout.xaxis2.visible is False
+    assert figure.layout.xaxis2.fixedrange is True
+    assert figure.data[0].visible is None
+
+
+@pytest.mark.parametrize("event_index", [0, 1])
+def test_importance_click_selects_parameter_and_ignores_stale_events(monkeypatch, event_index):
+    plugin = analysis.OneDimensionalAnalysis()
+    event_name, component_id, property_name = plugin.input_update_inputs[event_index]
+    context = SimpleNamespace(triggered_prop_ids={f"{component_id}.{property_name}": component_id})
+    monkeypatch.setattr(analysis, "ctx", context)
+    events = {
+        "importance_click": {"points": [{"customdata": "old"}]},
+        "importance_label_click": {"annotation": {"name": "old"}},
+    }
+    events[event_name] = (
+        {"points": [{"customdata": "kind"}]}
+        if event_index == 0
+        else {"annotation": {"name": "kind"}}
+    )
+    assert plugin.load_input_updates(events) == {"hyperparameter_name": {"value": "kind"}}
+    assert plugin.load_input_updates({}) == {}
+    context.triggered_prop_ids = {"one_dimensional_analysis-hyperparameter_name-input.value": ""}
+    assert plugin.load_input_updates(events) == {}
+
+
+def test_parameter_and_elite_changes_reuse_importance_estimates(monkeypatch):
+    from deepcave.runs.converters.deepcave import DeepCAVERun
+
+    analysis.clear_one_dimensional_figure_cache()
+    run = DeepCAVERun(
+        "importance",
+        configspace=ConfigurationSpace(space={"x": (0.0, 1.0), "kind": ["a", "b"]}),
+        objectives=[Objective("score")],
+    )
+    for index in range(12):
+        run.add(
+            config={"x": index / 12, "kind": "a" if index % 2 else "b"},
+            costs=[float(index)],
+            start_time=0,
+            end_time=index + 1,
+            seed=0,
+        )
+    calls = []
+    original = analysis.calculate_importances
+
+    def tracked_importances(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(analysis, "calculate_importances", tracked_importances)
+    inputs = {"objective_id": 0, "hyperparameter_name": "x", "elite_proportion": 0.1}
+    first = analysis.OneDimensionalAnalysis.process(run, inputs)
+    second = analysis.OneDimensionalAnalysis.process(
+        run, {**inputs, "hyperparameter_name": "kind", "elite_proportion": 0.2}
+    )
+    assert calls == [1]
+    assert set(first["importances"]["objective"]) == {"x", "kind"}
+    assert first["importances"] == second["importances"]
+    assert {row["hyperparameter_value"] for row in second["trials"]} == {"a", "b"}
 
 
 def test_optuna_studies_and_optuna_only_groups_are_compatible():

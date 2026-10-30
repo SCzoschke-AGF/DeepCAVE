@@ -991,7 +991,46 @@ class SearchSpaceCoverage(Plugin):
             html.Div(id=_id("combinatorial-explanations")),
         ]
         global_view = html.Div(
-            [html.Div(global_view, className="coverage-global-left"), performance_panel()],
+            [
+                html.Div(
+                    [
+                        html.P(
+                            "Planfully select trials that chose hyperparameter combinations "
+                            "to maximize the search space coverage.",
+                            className="coverage-global-introduction",
+                        ),
+                        *global_view,
+                    ],
+                    className="coverage-global-left",
+                ),
+                html.Div(
+                    [
+                        html.Details(
+                            html.Summary(
+                                html.Span(
+                                    [
+                                        "Planfully select trials with a very high objective performance "
+                                        "potential. Either within under-covered regions (coverage holes) "
+                                        "or within the whole search space. For the whole search space, "
+                                        "promising configurations are chosen to maximize likelihood of "
+                                        "high performance ",
+                                        html.Strong("across different"),
+                                        " Hyperparameter Configuration Families as every distinct "
+                                        "configuration family within the rashomon set has the potential "
+                                        "to inherit the best overall configuration. This minimizes the "
+                                        "risk of restraining parameter search to a local maximum.",
+                                    ]
+                                ),
+                                title="Click to expand or collapse",
+                            ),
+                            open=False,
+                            className="coverage-global-introduction",
+                        ),
+                        performance_panel(),
+                    ],
+                    className="coverage-global-right",
+                ),
+            ],
             className="coverage-global-layout",
         )
         growth = _card(
@@ -1933,8 +1972,6 @@ class SearchSpaceCoverage(Plugin):
                 label = "⚠ Recalculate to compare the complete search space"
             if missing_ccm_reference and status == "stale":
                 label = "Refresh to use the updated strength calculation"
-            elif missing_trial_estimates and status == "stale":
-                label = "Refresh to compute heuristic trial estimates"
             if analysis == "pairwise" and status in ("not_run", "completed") and not error:
                 label = ""
             if analysis == "combinatorial_baseline" and status == "not_run" and not error:

@@ -1,9 +1,12 @@
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from ConfigSpace import ConfigurationSpace
 from dash import dcc
 
+import deepcave
 from deepcave.config import Config
 from deepcave.plugins import cost_efficiency
 from deepcave.plugins.objective import cost_over_time, performance_cost
@@ -84,6 +87,40 @@ def test_summary_registration_and_single_run_controls(run):
     ]
     assert "elite_fraction" not in inputs
     assert "xaxis" not in inputs
+
+
+@pytest.mark.parametrize(
+    "plugin_class,uses_comparison",
+    [(run_overview.RunOverview, False), (cost_over_time.CostOverTime, True)],
+)
+def test_callback_registration_only_requires_comparison_controls_on_comparison_page(
+    monkeypatch, plugin_class, uses_comparison
+):
+    callbacks = {}
+
+    def register_callback(*dependencies, **_kwargs):
+        def decorator(callback):
+            callbacks[callback.__name__] = dependencies
+            return callback
+
+        return decorator
+
+    monkeypatch.setattr(deepcave, "_api_mode", False)
+    monkeypatch.setattr(deepcave, "app", SimpleNamespace(callback=register_callback), raising=False)
+    for name in ("c", "rc", "run_handler"):
+        monkeypatch.setattr(deepcave, name, SimpleNamespace(), raising=False)
+    comparison_callbacks = Mock()
+    monkeypatch.setattr(cost_over_time, "register_comparison_callbacks", comparison_callbacks)
+
+    plugin = plugin_class()
+
+    _outputs, inputs, _states = callbacks["plugin_output_update"]
+    input_ids = [dependency.component_id for dependency in inputs]
+    assert (cost_over_time.STATE_ID in input_ids) is uses_comparison
+    if uses_comparison:
+        comparison_callbacks.assert_called_once_with(plugin)
+    else:
+        comparison_callbacks.assert_not_called()
 
 
 def test_output_layout_keeps_full_figures_in_separate_graphs():

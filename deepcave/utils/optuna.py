@@ -132,6 +132,13 @@ def create_optuna_snapshot(
         snapshot._deepcave_study_id = connection.execute(
             "SELECT study_id FROM studies WHERE study_name = ?", (study_name,)
         ).fetchone()[0]
+        snapshot._deepcave_trial_ids = dict(
+            connection.execute(
+                "SELECT number, trial_id FROM trials WHERE study_id = ?",
+                (snapshot._deepcave_study_id,),
+            ).fetchall()
+        )
+    snapshot._deepcave_storage_identity = str(database.resolve())
     # Storage does not retain the original sampler. Do not report load_study's default.
     sampler_name = snapshot.user_attrs.get("optuna_sampler")
     snapshot._deepcave_sampler_name = (

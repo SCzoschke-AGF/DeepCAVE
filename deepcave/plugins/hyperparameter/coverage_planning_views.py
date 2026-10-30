@@ -279,8 +279,13 @@ def optuna_export_study(run: Any) -> Dict[str, Any]:
     }
 
 
-def plan_toml(plan: Dict[str, Any], study: Optional[Dict[str, Any]] = None) -> str:
-    """Export every proposed configuration, including constants, in plan order."""
+def plan_toml(
+    plan: Dict[str, Any],
+    study: Optional[Dict[str, Any]] = None,
+    *,
+    sampling_method: str = "coverage_guided",
+) -> str:
+    """Export configurations and the user attributes to attach when enqueuing them."""
     blocks = []
     if study:
         lines = ["[study]"]
@@ -300,7 +305,10 @@ def plan_toml(plan: Dict[str, Any], study: Optional[Dict[str, Any]] = None) -> s
                 raise ValueError(f"TOML export cannot represent parameter {name!r}: {value!r}.")
             lines.append(f"{key} = {encoded}")
         blocks.append("\n".join(lines))
-    return "\n\n".join(blocks) + "\n" if blocks else ""
+    blocks.append(
+        "[trial_user_attrs]\nsampling_method = " + json.dumps(sampling_method, ensure_ascii=False)
+    )
+    return "\n\n".join(blocks) + "\n"
 
 
 def plan_view(plan: Dict[str, Any], study: Optional[Dict[str, Any]] = None) -> Any:

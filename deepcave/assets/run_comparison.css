@@ -1,0 +1,131 @@
+/* One compact comparison panel above four responsive analysis cards. */
+#cost_over_time-input {
+    display: block;
+    padding: 0 !important;
+    border: 1px solid #e6eaf0;
+    border-radius: 0.5rem;
+    box-shadow: none !important;
+}
+
+#cost_over_time-input > hr { display: none; }
+
+.run-comparison { position: relative; width: 100%; }
+
+.run-comparison__header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.65rem 0.85rem;
+}
+
+.run-comparison__header strong { font-size: 1rem; }
+.run-comparison__count { color: #7c879b; font-size: 0.8rem; }
+.run-comparison__header .btn { margin-left: auto; border: 1px solid #dce1e9; white-space: nowrap; }
+
+.run-comparison__row {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    min-height: 42px;
+    padding: 0.3rem 0.85rem;
+    border-top: 1px solid #edf0f4;
+    transition: background-color 120ms;
+}
+
+.run-comparison__row:hover,
+.run-comparison__row:focus-within { background: #f8fafc; }
+.run-comparison__row--hidden .run-comparison__name,
+.run-comparison__row--hidden .run-comparison__color { opacity: 0.4; }
+.run-comparison__color { width: 6px; height: 30px; border-radius: 3px; flex: 0 0 6px; }
+.run-comparison__name { min-width: 0; flex: 1; overflow-wrap: anywhere; font-size: 0.875rem; }
+.run-comparison__actions { display: flex; justify-content: flex-start; gap: 0.35rem; flex: 0 0 68px; }
+.run-comparison__action {
+    border: 0;
+    background: transparent;
+    color: #768197;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border-radius: 4px;
+}
+.run-comparison__action:hover { background: #e9edf4; color: #334155; }
+.run-comparison__action:focus-visible { outline: 2px solid #6366f1; outline-offset: 1px; }
+
+.run-comparison__popover {
+    position: absolute;
+    top: 3rem;
+    right: 0.75rem;
+    width: min(38rem, calc(100% - 1.5rem));
+    padding: 0.6rem;
+    background: white;
+    border: 1px solid #e6eaf0;
+    border-radius: 0.4rem;
+    box-shadow: 0 4px 14px #1e293b14;
+    z-index: 1100;
+}
+.run-comparison__popover .Select-option,
+.run-comparison__popover .VirtualizedSelectOption {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    font-size: 0.85rem;
+    line-height: 1.25;
+    display: flex;
+    align-items: center;
+}
+
+#cost_over_time-input > .cost-over-time-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.65rem;
+    border-top: 1px solid #edf0f4;
+    padding: 0.65rem 0.85rem;
+}
+#cost_over_time-input .analysis-toolbar__item { flex: 0 1 auto !important; min-width: 0 !important; margin: 0 !important; }
+#cost_over_time-input .cost-over-time__pareto { margin-left: auto; }
+
+#cost_over_time-output {
+    padding: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+.run-comparison-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.65rem; }
+.run-comparison-grid .analysis-card {
+    position: relative;
+    min-width: 0;
+    padding-top: 2.4rem;
+    border: 1px solid #e6eaf0;
+    border-radius: 0.5rem;
+    background: white;
+    overflow: hidden;
+}
+
+.run-comparison-grid .run-comparison__distribution-header {
+    right: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.4rem;
+    pointer-events: auto;
+}
+.run-comparison__distribution-mode { flex: 0 0 auto; min-height: 26px; }
+.run-comparison__distribution-mode .form-check-label {
+    font-size: 0.72rem;
+    height: 22px;
+    padding: 0 0.45rem;
+}
+.run-comparison__distribution-mode .form-check-input:checked + .form-check-label {
+    background: #edf0fa;
+    color: #334155;
+    box-shadow: none;
+}
+
+@media (max-width: 1100px) {
+    .run-comparison-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 600px) {
+    .run-comparison__header { gap: 0.4rem; }
+    .run-comparison__count { font-size: 0.7rem; }
+    .run-comparison__row { gap: 0.6rem; }
+    #cost_over_time-input .cost-over-time__pareto { margin-left: 0; }
+}

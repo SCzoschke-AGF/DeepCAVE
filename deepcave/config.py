@@ -128,6 +128,7 @@ class Config:
         )
         from deepcave.plugins.objective.cost_over_time import CostOverTime
         from deepcave.plugins.objective.multi_metrics_comparison import MultiMetricsComparison
+        from deepcave.plugins.select_candidates import SelectCandidates
         from deepcave.plugins.summary.overview import Overview
         from deepcave.plugins.summary.run_overview import RunOverview
 
@@ -150,6 +151,7 @@ class Config:
                 PartialDependencies(),
             ],
             "Configuration Analyses": [
+                SelectCandidates(),
                 ParameterDependencies(),
                 SearchSpaceCoverage(),
                 NearOptimalConfigurations(),

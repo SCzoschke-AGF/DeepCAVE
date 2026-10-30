@@ -1,6 +1,7 @@
 import importlib
 import sqlite3
 from pathlib import Path
+from threading import RLock
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -10,6 +11,7 @@ from dash.exceptions import PreventUpdate
 
 import deepcave
 from deepcave.runs import Status
+from deepcave.runs.handler import RunHandler
 from deepcave.utils.cache import Cache
 
 
@@ -278,7 +280,16 @@ def test_selected_run_table_uses_real_metadata_and_preserves_remove_targets(
         SimpleNamespace(
             runs={
                 paths[0]: SimpleNamespace(
-                    get_meta=lambda: {"optuna_sampler": "TPESampler", "study_name": "batch-42"},
+                    get_meta=lambda: {
+                        "optuna_sampler": "TPESampler",
+                        "optuna_user_attrs": {
+                            "experiment_label": "batch-42",
+                            "model": "xgboost",
+                            "dataset": 0,
+                            "empty": "",
+                            "unset": None,
+                        },
+                    },
                     history=[
                         SimpleNamespace(status=status)
                         for status in (
@@ -297,16 +308,15 @@ def test_selected_run_table_uses_real_metadata_and_preserves_remove_targets(
             remove_run=lambda path: selected.remove(path),
         ),
     )
-    monkeypatch.setattr(module, "c", SimpleNamespace(set=Mock()))
     layout._callback_display_selected_runs()
-    table, count = callbacks[0](paths)
+    table, count = callbacks[0](paths, "experiment_label", ["experiment_label"])
     rows = table.children[1].children
     assert count == "3 runs"
     assert rows[0].children[0].children[0].children == long_name
     assert len(rows[0].children[0].children) == 1
     assert [header.children for header in table.children[0].children.children] == [
         "Run Name",
-        "Study Name",
+        "Run Abbrev.",
         "Successful Trials",
         "Hyperparameters",
         "Sampler",
@@ -327,9 +337,186 @@ def test_selected_run_table_uses_real_metadata_and_preserves_remove_targets(
         assert button.id == {"type": "general-dynamic-remove-run", "index": index}
         assert store.data == paths[index]
 
+    for selection in (None, []):
+        cleared, _ = callbacks[0](paths, "experiment_label", selection)
+        assert all(row.children[1].children == "—" for row in cleared.children[1].children)
+
+    composed, _ = callbacks[0](
+        paths, "experiment_label", ["model", "missing", "empty", "unset", "dataset"]
+    )
+    assert composed.children[1].children[0].children[1].children.children == "xgboost_0"
+    assert composed.children[1].children[1].children[1].children == "—"
+    assert composed.children[1].children[2].children[1].children == "—"
+    reordered, _ = callbacks[0](paths, None, ["dataset", "model", "experiment_label"])
+    assert reordered.children[1].children[0].children[1].children.children == "0_xgboost_batch-42"
+
     layout._callback_manage_run()
     result = callbacks[1]([], [None, 1, None], None, [], paths, None, None, 0)
     assert result[2] == [paths[0], paths[2]]
+
+
+@pytest.mark.parametrize("saved", [None, False, True])
+def test_run_abbrev_name_checkbox_restores_and_updates_names(general_callbacks, monkeypatch, saved):
+    module, layout, callbacks = general_callbacks
+    attributes = ["model", "dataset"]
+    module.c.set(module.RUN_ABBREV_ATTRIBUTES_CACHE_KEY, value=attributes)
+    if saved is not None:
+        module.c.set(module.RUN_ABBREV_AS_NAME_CACHE_KEY, value=saved)
+    checkbox = next(
+        component
+        for child in layout()
+        for component in _walk_components(child)
+        if getattr(component, "id", None) == module.RUN_ABBREV_AS_NAME_ID
+    )
+    assert checkbox.value is bool(saved)
+    meta = {
+        "optuna_study_name": "original study",
+        "optuna_user_attrs": {"model": "xgb", "dataset": "iris"},
+    }
+    run = SimpleNamespace(
+        name="original study",
+        prefix="Optuna",
+        meta=meta,
+        get_meta=lambda: meta.copy(),
+        history=[],
+        configspace={},
+    )
+    handler = object.__new__(RunHandler)
+    handler.c = module.c
+    handler._update_lock = RLock()
+    handler.runs = {"/run": run}
+    monkeypatch.setattr(module, "run_handler", handler)
+    layout._callback_metadata_attribute(
+        module.RUN_ABBREV_ATTRIBUTES_ID, module.RUN_ABBREV_ATTRIBUTES_CACHE_KEY, multi=True
+    )
+    layout._callback_run_abbrev_as_name()
+    layout._callback_display_selected_runs()
+    select_attributes, apply_names, display_runs = callbacks
+
+    monkeypatch.setattr(module, "ctx", SimpleNamespace(triggered_id=None))
+    _, attributes = select_attributes(["/run"], [])
+    enabled = apply_names(not bool(saved), attributes, ["/run"])
+    assert enabled is bool(saved)
+    assert run.name == ("xgb_iris" if saved else "original study")
+
+    monkeypatch.setattr(module, "ctx", SimpleNamespace(triggered_id=module.RUN_ABBREV_AS_NAME_ID))
+    assert apply_names(True, attributes, ["/run"]) is True
+    assert module.c.get(module.RUN_ABBREV_AS_NAME_CACHE_KEY) is True
+    table, _ = display_runs(["/run"], None, attributes, True)
+    assert table.children[1].children[0].children[0].children[0].children == "xgb_iris"
+
+    monkeypatch.setattr(
+        module, "ctx", SimpleNamespace(triggered_id=module.RUN_ABBREV_ATTRIBUTES_ID)
+    )
+    _, attributes = select_attributes(["/run"], ["dataset", "model"])
+    assert apply_names(True, attributes, ["/run"]) is True
+    assert run.name == "iris_xgb"
+    _, attributes = select_attributes(["/run"], [])
+    apply_names(True, attributes, ["/run"])
+    assert run.name == "original study"
+    table, _ = display_runs(["/run"], "model", attributes, True)
+    assert table.children[1].children[0].children[1].children == "—"
+
+    _, attributes = select_attributes(["/run"], ["model"])
+    apply_names(True, attributes, ["/run"])
+    assert run.name == "xgb"
+    monkeypatch.setattr(module, "ctx", SimpleNamespace(triggered_id=module.RUN_ABBREV_AS_NAME_ID))
+    assert apply_names(False, attributes, ["/run"]) is False
+    assert run.name == "original study"
+    assert module.c.get(module.RUN_ABBREV_AS_NAME_CACHE_KEY) is False
+
+
+def test_run_abbrev_attributes_preserve_order_and_saved_selection(general_callbacks, monkeypatch):
+    module, layout, callbacks = general_callbacks
+    component_id = module.RUN_ABBREV_ATTRIBUTES_ID
+    cache_key = module.RUN_ABBREV_ATTRIBUTES_CACHE_KEY
+    monkeypatch.setattr(
+        module,
+        "run_handler",
+        SimpleNamespace(
+            get_working_directory=lambda: Path.cwd(),
+            runs={
+                "a": SimpleNamespace(
+                    get_meta=lambda: {"optuna_user_attrs": {"model": "xgb", "dataset": "iris"}}
+                )
+            },
+        ),
+    )
+    module.c.set(cache_key, value=["model", "dataset"])
+    setting = next(
+        component
+        for child in layout()
+        for component in _walk_components(child)
+        if getattr(component, "id", None) == component_id
+    )
+    assert setting.multi is True
+    assert setting.value == ["model", "dataset"]
+    layout._callback_metadata_attribute(component_id, cache_key, multi=True)
+    monkeypatch.setattr(module, "ctx", SimpleNamespace(triggered_id=None))
+    options, selected = callbacks[0]([], [])
+    assert [option["value"] for option in options] == ["dataset", "model"]
+    assert selected == ["model", "dataset"]
+    module.run_handler.runs.clear()
+    assert callbacks[0]([], [])[1] == ["model", "dataset"]
+    monkeypatch.setattr(module, "ctx", SimpleNamespace(triggered_id=component_id))
+    assert callbacks[0]([], ["dataset", "model"])[1] == ["dataset", "model"]
+    assert module.c.get(cache_key) == ["dataset", "model"]
+    assert callbacks[0]([], None) == ([], [])
+    assert module.c.get(cache_key) == []
+
+
+def test_sampler_attribute_setting_lists_keys_and_restores_selection(
+    general_callbacks, monkeypatch
+):
+    module, layout, callbacks = general_callbacks
+    assert module.OPTUNA_METADATA_FIELDS == (
+        ("Sampler", module.SAMPLER_ATTRIBUTE_ID, module.OPTUNA_SAMPLER_ATTRIBUTE_CACHE_KEY),
+    )
+    _label, component_id, cache_key = module.OPTUNA_METADATA_FIELDS[0]
+    run = SimpleNamespace(
+        get_meta=lambda: {"optuna_user_attrs": {"sampler": "tpe", "cohort": "B"}},
+        history=[SimpleNamespace(additional={"user_attrs": {"sampler": "random"}})],
+    )
+    mapping = Mock(side_effect=lambda value: module.c.set(cache_key, value=value))
+    monkeypatch.setattr(
+        module,
+        "run_handler",
+        SimpleNamespace(
+            get_working_directory=lambda: Path.cwd(),
+            runs={"a": run},
+            set_optuna_sampler_attribute=mapping,
+        ),
+    )
+    module.c.set(cache_key, value="trial:sampler")
+    setting = next(
+        component
+        for child in layout()
+        for component in _walk_components(child)
+        if getattr(component, "id", None) == component_id
+    )
+    assert setting.value == "trial:sampler"
+    assert setting.clearable is True
+    layout._callback_metadata_attribute(component_id, cache_key)
+    monkeypatch.setattr(module, "ctx", SimpleNamespace(triggered_id=None))
+    assert callbacks[0]([], None) == (
+        [
+            {"label": "Study: cohort", "value": "study:cohort"},
+            {"label": "Study: sampler", "value": "study:sampler"},
+            {"label": "Trial: sampler", "value": "trial:sampler"},
+        ],
+        "trial:sampler",
+    )
+    module.run_handler.runs.clear()
+    assert callbacks[0]([], None) == (
+        [{"label": "Trial: sampler", "value": "trial:sampler"}],
+        "trial:sampler",
+    )
+    monkeypatch.setattr(module, "ctx", SimpleNamespace(triggered_id=component_id))
+    assert callbacks[0]([], None) == ([], None)
+    assert module.c.get(cache_key) is None
+    callbacks[0]([], "study:sampler")
+    assert module.c.get(cache_key) == "study:sampler"
+    assert [call.args for call in mapping.call_args_list] == [(None,), ("study:sampler",)]
 
 
 @pytest.mark.parametrize("paths, count", [([], "0 runs"), (None, "0 runs"), (["/run"], "1 run")])

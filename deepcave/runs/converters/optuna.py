@@ -32,6 +32,7 @@ from ConfigSpace import (
     Categorical,
     Configuration,
     ConfigurationSpace,
+    Constant,
     Float,
     Integer,
     Uniform,
@@ -191,7 +192,11 @@ class OptunaRun(Run):
                         f'Step={hp.step} is retained as metadata for hyperparameter "{hp_name}".'
                     )
 
-            if isinstance(hp, FloatDistribution):
+            if isinstance(hp, (FloatDistribution, IntDistribution)) and hp.low == hp.high:
+                hyperparameters.append(
+                    Constant(name=hp_name, value=hp.low, meta={"step": hp.step})
+                )
+            elif isinstance(hp, FloatDistribution):
                 hyperparameters.append(
                     Float(
                         name=hp_name,
@@ -271,6 +276,7 @@ class OptunaRun(Run):
         study_name = optuna_study.study_name
         meta = {
             "optuna_study_name": study_name,
+            "optuna_user_attrs": dict(optuna_study.user_attrs),
             "optuna_study_id": getattr(
                 optuna_study,
                 "_deepcave_study_id",
@@ -302,16 +308,71 @@ class OptunaRun(Run):
             if changing
             else None
         )
-        model_family = optuna_study.user_attrs.get("model_family")
-        if model_family is not None:
-            meta["model_family"] = model_family
-        study_description = optuna_study.user_attrs.get("study_name")
-        if study_description is not None:
-            meta["study_name"] = study_description
         meta["user_attr_objectives"] = {
             name: user_attr_objective_offset + index
             for index, name in enumerate(user_attr_objective_names)
         }
+
+        # Keep trial identity and the original search spaces independently of ConfigSpace's
+        # intersection and configuration deduplication. Detached snapshots remap trial IDs.
+        source_ids = getattr(optuna_study, "_deepcave_trial_ids", None)
+        detached = hasattr(optuna_study, "_deepcave_sampler_name")
+        storage = getattr(optuna_study, "_storage", None)
+        backend = getattr(storage, "_backend", storage)
+        storage_url = getattr(backend, "url", None)
+        if storage_url is not None:
+            from sqlalchemy.engine import make_url
+
+            parsed_url = make_url(str(storage_url))
+            storage_url = (
+                str(Path(parsed_url.database).resolve())
+                if parsed_url.get_backend_name() == "sqlite"
+                and parsed_url.database not in (None, ":memory:")
+                else parsed_url.render_as_string(hide_password=True)
+            )
+        meta["optuna_storage_identity"] = getattr(
+            optuna_study, "_deepcave_storage_identity", storage_url or str(path.resolve())
+        )
+        meta["optuna_candidates"] = []
+        for trial in optuna_study.get_trials(deepcopy=False):
+            duration = trial.duration.total_seconds() if trial.duration is not None else None
+            meta["optuna_candidates"].append(
+                {
+                    "trial_id": (
+                        source_ids.get(trial.number)
+                        if source_ids is not None
+                        else (None if detached else trial._trial_id)
+                    ),
+                    "trial_number": trial.number,
+                    "state": trial.state.name,
+                    "duration": duration if duration is not None and duration >= 0 else None,
+                    "values": [
+                        float(value) if value is not None and math.isfinite(value) else None
+                        for value in (trial.values or [])
+                    ],
+                    "user_attrs": {
+                        name: float(value)
+                        for name, value in trial.user_attrs.items()
+                        if _is_finite_numeric_user_attr(value)
+                    },
+                    "parameters": dict(trial.params),
+                    "distributions": {
+                        name: {
+                            "kind": (
+                                "categorical"
+                                if isinstance(distribution, CategoricalDistribution)
+                                else (
+                                    "integer"
+                                    if isinstance(distribution, IntDistribution)
+                                    else "float"
+                                )
+                            ),
+                            "log": getattr(distribution, "log", False),
+                        }
+                        for name, distribution in trial.distributions.items()
+                    },
+                }
+            )
 
         run = OptunaRun(name=study_name, configspace=configspace, objectives=obj_list, meta=meta)
 

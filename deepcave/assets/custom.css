@@ -903,108 +903,6 @@ table.table.exclude-head tbody {
     }
 }
 
-#cost_over_time-input {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-#cost_over_time-input > hr {
-    display: none;
-}
-
-#cost_over_time-input > .cost-over-time-toolbar {
-    display: contents;
-}
-
-#cost_over_time-input .analysis-toolbar__item {
-    margin-right: 0 !important;
-}
-
-#cost_over_time-input .cost-over-time__runs-dropdown {
-    min-width: 0;
-}
-
-#cost_over_time-input .cost-over-time__runs-dropdown .Select-menu-outer {
-    z-index: 1100;
-    width: min(48rem, calc(100vw - 26rem));
-    min-width: 100%;
-}
-
-#cost_over_time-input .cost-over-time__runs-dropdown .Select-option,
-#cost_over_time-input .cost-over-time__runs-dropdown .VirtualizedSelectOption {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    line-height: 35px;
-    font-size: 0.85rem;
-}
-
-#cost_over_time-input .cost-over-time__runs-dropdown .Select-control {
-    height: auto;
-    min-height: 31px;
-    border-radius: 0 0.2rem 0.2rem 0;
-}
-
-#cost_over_time-input .cost-over-time__runs-dropdown .Select-placeholder,
-#cost_over_time-input .cost-over-time__runs-dropdown .Select--single > .Select-control .Select-value {
-    line-height: 29px;
-}
-
-#cost_over_time-input .cost-over-time__runs-dropdown .Select-input {
-    height: 29px;
-}
-
-#cost_over_time-input .cost-over-time__runs-dropdown.Select--multi .Select-control {
-    align-items: center;
-    display: flex;
-}
-
-#cost_over_time-input .cost-over-time__runs-dropdown .Select-multi-value-wrapper {
-    align-items: center;
-    display: flex;
-    flex: 1 1 auto;
-    flex-wrap: wrap;
-    gap: 3px;
-    min-width: 0;
-    padding: 2px 4px;
-}
-
-#cost_over_time-input .cost-over-time__runs-dropdown.Select--multi .Select-value {
-    align-items: center;
-    display: inline-flex;
-    flex: 0 1 auto;
-    margin: 0;
-    max-width: 100%;
-    min-width: 0;
-}
-
-#cost_over_time-input .cost-over-time__runs-dropdown .Select-value-icon {
-    align-items: center;
-    display: flex;
-    flex: 0 0 auto;
-}
-
-#cost_over_time-input .cost-over-time__runs-dropdown .Select-value-label {
-    display: block;
-    max-width: 14rem;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-#cost_over_time-input .cost-over-time__runs-dropdown.Select--multi .Select-input {
-    height: 23px;
-    margin: 0;
-}
-
-#cost_over_time-input .cost-over-time__runs-dropdown.Select--multi .Select-input > input {
-    padding: 2px 0;
-}
-
 .analysis-toolbar .input-group-text {
     background-color: rgb(243, 242, 241);
     color: #475569;
@@ -1116,6 +1014,10 @@ table.table.exclude-head tbody {
     gap: 0.75rem;
 }
 
+.analysis-grid--one-dimensional {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .analysis-grid .analysis-card,
 #parameter_dependencies-output .analysis-card,
 .hpo-planning-grid .analysis-card {
@@ -1125,6 +1027,22 @@ table.table.exclude-head tbody {
     box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
     padding: 0.25rem;
     overflow: hidden;
+}
+
+.analysis-grid--one-dimensional .analysis-card {
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0;
+}
+
+.one-dimensional-primary-graph {
+    aspect-ratio: 1.5;
+}
+
+@media (max-width: 600px) {
+    .one-dimensional-primary-graph {
+        aspect-ratio: 1;
+    }
 }
 
 /* Readable interactive search-space planner. */
