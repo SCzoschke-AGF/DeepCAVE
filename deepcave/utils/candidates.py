@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 
 from deepcave.runs import AbstractRun
 from deepcave.utils.analysis_layout import style_analysis
+from deepcave.utils.cost_efficiency import select_elite_indices
 from deepcave.utils.global_objective import main_objective_options, resolve_main_objective_id
 from deepcave.utils.performance_cost import _finite, pareto_indices
 from deepcave.utils.styled_plotty import get_color
@@ -29,7 +30,7 @@ def candidate_data(run: AbstractRun) -> Dict[str, Any]:
         index = resolve_main_objective_id(run, token)
         objective = run.get_objective(index)
         key = token if token.startswith("user_attr:") else "metric:" + objective.name
-        objectives[key] = {"label": objective.name, "optimize": objective.optimize, "index": index}
+        objectives[key] = {"label": option["label"], "optimize": objective.optimize, "index": index}
         keymap[token] = key
     rows = []
     for trial in meta["optuna_candidates"]:
@@ -68,27 +69,33 @@ def central_objective(data: Dict[str, Any], state: Any) -> Optional[str]:
     return keymap.get(token) if token in keymap else next(iter(keymap.values()), None)
 
 
-def selected_trials_toml(rows: Sequence[Dict[str, Any]], objective: Optional[str] = None) -> str:
-    """Use the existing export's TOML encoding and metadata conventions for references."""
+def selected_trials_toml(rows: Sequence[Dict[str, Any]]) -> str:
+    """Export selected parameter configurations with shared source-study metadata."""
 
     def encode(value: Any) -> str:
         return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f")
 
     blocks = []
-    if objective is not None:
-        blocks.append("[selection]\nobjective = " + encode(objective))
+    sources = {(row["storage"], row.get("study_id"), row["study_name"]) for row in rows}
+    if len(sources) == 1:
+        _, study_id, study_name = next(iter(sources))
+        if study_id is not None:
+            blocks.append(
+                f"source_optuna_study_id = {encode(study_id)}\n"
+                f"source_study_name = {encode(study_name)}"
+            )
     seen = set()
     for row in rows:
         if row["id"] in seen:
             continue
         seen.add(row["id"])
-        if row.get("study_id") is None or row.get("trial_id") is None:
+        if row.get("study_id") is None:
             raise ValueError(
-                "Original Optuna IDs are missing. Refresh this study's database snapshot."
+                "Original Optuna study ID is missing. Refresh this study's database snapshot."
             )
-        lines = ["[[selected_trials]]"]
-        for key in ("study_name", "study_id", "trial_id", "trial_number", "storage"):
-            lines.append(f"{key} = {encode(row[key])}")
+        lines = ["[[trials]]"]
+        for name, value in row["parameters"].items():
+            lines.append(f"{encode(name)} = {encode(value)}")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks) + "\n"
 
@@ -98,6 +105,8 @@ def scatter_figure(
     objective: Optional[str],
     show_pareto: bool = False,
     direction: Optional[str] = None,
+    show_elites: bool = False,
+    elite_fraction: float = 0.05,
 ) -> go.Figure:
     """Plot only finite duration/objective pairs; selection presentation stays in the browser."""
     valid = [
@@ -108,25 +117,50 @@ def scatter_figure(
         and _finite(row["metrics"].get(objective))
     ]
     figure = go.Figure()
+    elite_indices = set()
     if valid:
+        directions = {direction or row["metric_info"][objective]["optimize"] for row in valid}
+        if show_elites and len(directions) == 1:
+            elite_indices = set(
+                select_elite_indices(
+                    [{"objective": row["metrics"][objective]} for row in valid],
+                    fraction=elite_fraction,
+                    maximize=next(iter(directions)) == "upper",
+                )
+            )
         figure.add_trace(
             go.Scattergl(
                 x=[row["duration"] for row in valid],
                 y=[row["metrics"][objective] for row in valid],
                 customdata=[
-                    [row["id"], row["study_name"], row["trial_number"], row["color"]]
-                    for row in valid
+                    [
+                        row["id"],
+                        row["study_name"],
+                        row["trial_number"],
+                        row["color"],
+                        i in elite_indices,
+                    ]
+                    for i, row in enumerate(valid)
                 ],
                 mode="markers",
                 name="Trials",
-                marker={"color": "#a6adbb", "size": 6, "opacity": 0.65},
-                hovertemplate=(
-                    "%{customdata[1]} · Trial %{customdata[2]}<br>"
-                    "Duration: %{x:.6g} s<br>Objective: %{y:.6g}<extra></extra>"
-                ),
+                marker={
+                    "color": ["#737373"] * len(valid),
+                    "size": [6] * len(valid),
+                    "opacity": [1] * len(valid),
+                },
+                hoverinfo="none",
             )
         )
-        directions = {direction or row["metric_info"][objective]["optimize"] for row in valid}
+        if show_elites and len(directions) != 1:
+            figure.add_annotation(
+                text="Elites unavailable: studies use different directions.",
+                x=0.5,
+                y=1.14,
+                xref="paper",
+                yref="paper",
+                showarrow=False,
+            )
         if show_pareto and len(directions) == 1:
             indices = pareto_indices(
                 [(row["duration"], row["metrics"][objective]) for row in valid],
@@ -165,7 +199,7 @@ def scatter_figure(
         margin={"t": 40, "l": 62, "r": 18, "b": 55},
         dragmode="select",
         clickmode="event",
-        uirevision=objective,
+        uirevision=json.dumps([objective, show_elites, elite_fraction if show_elites else None]),
         meta={"candidate_scatter": True},
     )
     figure.update_xaxes(title="Trial duration (s)")
@@ -173,6 +207,28 @@ def scatter_figure(
         (row["metric_info"][objective]["label"] for row in valid), objective or "Objective"
     )
     figure.update_yaxes(title=label)
+    if elite_indices:
+        for axis, values in (
+            ("x", [valid[i]["duration"] for i in elite_indices]),
+            ("y", [valid[i]["metrics"][objective] for i in elite_indices]),
+        ):
+            low, high = min(values), max(values)
+            padding = (high - low) * 0.05 or max(abs(low) * 0.05, 0.05)
+            figure.update_layout(
+                **{
+                    axis
+                    + "axis": {
+                        "range": [
+                            max(0, low - padding) if axis == "x" else low - padding,
+                            high + padding,
+                        ],
+                        "autorange": False,
+                    }
+                }
+            )
+    else:
+        figure.update_xaxes(autorange=True)
+        figure.update_yaxes(autorange=True)
     return figure
 
 

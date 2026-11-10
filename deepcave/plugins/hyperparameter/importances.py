@@ -85,6 +85,16 @@ def _importance_method_guide() -> html.Details:
                     Main effects need not sum to one: interactions can explain the remainder.
                     These are effects in the fitted model, not evidence of causality.
 
+                    **fANOVA error bars:** Each tree contributes an importance value: the
+                    variance attributed to the parameter or interaction divided by that tree's
+                    total prediction variance. The bar shows the mean of these values across
+                    trees. Trees with zero total variance are excluded. The error bars currently
+                    show **mean ± variance across trees**, using the population variance
+                    (`np.var`), rather than the standard deviation or standard error. For example,
+                    a variance of 0.01 gives error bars of ±0.01; the corresponding standard
+                    deviation would be 0.1. These error bars describe variation between model
+                    trees; they are **not confidence intervals**.
+
                     #### LPI — local parameter importance
 
                     LPI uses a random forest to vary one parameter at a time around the best
@@ -109,12 +119,9 @@ def _importance_method_guide() -> html.Details:
 
                     An interaction is the additional joint effect of two parameters after their
                     individual effects have been removed. Two parameters can have weak main
-                    effects and still interact strongly. With **Interaction order 2**, choose:
-
-                    - **Selected parameters:** calculate exact pair interactions among the
-                      selected two to four parameters.
-                    - **Screen all pairs:** rank every pair cheaply, refine promising or
-                      numerically uncertain candidates, then calculate selected pairs exactly.
+                    effects and still interact strongly. **Interaction order 2** always screens
+                    all parameter pairs, refines promising or numerically uncertain candidates,
+                    then calculates selected pairs exactly.
 
                     The screening follows these steps:
 
@@ -251,25 +258,20 @@ class Importances(StaticPlugin):
                 Output("importances-trees-field", "style"),
                 Output("importances-quantile-field", "style"),
                 Output("importances-interactions-field", "style"),
-                Output("importances-interaction-hps-field", "style"),
-                Output("importances-interaction-mode-field", "style"),
                 Output("importances-screening-fields", "style"),
             ],
             [
                 Input(self.get_internal_input_id("method"), "value"),
                 Input(self.get_internal_input_id("interaction_order"), "value"),
-                Input(self.get_internal_input_id("interaction_mode"), "value"),
             ],
         )
-        def update_method_fields(method: str, order: Any, mode: str) -> List[Dict[str, str]]:
+        def update_method_fields(method: str, order: Any) -> List[Dict[str, str]]:
             pairwise = method == "global" and order in (2, "2")
             return [
                 {"display": "none"} if method == "ped_anova" else {},
                 {} if method == "ped_anova" else {"display": "none"},
                 {} if method == "global" else {"display": "none"},
-                {} if pairwise and mode == "selected" else {"display": "none"},
                 {} if pairwise else {"display": "none"},
-                {} if pairwise and mode == "screening" else {"display": "none"},
             ]
 
     @staticmethod
@@ -368,8 +370,8 @@ class Importances(StaticPlugin):
                             dbc.Label("Interaction order"),
                             help_button(
                                 "Order 1 calculates main effects only. Order 2 additionally "
-                                "screens all parameter pairs or calculates exact interactions "
-                                "for selected hyperparameters. Exact marginalization can take "
+                                "screens all parameter pairs and calculates exact interactions "
+                                "for promising or selected pairs. Exact marginalization can take "
                                 "several minutes per budget."
                             ),
                             dbc.Select(
@@ -380,23 +382,6 @@ class Importances(StaticPlugin):
                                 ),
                             ),
                         ],
-                        md=6,
-                    ),
-                    dbc.Col(
-                        [
-                            dbc.Label("Interaction analysis"),
-                            dbc.RadioItems(
-                                id=register("interaction_mode", "value"),
-                                options=[
-                                    {"label": "Screen all pairs", "value": "screening"},
-                                    {"label": "Selected parameters", "value": "selected"},
-                                ],
-                                value="screening",
-                                className="multi-metrics-segmented",
-                            ),
-                        ],
-                        id="importances-interaction-mode-field",
-                        style={"display": "none"},
                         md=6,
                     ),
                     dbc.Col(
@@ -544,7 +529,6 @@ class Importances(StaticPlugin):
                 "disabled": True,
             },
             "interaction_hp_names": {"options": [], "value": [], "disabled": True},
-            "interaction_mode": {"value": "screening"},
             "screen_top_k": {"value": 5},
             "exact_pairs": {"value": [], "options": []},
             "pending_exact_pairs": {"value": [], "options": []},
@@ -801,8 +785,7 @@ class Importances(StaticPlugin):
         target_quantile = inputs.get("target_quantile", 0.1)
         interaction_order = inputs.get("interaction_order", 1)
         interaction_hp_names = inputs.get("interaction_hp_names") or []
-        interaction_mode = inputs.get("interaction_mode", "selected")
-        screening = interaction_order == 2 and interaction_mode == "screening"
+        screening = interaction_order == 2
         top_k = inputs.get("screen_top_k", 5)
         top_k = 5 if top_k is None else top_k
 
@@ -825,19 +808,12 @@ class Importances(StaticPlugin):
                 raise RuntimeError(
                     "Pairwise interactions are only available for global single-objective fANOVA."
                 )
-            if interaction_mode not in ("selected", "screening"):
-                raise RuntimeError("Unknown interaction analysis mode.")
             if screening and (not isinstance(top_k, int) or isinstance(top_k, bool) or top_k < 0):
                 raise RuntimeError("Exact top pairs must be a non-negative integer.")
             if not isinstance(interaction_hp_names, list):
                 raise RuntimeError("Interaction hyperparameters must be provided as a list.")
             if len(interaction_hp_names) != len(set(interaction_hp_names)):
                 raise RuntimeError("Interaction hyperparameters must be unique.")
-            if (
-                not screening
-                and not 2 <= len(interaction_hp_names) <= MAX_INTERACTION_HYPERPARAMETERS
-            ):
-                raise RuntimeError("Select between two and four interaction hyperparameters.")
 
         # Filter before encoding can replace missing objectives with worst-value penalties.
         selected_objectives = objective if isinstance(objective, list) else [objective]

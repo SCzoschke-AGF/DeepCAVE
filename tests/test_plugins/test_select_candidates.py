@@ -68,13 +68,11 @@ def test_registration_and_complete_table(studies):
     assert "select_candidates" in [p.id for p in Config().PLUGINS["Configuration Analyses"]]
     assert SelectCandidates.check_run_compatibility(studies[0])
     data = candidate_data(studies[0])
-    rows, columns = table_data(data, ["metric:Objective0", "user_attr:score"], ["COMPLETE"])
+    rows, columns = table_data(data, ["metric:Objective0", "user_attr:score"])
     assert len(data["rows"]) == 4 and len(rows) == 3
     assert {c["id"] for c in columns} >= {
         "trial_number",
-        "trial_id",
         "duration",
-        "state",
         "study_name",
         "param:rate",
         "param:depth",
@@ -82,7 +80,27 @@ def test_registration_and_complete_table(studies):
         "user_attr:score",
     }
     assert central_objective(data, {"value": "user_attr:score"}) == "user_attr:score"
-    assert len(table_data(data, [], ["RUNNING"])[0]) == 1
+    assert data["objectives"]["user_attr:score"]["label"] == "score"
+    assert next(column["name"] for column in columns if column["id"] == "user_attr:score") == "score"
+    assert scatter_figure(data["rows"], "user_attr:score").layout.yaxis.title.text == "score"
+    parallel, _ = parallel_figure(data["rows"], "user_attr:score")
+    assert parallel.data[0].dimensions[-2].label == "Objective · score"
+    assert {"trial_id", "state"}.isdisjoint(c["id"] for c in columns)
+    assert all(row["state"] == "COMPLETE" for row in rows)
+    assert len(table_data(data, [])[0]) == 3
+
+
+def test_candidate_labels_use_global_names_for_legacy_objectives(studies):
+    run = studies[0]
+    index = run.meta["user_attr_objectives"]["score"]
+    run.meta["objectives"][index]["name"] = "user_attr:score"
+    data = candidate_data(run)
+    assert data["objectives"]["user_attr:score"]["label"] == "score"
+    _, columns = table_data(data, ["user_attr:score"])
+    assert next(column["name"] for column in columns if column["id"] == "user_attr:score") == "score"
+    assert scatter_figure(data["rows"], "user_attr:score").layout.yaxis.title.text == "score"
+    figure, _ = parallel_figure(data["rows"], "user_attr:score")
+    assert figure.data[0].dimensions[-2].label == "Objective · score"
 
 
 def test_identity_is_study_and_storage_scoped(studies):
@@ -106,6 +124,8 @@ def test_scatter_excludes_invalid_values_and_respects_pareto_direction(studies):
     data = candidate_data(studies[0])
     figure = scatter_figure(data["rows"], "metric:Objective0", True)
     assert list(figure.data[0].x) == [1, 2, 3]
+    assert figure.data[0].hoverinfo == "none"
+    assert figure.data[0].hovertemplate is None
     assert list(figure.data[1].x) == [1, 2, 3]
     figure = scatter_figure(data["rows"], "metric:Objective0", True, "lower")
     assert list(figure.data[1].x) == [1]
@@ -113,6 +133,50 @@ def test_scatter_excludes_invalid_values_and_respects_pareto_direction(studies):
     data["rows"][1]["metrics"]["metric:Objective0"] = float("nan")
     figure = scatter_figure(data["rows"], "metric:Objective0")
     assert list(figure.data[0].x) == [3]
+
+
+@pytest.mark.parametrize("direction, expected", [("upper", 2), ("lower", 0)])
+def test_scatter_elites_follow_direction_and_visible_valid_rows(studies, direction, expected):
+    rows = candidate_data(studies[0])["rows"]
+    figure = scatter_figure(rows, "metric:Objective0", True, direction, True, 0.05)
+    trace = figure.data[0]
+    assert [item[2] for item in trace.customdata if item[4]] == [expected]
+    assert list(trace.marker.color) == ["#737373"] * len(trace.x)
+    assert list(trace.marker.size) == [6] * len(trace.x)
+    assert list(trace.marker.opacity) == [1] * len(trace.x)
+    assert figure.layout.xaxis.range[0] < expected + 1 < figure.layout.xaxis.range[1]
+    assert figure.layout.yaxis.range[0] < expected < figure.layout.yaxis.range[1]
+    assert not (figure.layout.yaxis.range[0] <= 2 - expected <= figure.layout.yaxis.range[1])
+    assert figure.layout.xaxis.autorange is False
+    assert figure.layout.yaxis.autorange is False
+    assert len(figure.data) == 2  # Pareto remains independently available.
+    filtered = scatter_figure(
+        rows[1:3], "metric:Objective0", direction=direction, show_elites=True, elite_fraction=0.5
+    )
+    assert [item[2] for item in filtered.data[0].customdata if item[4]] == [
+        2 if direction == "upper" else 1
+    ]
+    disabled = scatter_figure(rows, "metric:Objective0")
+    assert not any(item[4] for item in disabled.data[0].customdata)
+    assert disabled.layout.xaxis.autorange is True
+    assert disabled.layout.yaxis.autorange is True
+    assert disabled.layout.uirevision != figure.layout.uirevision
+    wider = scatter_figure(
+        rows, "metric:Objective0", direction=direction, show_elites=True, elite_fraction=0.5
+    )
+    assert wider.layout.uirevision != figure.layout.uirevision
+    elites = [item[2] for item in wider.data[0].customdata if item[4]]
+    assert all(wider.layout.xaxis.range[0] < i + 1 < wider.layout.xaxis.range[1] for i in elites)
+    assert all(wider.layout.yaxis.range[0] < i < wider.layout.yaxis.range[1] for i in elites)
+    assert not scatter_figure([], "metric:Objective0", show_elites=True).data
+
+
+def test_scatter_elites_require_consistent_native_directions(studies):
+    rows = candidate_data(studies[0])["rows"][:3]
+    rows[0]["metric_info"] = {"metric:Objective0": {"optimize": "lower", "label": "Objective0"}}
+    figure = scatter_figure(rows, "metric:Objective0", show_elites=True)
+    assert not any(item[4] for item in figure.data[0].customdata)
+    assert "different directions" in figure.layout.annotations[0].text
 
 
 def test_parallel_axes_log_categories_missing_and_color_consistency(studies):
@@ -149,7 +213,7 @@ def test_parallel_empty_state():
     assert "Select trials" in figure.layout.annotations[0].text
 
 
-def test_toml_preserves_native_ids_across_detached_snapshots(tmp_path):
+def test_toml_exports_parameters_across_detached_snapshots(tmp_path):
     database = tmp_path / "studies.db"
     storage = f"sqlite:///{database}"
     for name in ("first", 'second "study"'):
@@ -168,23 +232,45 @@ def test_toml_preserves_native_ids_across_detached_snapshots(tmp_path):
     direct_data = candidate_data(OptunaRun.from_path(direct))
     assert direct_data["rows"][0]["id"] == data["rows"][0]["id"]
     exported = tomllib.loads(selected_trials_toml(data["rows"] + data["rows"]))
-    assert len(exported["selected_trials"]) == 2
-    assert exported["selected_trials"][0] == {
-        "study_name": source.study_name,
-        "study_id": source._study_id,
-        "trial_id": source.trials[0]._trial_id,
-        "trial_number": 0,
-        "storage": str(database),
-    }
+    assert exported["source_optuna_study_id"] == source._study_id
+    assert exported["source_study_name"] == source.study_name
+    assert len(exported["trials"]) == 2
+    assert exported["trials"] == [trial.params for trial in source.trials]
     # Offline analysis/export never queries the source database again.
     database.rename(tmp_path / "away.db")
     assert selected_trials_toml(data["rows"])
     data["rows"][0]["trial_id"] = None
+    assert tomllib.loads(selected_trials_toml(data["rows"]))["trials"] == exported["trials"]
+    data["rows"][0]["study_id"] = None
     with pytest.raises(ValueError, match="Refresh"):
         selected_trials_toml(data["rows"])
 
 
-def test_legacy_detached_snapshot_never_exports_remapped_trial_ids(tmp_path):
+def test_toml_includes_trials_and_source_metadata_without_selection():
+    row = {
+        "id": "candidate-1",
+        "study_id": 41,
+        "study_name": 'source "study"',
+        "trial_id": 123,
+        "trial_number": 0,
+        "storage": "optuna.db",
+        "parameters": {"max_depth": 9, "subsample": 0.632, "criterion": "gini", "bootstrap": True},
+    }
+    exported = tomllib.loads(selected_trials_toml([row]))
+    assert exported["source_optuna_study_id"] == 41
+    assert exported["source_study_name"] == row["study_name"]
+    assert "selection" not in exported
+    assert exported["trials"] == [row["parameters"]]
+
+    other = {**row, "id": "candidate-2", "study_id": 42, "study_name": "other"}
+    mixed = tomllib.loads(selected_trials_toml([row, other]))
+    assert "selection" not in mixed
+    assert "source_optuna_study_id" not in mixed
+    assert "source_study_name" not in mixed
+    assert mixed["trials"] == [row["parameters"], other["parameters"]]
+
+
+def test_legacy_detached_snapshot_exports_parameters_without_trial_ids(tmp_path):
     study = optuna.create_study(study_name="legacy")
     study.add_trial(create_trial(value=1))
     study._deepcave_study_id = 15
@@ -195,5 +281,6 @@ def test_legacy_detached_snapshot_never_exports_remapped_trial_ids(tmp_path):
         pickle.dump(study, file)
     row = candidate_data(OptunaRun.from_path(path))["rows"][0]
     assert row["trial_id"] is None and row["trial_number"] == 0
-    with pytest.raises(ValueError, match="Original Optuna IDs"):
-        selected_trials_toml([row])
+    exported = tomllib.loads(selected_trials_toml([row]))
+    assert exported["source_optuna_study_id"] == 15
+    assert exported["trials"] == [row["parameters"]]

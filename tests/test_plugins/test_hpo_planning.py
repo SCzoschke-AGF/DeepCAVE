@@ -441,25 +441,85 @@ def test_parameter_insight_combines_enrichment_and_objective_on_shared_ranges():
         assert planning._group_label(proportion) in group_figure.data[0].name
 
 
-def test_q90_profile_uses_unweighted_mean_and_preserves_missing_bins():
+@pytest.mark.parametrize("metric", ["q90", "best"])
+def test_q90_profile_uses_unweighted_mean_and_preserves_missing_bins(metric):
     insight = {
         "labels": ["a", "b", "c", "d"],
         "tick_labels": ["A", "B", "C", "D"],
         "q90": [0.1, None, 0.5, None],
+        "best": [0.2, None, 0.8, None],
         "trial_counts": [3, 0, 7, 0],
     }
 
-    figure = planning._q90_profile_figure(insight)
+    figure = planning._q90_profile_figure(insight, metric)
 
-    assert [trace.name for trace in figure.data] == ["q90", "mean q90"]
-    assert list(figure.data[0].y) == [0.1, None, 0.5, None]
+    assert [trace.name for trace in figure.data] == [metric, f"mean {metric}"]
+    assert list(figure.data[0].y) == insight[metric]
     assert figure.data[0].connectgaps is False
-    assert list(figure.data[1].y) == pytest.approx([0.3] * 4)
+    assert list(figure.data[1].y) == pytest.approx(
+        [np.mean([value for value in insight[metric] if value is not None])] * 4
+    )
     assert figure.data[1].line.dash == "dash"
     assert all(trace.hoverinfo == "skip" for trace in figure.data)
     assert figure.layout.hovermode is False
     assert list(figure.layout.xaxis.ticktext) == insight["tick_labels"]
     assert figure.layout.xaxis.type == "category"
+
+
+@pytest.mark.parametrize("optimize, expected", [("upper", 0.9), ("lower", 0.1)])
+def test_best_profile_uses_best_objective_per_bin(optimize, expected):
+    configspace = ConfigurationSpace()
+    configspace.add_hyperparameters(
+        [
+            UniformFloatHyperparameter("x", lower=0.0, upper=1.0),
+            CategoricalHyperparameter("category", choices=["a", "b"]),
+        ]
+    )
+    trials = [
+        {"objective": value, "configuration": {"x": 0.05, "category": "a"}}
+        for value in [0.1, 0.5, 0.9]
+    ]
+    insights = planning._parameter_insights(trials, configspace, optimize, [0.5])
+    for insight in insights:
+        assert insight["best"][0] == expected
+        assert all(value is None for value in insight["best"][1:])
+
+
+def test_objective_profile_buttons_switch_all_microplots(monkeypatch):
+    import deepcave
+
+    callbacks = {}
+
+    def callback(*args, **kwargs):
+        def register(function):
+            callbacks[function.__name__] = function
+            return function
+
+        return register
+
+    monkeypatch.setattr(
+        deepcave,
+        "app",
+        SimpleNamespace(callback=callback, clientside_callback=lambda *args, **kwargs: None),
+        raising=False,
+    )
+    monkeypatch.setattr(planning.DynamicPlugin, "register_callbacks", lambda self: None)
+    planning.HPOPlanning.register_callbacks.__wrapped__(object.__new__(planning.HPOPlanning))
+    insights = [
+        {"index": i, "labels": ["a"], "q90": [0.5 + i], "best": [0.9 + i]}
+        for i in range(2)
+    ]
+    graph_ids = [{"index": 1, "context": ""}, {"index": 0, "context": "numeric"}]
+    switch = callbacks["switch_objective_profiles"]
+    for metric, button_id in [("best", planning.PROFILE_BEST_ID), ("q90", planning.PROFILE_Q90_ID)]:
+        monkeypatch.setattr(planning, "ctx", SimpleNamespace(triggered_id=button_id))
+        figures, q90_active, best_active = switch(1, 1, insights, graph_ids)
+        assert q90_active == (metric == "q90")
+        assert best_active == (metric == "best")
+        assert [figure.data[0].name for figure in figures] == [metric, metric]
+        assert [list(figure.data[0].y) for figure in figures] == [
+            insights[graph_id["index"]][metric] for graph_id in graph_ids
+        ]
 
 
 def test_numeric_parameter_insight_uses_fixed_bins_and_includes_upper_bound():
@@ -664,8 +724,8 @@ def test_dependencies_exclude_time_from_objectives():
     )
 
     assert [option["label"] for option in result["objective_id"]["options"]] == [
-        "Objective · Loss",
-        "Objective · Accuracy",
+        "Loss",
+        "Accuracy",
     ]
 
 
@@ -713,6 +773,10 @@ def test_dependencies_add_only_complete_numeric_scalar_user_attrs():
     assert [option["value"] for option in result["objective_id"]["options"]] == [
         0,
         "user_attr:score",
+    ]
+    assert [option["label"] for option in result["objective_id"]["options"]] == [
+        "Accuracy",
+        "score",
     ]
     assert result["objective_direction"]["value"] == "upper"
 
@@ -1045,11 +1109,15 @@ def test_planner_layout_uses_separate_metadata_and_selection_stores():
         if isinstance(component, html.Div)
         and getattr(component, "className", None) == "planner-table-header"
     )
-    assert [cell.children for cell in table_header.children] == [
+    assert [cell.children for cell in table_header.children[:2]] == [
         "Parameter",
         "Position in current search space",
-        "Objective - q90 Profile",
     ]
+    profile_heading = table_header.children[2].children
+    assert profile_heading[0] == "Objective - "
+    assert profile_heading[1].children == "q90" and profile_heading[1].active is True
+    assert profile_heading[2] == " · "
+    assert profile_heading[3].children == "best" and profile_heading[3].active is False
     assert not any(
         isinstance(getattr(component, "id", None), dict)
         and component.id.get("type") == "hpo-planner-metric"

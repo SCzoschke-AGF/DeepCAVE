@@ -135,6 +135,35 @@ def test_coverage_mounts_without_workers_and_keeps_a_warm_page(monkeypatch):
     assert plugin.calls == 1
 
 
+def test_sampling_filter_invalidates_warm_pages_even_with_equal_trial_counts(monkeypatch):
+    app = _FakeApp()
+    run = SimpleNamespace(
+        id="run",
+        latest_change=1,
+        history=[1, 2],
+        get_objectives=lambda: [],
+        _sampling_filter_key="random",
+    )
+    monkeypatch.setattr(main_module, "app", app)
+    monkeypatch.setattr(
+        main_module,
+        "run_handler",
+        SimpleNamespace(set_active_run_id=lambda run_id: None, get_run=lambda run_id: run),
+    )
+    plugin = _Plugin("one_dimensional_analysis")
+    layout = object.__new__(main_module.MainLayout)
+    layout.plugins = {"one_dimensional_analysis": plugin}
+    layout.register_callbacks()
+    mount = next(
+        callback for callback in app.callbacks if callback.__name__ == "mount_persistent_analysis"
+    )
+    _, state = mount("/plugins/one_dimensional_analysis", 0, 0, [], 0, 0, run.id, _state())
+    run._sampling_filter_key = "bo"
+    _, changed = mount("/plugins/one_dimensional_analysis", 1, 0, [], 0, 0, run.id, state)
+    assert plugin.calls == 2
+    assert state["data_revision"] != changed["data_revision"]
+
+
 def test_coverage_overview_round_trip_uses_the_same_persistent_routes_in_browser(monkeypatch):
     fake_app = _FakeApp()
     run = SimpleNamespace(id="run-a", latest_change=1, history=[1], get_objectives=lambda: [])
@@ -176,6 +205,39 @@ def test_coverage_overview_round_trip_uses_the_same_persistent_routes_in_browser
     assert routes == list(main_module.PERSISTENT_ANALYSIS_IDS)
     assert "search_space_coverage" in routes
     assert "run_overview" not in routes
+
+
+def test_all_runs_overview_opens_without_an_active_run_or_worker(monkeypatch):
+    fake_app = _FakeApp()
+    plugin = _Plugin("all_runs_overview")
+    plugin.requires_run = False
+    monkeypatch.setattr(main_module, "app", fake_app)
+    monkeypatch.setattr(main_module, "queue", SimpleNamespace(ready=lambda: False))
+    layout = object.__new__(main_module.MainLayout)
+    layout.plugins = {"all_runs_overview": plugin}
+    layout.register_callbacks()
+    display = next(c for c in fake_app.callbacks if c.__name__ == "display_page")
+    assert display("/plugins/all_runs_overview", 0, None) is no_update
+    assert display("/", 0, None) is no_update
+    assert plugin.calls == 0  # Mounted once in the application layout, independent of a run.
+
+
+def test_optuna_metadata_route_opens_without_an_active_run_or_worker(monkeypatch):
+    fake_app = _FakeApp()
+    handler = SimpleNamespace()
+    monkeypatch.setattr(main_module, "app", fake_app)
+    monkeypatch.setattr(main_module, "queue", SimpleNamespace(ready=lambda: False))
+    monkeypatch.setattr(main_module, "run_handler", handler)
+    monkeypatch.setattr(main_module, "c", SimpleNamespace(get=lambda _: "source.db"))
+    monkeypatch.setattr(
+        main_module, "optuna_metadata_page",
+        lambda identifier, run_handler, database: (identifier, run_handler, database),
+    )
+    layout = object.__new__(main_module.MainLayout)
+    layout.plugins = {}
+    layout.register_callbacks()
+    display = next(c for c in fake_app.callbacks if c.__name__ == "display_page")
+    assert display("/runs/optuna/study-key", 0, None) == ("study-key", handler, "source.db")
 
 
 def test_same_run_data_invalidation_replaces_warm_analysis_context(monkeypatch):

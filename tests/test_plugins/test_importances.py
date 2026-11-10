@@ -215,6 +215,8 @@ def test_process_serializes_main_and_pairwise_importances() -> None:
         "n_trees": 4,
         "interaction_order": 2,
         "interaction_hp_names": hp_names[:2],
+        "screen_top_k": 0,
+        "exact_pairs": [json.dumps(hp_names[:2])],
     }
 
     outputs = Importances.process(run, inputs)
@@ -270,13 +272,6 @@ def test_process_rejects_multi_objective_ped_anova() -> None:
     [
         ("local", -1, ["alpha", "batch_size"], "only available"),
         ("global", 1, ["alpha", "batch_size"], "only available"),
-        ("global", -1, ["alpha"], "between two and four"),
-        (
-            "global",
-            -1,
-            ["alpha", "batch_size", "depth", "learning_rate_init", "unknown"],
-            "between two and four",
-        ),
     ],
 )
 def test_process_rejects_invalid_interaction_inputs(
@@ -368,7 +363,7 @@ def test_screening_then_selected_exact_pairs_reuse_fitted_forest(tmp_path, monke
         "method": "global",
         "n_trees": 3,
         "interaction_order": 2,
-        "interaction_mode": "screening",
+        "interaction_mode": "selected",  # Saved legacy choices must still screen all pairs.
         "screen_top_k": 0,
     }
     first = Importances.process(run, inputs)
@@ -516,12 +511,25 @@ def test_screening_controls_offer_all_pairs_without_main_effect_preselection():
     updated = plugin.load_dependency_inputs(_dependency_run(), {}, inputs)
     assert len(updated["exact_pairs"]["options"]) == 10
     assert updated["exact_pairs"]["value"] == [json.dumps(["a", "b"])]
-    assert inputs["interaction_mode"]["value"] == "screening"
+    assert "interaction_mode" not in inputs
+    layout = plugin.get_input_layout(lambda name, *args, **kwargs: name)
+
+    def walk(component):
+        yield component
+        children = getattr(component, "children", [])
+        for child in children if isinstance(children, (list, tuple)) else [children]:
+            yield from walk(child)
+
+    assert not any(
+        getattr(component, "id", None) == "interaction_mode"
+        for root in layout
+        for component in walk(root)
+    )
 
 
 @pytest.mark.parametrize(
     "field,value",
-    [("screen_top_k", 2), ("interaction_mode", "selected"), ("exact_pairs", ['["a", "b"]'])],
+    [("screen_top_k", 2), ("exact_pairs", ['["a", "b"]'])],
 )
 def test_screening_settings_are_part_of_processing_cache_key(field, value):
     plugin = Importances()

@@ -6,6 +6,7 @@ Displaying Data with Plugins
    :maxdepth: 2
 
    overview
+   all_runs_overview
    run_overview
    configurations
    configuration_footprint
@@ -19,6 +20,7 @@ Displaying Data with Plugins
    one_dimensional_analysis
    two_dimensional_analysis
    select_candidates
+   sensitivity_analysis
    parameter_dependencies
    search_space_coverage
    near_optimal_configurations

@@ -17,10 +17,13 @@
 
 from typing import Any, Callable, Dict, List, Sequence, Tuple
 
+from copy import copy
+
 import dash_bootstrap_components as dbc
 import numpy as np
 import pandas as pd
 import plotly.graph_objs as go
+from ConfigSpace import ConfigurationSpace, Constant
 from ConfigSpace.hyperparameters import (
     FloatHyperparameter,
     Hyperparameter,
@@ -29,8 +32,10 @@ from ConfigSpace.hyperparameters import (
 from dash import ClientsideFunction, Input, Output, State, ctx, dcc, html, no_update
 from dash.development.base_component import Component
 from dash.exceptions import PreventUpdate
+from plotly.colors import sample_colorscale
 
 from deepcave import config, interactive
+from deepcave.evaluators.coverage import prepare_coverage
 from deepcave.plugins.dynamic import DynamicPlugin
 from deepcave.plugins.hyperparameter.analysis_utils import (
     _add_trial_statistics,
@@ -54,12 +59,14 @@ from deepcave.plugins.hyperparameter.search_space_state import (
     transform_value,
 )
 from deepcave.runs import AbstractRun
+from deepcave.runs.status import Status
 from deepcave.utils.analysis_layout import (
     analysis_graph,
     bin_label,
     horizontal_colorbar,
     style_analysis_panel,
 )
+from deepcave.utils.interaction_screening import get_cached_fanova, save_cached_fanova
 from deepcave.utils.layout import get_select_options, help_button
 from deepcave.utils.styled_plotty import save_image
 
@@ -68,11 +75,12 @@ MIN_BINS = 2
 MAX_BINS = 20
 ELITE_PROPORTION_DEFAULT = 0.10
 COLOR_SCALE = "Viridis"
-PANEL_HEIGHT = 240
-TRIALS_PANEL_HEIGHT = 210
+PANEL_HEIGHT = 480
+TRIALS_PANEL_HEIGHT = PANEL_HEIGHT
+COVERAGE_PANEL_HEIGHT = PANEL_HEIGHT
 PANEL_BOTTOM_MARGIN = 94
 ENRICHMENT_TOP_MARGIN = 16
-ENRICHMENT_BOTTOM_MARGIN = 60
+ENRICHMENT_BOTTOM_MARGIN = 125
 MAX_ANNOTATED_X_BINS = 15
 MAX_ANNOTATED_Y_BINS = 6
 PLANNING_CONTROLS_ID = "two-dimensional-planning-controls"
@@ -85,6 +93,342 @@ PLANNING_CATEGORIES_TYPE = "two-dimensional-planning-categories"
 PLANNING_RESET_ID = "two-dimensional-planning-reset"
 MASK_COLOR = "rgba(100, 116, 139, 0.42)"
 CACHE_SCHEMA_VERSION = 2
+INTERACTION_GRAPH_ID = "two-dimensional-interaction-importance"
+INTERACTION_BUTTON_ID = "two-dimensional-calculate-interactions"
+COVERAGE_PANEL_ID = "two-dimensional-pair-coverage"
+PERFORMANCE_PANEL_ID = "two-dimensional-pair-performance"
+COVERAGE_BINS_BUTTON_ID = "two-dimensional-coverage-recommended-bins"
+RECOMMENDED_COVERAGE_BINS = 20
+INTERACTION_COLORS = [
+    [0, "#edf0f3"],
+    [0.1, "#edf0f3"],
+    [0.45, "#b6d9c1"],
+    [0.75, "#76c783"],
+    [1, "#edda50"],
+]
+
+
+def _bin_axis_ticks(labels: List[str], coordinates: Sequence[Any]) -> Dict[str, Any]:
+    """Keep bin labels sparse, horizontal and on two lines across the binned plots."""
+    ticks = np.linspace(0, len(labels) - 1, min(len(labels), 5), dtype=int)
+    return {
+        "tickmode": "array",
+        "tickvals": [coordinates[index] for index in ticks],
+        "ticktext": [bin_label(labels[index]).replace(" – ", " –<br>") for index in ticks],
+        "tickangle": 0,
+        "tickfont_size": 10,
+        "title_standoff": 10,
+        "automargin": False,
+    }
+
+
+def _pair_coverage(
+    run: AbstractRun, x: str, y: str, n_bins_x: int, n_bins_y: int, objective_id: Any = None
+) -> Component:
+    """Render full-space cell density or best performance without a trial scatter."""
+    data = prepare_coverage(run)
+    columns = [list(run.configspace).index(name) for name in (x, y)]
+    active = np.isfinite(data.points[:, columns]).all(axis=1)
+    indices = np.flatnonzero(active)
+    cells, labels = [], []
+    for column, requested in zip(columns, (n_bins_x, n_bins_y)):
+        axis = data.axes[column]
+        count = min(requested, axis.size or requested)
+        if axis.size is not None:
+            ranks = axis.ranks([data.values[index][axis.name] for index in indices])
+            cells.append(np.minimum(count - 1, ranks * count // axis.size))
+            cuts = [(cell * axis.size + count - 1) // count for cell in range(count + 1)]
+            bounds = [axis.values_at(np.array([a, b - 1])) for a, b in zip(cuts[:-1], cuts[1:])]
+            labels.append([str(a) if a == b else f"{a} – {b}" for a, b in bounds])
+        else:
+            cells.append(np.minimum(count - 1, (data.points[active, column] * count).astype(int)))
+            edges = np.linspace(0, 1, count + 1)
+            distribution = getattr(axis.hp._vector_dist, "rv", None)
+            vectors = distribution.ppf(edges) if distribution is not None else edges
+            values = axis.hp.to_value(vectors)
+            labels.append([f"{a:.4g} – {b:.4g}" for a, b in zip(values[:-1], values[1:])])
+
+    grid = np.zeros(tuple(len(axis_labels) for axis_labels in labels), dtype=int)
+    np.add.at(grid, tuple(cells), 1)
+    empty = int(np.count_nonzero(grid == 0))
+    figure = go.Figure(
+        go.Heatmap(
+            x=list(range(grid.shape[0])),
+            y=list(range(grid.shape[1])),
+            z=np.digitize(grid.T, [1, 2, 4]),
+            zmin=0,
+            zmax=3,
+            colorscale=[
+                [0, "#e7d3b2"],
+                [0.25, "#e7d3b2"],
+                [0.25, "#bdd8cf"],
+                [0.5, "#bdd8cf"],
+                [0.5, "#7cae9f"],
+                [0.75, "#7cae9f"],
+                [0.75, "#47857a"],
+                [1, "#47857a"],
+            ],
+            customdata=[
+                [[labels[0][i], labels[1][j], int(grid[i, j])] for i in range(grid.shape[0])]
+                for j in range(grid.shape[1])
+            ],
+            hovertemplate=(
+                f"{x}: %{{customdata[0]}}<br>{y}: %{{customdata[1]}}<br>"
+                "Trials per cell: %{customdata[2]}<extra></extra>"
+            ),
+            colorbar={
+                **horizontal_colorbar("Trials per cell"),
+                "tickvals": [0, 1, 2, 3],
+                "ticktext": ["0 · Empty", "1", "2–3", "4+"],
+            },
+            xgap=2,
+            ygap=2,
+        )
+    )
+    description = f"Empty cells: {empty / grid.size:.1%} ({empty} / {grid.size})"
+    graph_id = COVERAGE_PANEL_ID
+    if objective_id is not None:
+        objective = run.get_objective(objective_id)
+        if objective is None:
+            raise PreventUpdate
+        trials = [trial for trial in run.history if trial.status == Status.SUCCESS]
+        performance = np.full(grid.shape, np.nan)
+        aggregate = min if objective.optimize == "lower" else max
+        for index, cell in zip(indices, zip(*cells)):
+            value = trials[index].costs[int(objective_id)]
+            if value is None or not np.isfinite(value):
+                continue
+            performance[cell] = (
+                aggregate(performance[cell], value) if np.isfinite(performance[cell]) else value
+            )
+        trace = figure.data[0]
+        trace.z = performance.T
+        trace.zmin = trace.zmax = None
+        trace.colorscale = COLOR_SCALE
+        trace.reversescale = objective.optimize == "lower"
+        trace.colorbar = horizontal_colorbar(f"{objective.name} · Best trial")
+        trace.hoverongaps = False
+        trace.hovertemplate = (
+            f"{x}: %{{customdata[0]}}<br>{y}: %{{customdata[1]}}<br>"
+            f"Best {objective.name}: %{{z:.4g}}<br>"
+            "Trials per cell: %{customdata[2]}<extra></extra>"
+        )
+        figure.add_trace(
+            go.Heatmap(
+                x=trace.x,
+                y=trace.y,
+                z=np.zeros(grid.T.shape),
+                colorscale=[[0, "#e7d3b2"], [1, "#e7d3b2"]],
+                showscale=False,
+                hoverinfo="skip",
+                xgap=2,
+                ygap=2,
+            )
+        )
+        figure.data = (figure.data[1], figure.data[0])
+        description = f"{objective.name} · Best trial · Beige: no finite objective value"
+        graph_id = PERFORMANCE_PANEL_ID
+    style_analysis_panel(
+        figure, height=COVERAGE_PANEL_HEIGHT, bottom=125, top=16, left=100, right=20
+    )
+    for name, axis_labels, update_axis in (
+        (x, labels[0], figure.update_xaxes),
+        (y, labels[1], figure.update_yaxes),
+    ):
+        update_axis(
+            title_text=name,
+            **_bin_axis_ticks(axis_labels, list(range(len(axis_labels)))),
+            range=[-0.5, len(axis_labels) - 0.5],
+        )
+    graph = analysis_graph(f"{graph_id}-graph", COVERAGE_PANEL_HEIGHT, config.FIGURE_DOWNLOAD_SCALE)
+    graph.figure = figure
+    return html.Div(
+        [
+            html.P(
+                description,
+                className="two-dimensional-card-description",
+            ),
+            graph,
+        ]
+    )
+
+
+def _interaction_placeholder(message: str) -> go.Figure:
+    """Show instructions or a calculation error inside the interaction panel."""
+    figure = go.Figure()
+    style_analysis_panel(figure, height=TRIALS_PANEL_HEIGHT, bottom=55, top=16)
+    figure.update_xaxes(visible=False)
+    figure.update_yaxes(visible=False)
+    figure.add_annotation(text=message, x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False)
+    return figure
+
+
+def _interaction_importance_figure(run: AbstractRun, objective_id: Any) -> go.Figure:
+    """Use the Importance plugin's cached forest and heuristic pair screening."""
+    objective = run.get_objective(objective_id)
+    if objective is None:
+        raise PreventUpdate
+    names = [name for name, hp in run.configspace.items() if not isinstance(hp, Constant)]
+    if len(names) < 2:
+        return _interaction_placeholder("At least two non-constant features are required.")
+
+    # Match Importances' constant removal without changing the shared run.
+    if len(names) != len(run.configspace):
+        run = copy(run)
+        space = ConfigurationSpace()
+        space.add([run.configspace[name] for name in names])
+        space.add(run.configspace.conditions)
+        space.add(run.configspace.forbidden_clauses)
+        run.configspace = space
+        run.configs = {
+            config_id: {name: values[name] for name in names}
+            for config_id, values in run.configs.items()
+        }
+
+    evaluator, model_path = get_cached_fanova(
+        run, objective, run.get_highest_budget(), 10, config.CACHE_DIR / "interaction_models"
+    )
+    rows = evaluator.screen_interactions(names, top_k=5)
+    save_cached_fanova(evaluator, model_path)
+    scores = {}
+    statuses = {}
+    for row in rows:
+        first, second = row["members"]
+        scores[first, second] = scores[second, first] = float(row["score"])
+        statuses[first, second] = statuses[second, first] = row["status"]
+    figure = go.Figure(
+        go.Heatmap(
+            x=names,
+            y=names,
+            z=[
+                [scores.get((x, y)) if column > row else None for column, x in enumerate(names)]
+                for row, y in enumerate(names)
+            ],
+            customdata=[[statuses.get((x, y)) for x in names] for y in names],
+            opacity=0,
+            showscale=False,
+            hoverongaps=False,
+            hovertemplate=(
+                "%{x} × %{y}<br>Approx. importance: %{z:.2%}"
+                "<br>Screening: %{customdata}<extra></extra>"
+            ),
+        )
+    )
+    pairs = []
+    maximum = max(scores.values(), default=0) or 1
+    for row, first in enumerate(names):
+        for column in range(row + 1, len(names)):
+            second = names[column]
+            score = scores.get((first, second))
+            if score is None:
+                continue
+            pairs.append([first, second])
+            x0, x1, y0, y1 = column - 0.48, column + 0.48, row - 0.46, row + 0.46
+            radius = 0.08
+            figure.add_shape(
+                type="path",
+                layer="below",
+                xref="x",
+                yref="y",
+                fillcolor=sample_colorscale(INTERACTION_COLORS, [score / maximum])[0],
+                line={"width": 0, "color": "#364152"},
+                path=(
+                    f"M {x0 + radius},{y0} L {x1 - radius},{y0} "
+                    f"Q {x1},{y0} {x1},{y0 + radius} L {x1},{y1 - radius} "
+                    f"Q {x1},{y1} {x1 - radius},{y1} L {x0 + radius},{y1} "
+                    f"Q {x0},{y1} {x0},{y1 - radius} L {x0},{y0 + radius} "
+                    f"Q {x0},{y0} {x0 + radius},{y0} Z"
+                ),
+            )
+            figure.add_annotation(
+                x=second,
+                y=first,
+                text=f"{score:.2%}",
+                showarrow=False,
+                font={"size": 16, "color": "#334155"},
+                captureevents=False,
+            )
+    style_analysis_panel(
+        figure,
+        height=TRIALS_PANEL_HEIGHT,
+        bottom=65,
+        top=55,
+        left=min(180, max(110, max(map(len, names)) * 7)),
+        right=20,
+    )
+    figure.update_layout(
+        meta={"interaction_pairs": pairs}, plot_bgcolor="#fcfcfc", paper_bgcolor="#fcfcfc"
+    )
+    figure.update_xaxes(
+        type="category",
+        range=[-0.5, len(names) - 0.5],
+        side="top",
+        tickmode="array",
+        tickvals=names,
+        ticktext=[name if len(name) <= 16 else name[:13] + "…" for name in names],
+        tickangle=0,
+        tickfont_size=10,
+        showgrid=False,
+        showline=False,
+        zeroline=False,
+        automargin=False,
+        ticks="",
+    )
+    figure.update_yaxes(
+        type="category",
+        range=[len(names) - 0.5, -0.5],
+        tickmode="array",
+        tickvals=names,
+        ticktext=names,
+        tickfont_size=10,
+        showgrid=False,
+        showline=False,
+        zeroline=False,
+        automargin=False,
+        ticks="",
+    )
+    figure.add_annotation(
+        text=f"{len(pairs)} pairs",
+        x=1,
+        y=1.15,
+        xref="paper",
+        yref="paper",
+        xanchor="right",
+        showarrow=False,
+        bgcolor="#edf0f3",
+        borderpad=5,
+        font={"size": 11, "color": "#334155"},
+    )
+    for index, color in enumerate(["#edf0f3", "#b6d9c1", "#76c783", "#edda50"]):
+        figure.add_shape(
+            type="rect",
+            xref="paper",
+            yref="paper",
+            x0=0.4 + index * 0.05,
+            x1=0.448 + index * 0.05,
+            y0=-0.12,
+            y1=-0.095,
+            fillcolor=color,
+            line={"width": 0},
+        )
+    for text, x, anchor in [("Low interaction", 0, "left"), ("High interaction", 1, "right")]:
+        figure.add_annotation(
+            text=text,
+            x=x,
+            y=-0.11,
+            xref="paper",
+            yref="paper",
+            xanchor=anchor,
+            showarrow=False,
+            font={"size": 11, "color": "#888888"},
+        )
+    return figure
+
+
+def _highlight_interaction_pair(figure: go.Figure, first: str, second: str) -> None:
+    """Outline the selected pair while retaining the fitted screening result."""
+    for index, pair in enumerate((figure.layout.meta or {}).get("interaction_pairs", [])):
+        figure.layout.shapes[index].line.width = 2 if set(pair) == {first, second} else 0
 
 
 def _observed_categories(groups: pd.Series) -> List[Any]:
@@ -448,27 +792,22 @@ def _elite_enrichment_figure(
         bottom=ENRICHMENT_BOTTOM_MARGIN,
         show_legend=False,
         top=ENRICHMENT_TOP_MARGIN,
-        left=70,
-        right=28,
+        left=100,
+        right=20,
     )
     figure.update_layout(annotations=annotations, plot_bgcolor="#eef1f5")
     figure.update_xaxes(
         title_text=hyperparameter_name_1,
         type="category",
-        tickmode="array",
-        tickvals=x_labels,
-        ticktext=[bin_label(label, multiline=False) for label in x_labels],
+        **_bin_axis_ticks(x_labels, x_labels),
         categoryorder="array",
         categoryarray=x_labels,
-        domain=[0.06, 0.94],
-        title_standoff=4,
+        domain=[0, 1],
     )
     figure.update_yaxes(
         title_text=hyperparameter_name_2,
         type="category",
-        tickmode="array",
-        tickvals=y_labels,
-        ticktext=[bin_label(label) for label in y_labels],
+        **_bin_axis_ticks(y_labels, y_labels),
         categoryorder="array",
         categoryarray=y_labels,
     )
@@ -552,15 +891,9 @@ def _objective_median_figure(
             )
         )
         figure.update_xaxes(
-            tickmode="array",
-            tickvals=x_tick_coordinates,
-            ticktext=[bin_label(label, multiline=False) for label in x_labels],
             type="log" if getattr(hyperparameter_1, "log", False) else "linear",
         )
         figure.update_yaxes(
-            tickmode="array",
-            tickvals=y_tick_coordinates,
-            ticktext=[bin_label(label) for label in y_labels],
             type="log" if getattr(hyperparameter_2, "log", False) else "linear",
         )
     else:
@@ -574,24 +907,24 @@ def _objective_median_figure(
         )
         figure.update_xaxes(
             type="category",
-            tickmode="array",
-            tickvals=x_labels,
-            ticktext=[bin_label(label, multiline=False) for label in x_labels],
             categoryorder="array",
             categoryarray=x_labels,
         )
         figure.update_yaxes(
             type="category",
-            tickmode="array",
-            tickvals=y_labels,
-            ticktext=[bin_label(label) for label in y_labels],
             categoryorder="array",
             categoryarray=y_labels,
         )
 
-    _style_two_dimensional_panel(figure)
-    figure.update_xaxes(title_text=hyperparameter_name_1)
-    figure.update_yaxes(title_text=hyperparameter_name_2)
+    style_analysis_panel(figure, height=PANEL_HEIGHT, bottom=125, top=16, left=100, right=20)
+    figure.update_xaxes(
+        title_text=hyperparameter_name_1,
+        **_bin_axis_ticks(x_labels, x_tick_coordinates if use_contour else x_labels),
+    )
+    figure.update_yaxes(
+        title_text=hyperparameter_name_2,
+        **_bin_axis_ticks(y_labels, y_tick_coordinates if use_contour else y_labels),
+    )
     return figure
 
 
@@ -892,6 +1225,10 @@ class TwoDimensionalAnalysis(DynamicPlugin):
     help = "plugins/two_dimensional_analysis.html"
     activate_run_selection = True
     main_objective_input = "objective_id"
+    input_update_inputs = (
+        ("interaction_cell", INTERACTION_GRAPH_ID, "clickData"),
+        ("coverage_recommended_bins", COVERAGE_BINS_BUTTON_ID, "n_clicks"),
+    )
     # Planning masks are updated by a small browser callback. The shared store is only sampled
     # when a new analytical base is produced, so a range edit cannot call ``process`` or rebuild
     # the three figures on the server.
@@ -976,6 +1313,7 @@ class TwoDimensionalAnalysis(DynamicPlugin):
                 )
             )
         elite_id = register("elite_proportion", "value", type=float)
+        register("coverage_previous_bins", "data", filter=True)
         return [
             html.Div(
                 [
@@ -1028,6 +1366,115 @@ class TwoDimensionalAnalysis(DynamicPlugin):
         """Synchronize the reduced controls with the shared planning state."""
         super().register_callbacks()
         from deepcave import app, run_handler
+
+        @app.callback(  # type: ignore
+            Output(COVERAGE_BINS_BUTTON_ID, "children"),
+            [
+                Input(self.get_internal_input_id("n_bins_1"), "value"),
+                Input(self.get_internal_input_id("n_bins_2"), "value"),
+                Input(self.get_internal_input_id("coverage_previous_bins"), "data"),
+            ],
+        )
+        def coverage_bins_label(n_bins_x: Any, n_bins_y: Any, previous: Any) -> str:
+            target = previous or [N_BINS, N_BINS]
+            if (n_bins_x, n_bins_y) != (RECOMMENDED_COVERAGE_BINS,) * 2:
+                target = [RECOMMENDED_COVERAGE_BINS] * 2
+            return f"{target[0]} × {target[1]} bins"
+
+        @app.callback(  # type: ignore
+            Output(COVERAGE_PANEL_ID, "children"),
+            [
+                Input("global-run-selector", "value"),
+                Input(self.get_internal_input_id("hyperparameter_name_1"), "value"),
+                Input(self.get_internal_input_id("hyperparameter_name_2"), "value"),
+                Input(self.get_internal_input_id("n_bins_1"), "value"),
+                Input(self.get_internal_input_id("n_bins_2"), "value"),
+            ],
+        )
+        def render_pair_coverage(run_id: str, x: str, y: str, n_bins_x: Any, n_bins_y: Any) -> Any:
+            if not run_id or not x or not y or x == y or not n_bins_x or not n_bins_y:
+                return []
+            if not all(MIN_BINS <= count <= MAX_BINS for count in (n_bins_x, n_bins_y)):
+                return []
+            run = run_handler.get_run(run_id)
+            if x not in run.configspace or y not in run.configspace:
+                return []
+            return _pair_coverage(run, x, y, int(n_bins_x), int(n_bins_y))
+
+        @app.callback(  # type: ignore
+            Output(PERFORMANCE_PANEL_ID, "children"),
+            [
+                Input("global-run-selector", "value"),
+                Input(self.get_internal_input_id("hyperparameter_name_1"), "value"),
+                Input(self.get_internal_input_id("hyperparameter_name_2"), "value"),
+                Input(self.get_internal_input_id("n_bins_1"), "value"),
+                Input(self.get_internal_input_id("n_bins_2"), "value"),
+                Input(self.get_internal_input_id("objective_id"), "value"),
+            ],
+        )
+        def render_pair_performance(
+            run_id: str, x: str, y: str, n_bins_x: Any, n_bins_y: Any, objective_id: Any
+        ) -> Any:
+            if not run_id or not x or not y or x == y or objective_id is None:
+                return []
+            if not n_bins_x or not n_bins_y:
+                return []
+            if not all(MIN_BINS <= count <= MAX_BINS for count in (n_bins_x, n_bins_y)):
+                return []
+            run = run_handler.get_run(run_id)
+            if x not in run.configspace or y not in run.configspace:
+                return []
+            return _pair_coverage(run, x, y, int(n_bins_x), int(n_bins_y), objective_id)
+
+        @app.callback(  # type: ignore
+            Output(INTERACTION_GRAPH_ID, "figure"),
+            [
+                Input(INTERACTION_BUTTON_ID, "n_clicks"),
+                Input("global-run-selector", "value"),
+                Input(self.get_internal_input_id("objective_id"), "value"),
+                Input(self.get_internal_input_id("hyperparameter_name_1"), "value"),
+                Input(self.get_internal_input_id("hyperparameter_name_2"), "value"),
+            ],
+            State(INTERACTION_GRAPH_ID, "figure"),
+            running=[(Output(INTERACTION_BUTTON_ID, "disabled"), True, False)],
+        )
+        def calculate_interactions(
+            n_clicks: Any,
+            run_id: str,
+            objective_id: Any,
+            first: str,
+            second: str,
+            current_figure: Any,
+        ) -> Any:
+            if ctx.triggered_id in {
+                self.get_internal_input_id("hyperparameter_name_1"),
+                self.get_internal_input_id("hyperparameter_name_2"),
+            }:
+                metadata = (current_figure or {}).get("layout", {}).get("meta") or {}
+                if metadata.get("interaction_context") != [run_id, objective_id]:
+                    return no_update
+                figure = go.Figure(current_figure)
+                _highlight_interaction_pair(figure, first, second)
+                return figure
+            if (
+                ctx.triggered_id != INTERACTION_BUTTON_ID
+                or not n_clicks
+                or not run_id
+                or objective_id is None
+            ):
+                return _interaction_placeholder("Click Calculate to screen all feature pairs.")
+            try:
+                figure = _interaction_importance_figure(run_handler.get_run(run_id), objective_id)
+                figure.update_layout(
+                    meta={
+                        **(figure.layout.meta or {}),
+                        "interaction_context": [run_id, objective_id],
+                    }
+                )
+                _highlight_interaction_pair(figure, first, second)
+                return figure
+            except (RuntimeError, ValueError) as error:
+                return _interaction_placeholder(f"Interaction screening unavailable:<br>{error}")
 
         for index in (1, 2):
             bin_id = self.get_internal_input_id(f"n_bins_{index}")
@@ -1155,6 +1602,37 @@ class TwoDimensionalAnalysis(DynamicPlugin):
             prevent_initial_call=True,
         )
 
+    def load_input_updates(self, events: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply heatmap pair selection or the recommended coverage bin counts."""
+        if events.get("coverage_recommended_bins"):
+            current = [
+                self.previous_inputs.get(f"n_bins_{index}", {}).get("value") or N_BINS
+                for index in (1, 2)
+            ]
+            if current == [RECOMMENDED_COVERAGE_BINS] * 2:
+                previous = self.previous_inputs.get("coverage_previous_bins", {}).get("data")
+                target = previous or [N_BINS, N_BINS]
+            else:
+                target = [RECOMMENDED_COVERAGE_BINS] * 2
+            return {
+                "n_bins_1": {"value": target[0]},
+                "n_bins_2": {"value": target[1]},
+                "coverage_previous_bins": {
+                    "data": current if current != [RECOMMENDED_COVERAGE_BINS] * 2 else target
+                },
+            }
+        click = events.get("interaction_cell") or {}
+        points = click.get("points") or []
+        if not points:
+            return {}
+        first, second = points[0].get("x"), points[0].get("y")
+        if not isinstance(first, str) or not isinstance(second, str) or first == second:
+            return {}
+        return {
+            "hyperparameter_name_1": {"value": first},
+            "hyperparameter_name_2": {"value": second},
+        }
+
     def load_inputs(self) -> Dict[str, Dict[str, Any]]:
         """Return defaults before an Optuna study is selected."""
         return {
@@ -1165,6 +1643,7 @@ class TwoDimensionalAnalysis(DynamicPlugin):
             "n_bins_1": {"value": N_BINS},
             "n_bins_2": {"value": N_BINS},
             "color_by_rank": {"value": False},
+            "coverage_previous_bins": {"data": [N_BINS, N_BINS]},
         }
 
     def load_dependency_inputs(
@@ -1297,7 +1776,13 @@ class TwoDimensionalAnalysis(DynamicPlugin):
 
     @staticmethod
     def get_output_layout(register: Callable) -> List[Any]:
-        """Show trials across the full width, followed by the two binned views."""
+        """Show interaction screening, empirical views and the pairwise coverage projection."""
+        interaction_graph = analysis_graph(
+            INTERACTION_GRAPH_ID, TRIALS_PANEL_HEIGHT, config.FIGURE_DOWNLOAD_SCALE
+        )
+        interaction_graph.figure = _interaction_placeholder(
+            "Click Calculate to screen all feature pairs."
+        )
         trials_graph = analysis_graph(
             register("trials_graph", "figure"),
             TRIALS_PANEL_HEIGHT,
@@ -1314,7 +1799,9 @@ class TwoDimensionalAnalysis(DynamicPlugin):
             config.FIGURE_DOWNLOAD_SCALE,
         )
 
-        def card(title: str, graph: Component, trials: bool = False) -> Component:
+        def card(
+            title: str, graph: Component, trials: bool = False, interactions: bool = False
+        ) -> Component:
             header = [
                 html.Div(
                     [
@@ -1332,14 +1819,41 @@ class TwoDimensionalAnalysis(DynamicPlugin):
                         className="two-dimensional-color-control",
                     )
                 )
+            if interactions:
+                header[0].children.append(
+                    html.P(
+                        "Pairwise interaction importance · Click a cell to select X and Y.",
+                        className="two-dimensional-card-description",
+                    )
+                )
+                header.append(
+                    dbc.Button(
+                        "Calculate",
+                        id=INTERACTION_BUTTON_ID,
+                        color="primary",
+                        outline=True,
+                        size="sm",
+                        n_clicks=0,
+                        title="Heuristic fANOVA screening, 10 trees, highest budget. "
+                        "Click a cell to select X and Y. The diagonal has no pair interaction.",
+                    )
+                )
             return html.Div(
-                [html.Div(header, className="two-dimensional-card-header"), graph],
+                [
+                    html.Div(header, className="two-dimensional-card-header"),
+                    dcc.Loading(graph) if interactions else graph,
+                ],
                 className="analysis-card" + (" two-dimensional-trials-card" if trials else ""),
             )
 
         return [
             html.Div(
                 [
+                    card(
+                        "fANOVA · Feature interactions",
+                        interaction_graph,
+                        interactions=True,
+                    ),
                     card(
                         "Observed trials",
                         trials_graph,
@@ -1352,6 +1866,39 @@ class TwoDimensionalAnalysis(DynamicPlugin):
                     card(
                         "Empirical objective median contour",
                         objective_graph,
+                    ),
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.H2(
+                                        "Search space coverage",
+                                        className="two-dimensional-card-title",
+                                    ),
+                                    dbc.Button(
+                                        "20 × 20 bins",
+                                        id=COVERAGE_BINS_BUTTON_ID,
+                                        n_clicks=0,
+                                        color="primary",
+                                        outline=True,
+                                        size="sm",
+                                        title="Switch between 20 × 20 bins and the previous bin counts.",
+                                    ),
+                                ],
+                                className="two-dimensional-card-header",
+                            ),
+                            dcc.Loading(html.Div(id=COVERAGE_PANEL_ID)),
+                            dcc.Store(
+                                id=f"{TwoDimensionalAnalysis.id}-coverage_previous_bins-input",
+                                data=[N_BINS, N_BINS],
+                            ),
+                        ],
+                        className="analysis-card",
+                        style={"gridColumn": "1"},
+                    ),
+                    card(
+                        "Cell performance · Best trial",
+                        dcc.Loading(html.Div(id=PERFORMANCE_PANEL_ID)),
                     ),
                 ],
                 className="analysis-grid analysis-grid--two-dimensional",

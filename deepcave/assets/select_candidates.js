@@ -35,9 +35,9 @@
         const colors = [], sizes = [], opacity = [];
         (trace.customdata || []).forEach(function (item) {
             const selected = Boolean(selection[item[0]]);
-            colors.push(selected ? selection[item[0]].color : "#a6adbb");
-            sizes.push(item[0] === highlighted ? 13 : selected ? 9 : 6);
-            opacity.push(highlighted && item[0] !== highlighted ? 0.3 : selected ? 1 : 0.65);
+            colors.push(selected ? selection[item[0]].color : "#737373");
+            sizes.push(item[0] === highlighted ? 13 : selected ? 11 : 6);
+            opacity.push(highlighted && item[0] !== highlighted ? 0.3 : 1);
         });
         if (!same(colors, trace.marker.color) || !same(sizes, trace.marker.size) ||
                 !same(opacity, trace.marker.opacity)) {
@@ -93,7 +93,8 @@
     }
 
     client.candidateSelection = {
-        reduce: function (checked, active, event, removed, clear, table, data, saved) {
+        reduce: function (checked, active, event, removed, clear, source, data, sortBy, saved) {
+            const table = (source || {}).rows || [];
             const context = client.callback_context;
             const trigger = context.triggered_id;
             const changes = context.triggered.map(function (item) { return item.prop_id; });
@@ -128,7 +129,8 @@
             } else if (changes.includes(prefix + "table.active_cell") && active && active.row_id) {
                 toggle(active.row_id);
             } else if (changes.includes(prefix + "table.selected_row_ids") &&
-                    !changes.includes(prefix + "table.data") && !changes.includes(prefix + "data.data")) {
+                    !changes.includes(prefix + "table.sort_by") &&
+                    !changes.includes(prefix + "table-source.data") && !changes.includes(prefix + "data.data")) {
                 const ids = new Set(checked || []);
                 (table || []).forEach(function (row) {
                     if (ids.has(row.id) && !next[row.id] && available.has(row.id)) {
@@ -139,17 +141,37 @@
                 });
             }
             selection = next;
-            const ids = (table || []).filter(function (row) { return Boolean(next[row.id]); }).map(function (row) { return row.id; });
-            const indices = (table || []).flatMap(function (row, index) { return next[row.id] ? [index] : []; });
+            const ordered = table.slice().sort(function (left, right) {
+                const pinned = Number(Boolean(next[right.id])) - Number(Boolean(next[left.id]));
+                if (pinned) return pinned;
+                for (const sort of sortBy || []) {
+                    const a = left[sort.column_id], b = right[sort.column_id];
+                    if (a == null && b == null) continue;
+                    if (a == null) return 1;
+                    if (b == null) return -1;
+                    const comparison = a < b ? -1 : a > b ? 1 : 0;
+                    if (comparison) return sort.direction === "desc" ? -comparison : comparison;
+                }
+                return 0;
+            });
+            const ids = ordered.filter(function (row) { return Boolean(next[row.id]); }).map(function (row) { return row.id; });
+            const indices = ordered.flatMap(function (row, index) { return next[row.id] ? [index] : []; });
+            const tooltipById = new Map(table.map(function (row, index) {
+                return [row.id, (source.tooltips || [])[index] || {}];
+            }));
             const styles = [{if: {column_id: "study_name"}, textAlign: "left"}];
             ids.forEach(function (id) {
-                styles.push({if: {filter_query: '{id} = "' + id + '"'}, backgroundColor: "#eef2ff"});
+                styles.push({if: {filter_query: '{id} = "' + id + '"'},
+                    color: next[id].color,
+                    backgroundColor: next[id].color.replace(/,\s*[\d.]+\)$/, ", 0.10)")});
             });
             requestAnimationFrame(function () {
                 bindPlots(); paintScatter(graph("scatter")); paintParallel(graph("parallel")); paintRows();
             });
             return [mutated ? next : unchanged, same(ids, checked || []) ? unchanged : ids,
-                indices, active ? null : unchanged, styles];
+                indices, active ? null : unchanged, styles,
+                ordered, ordered.map(function (row) { return tooltipById.get(row.id); }),
+                mutated || changes.includes(prefix + "table.sort_by") ? 0 : unchanged];
         },
         visibleRows: function (rows, table) {
             tableRows = rows || table || [];

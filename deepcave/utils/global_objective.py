@@ -52,14 +52,14 @@ def main_objective_options(run: Any) -> List[Dict[str, Any]]:
             name = user_attrs_by_id[objective_id]
             options.append(
                 {
-                    "label": f"User attr · {name}",
+                    "label": name,
                     "value": f"{USER_ATTR_OBJECTIVE_PREFIX}{name}",
                 }
             )
         else:
             options.append(
                 {
-                    "label": f"Objective · {objective.name}",
+                    "label": objective.name,
                     "value": f"{NATIVE_OBJECTIVE_PREFIX}{objective_id}",
                 }
             )

@@ -145,6 +145,9 @@ class RunCaches:
         AssertionError
             If the outputs of the cache are not a dict.
         """
+        subset = getattr(run, "_sampling_filter_key", None)
+        if subset:
+            inputs_key = f"{inputs_key}-sampling-{subset}"
         filename = self.cache_dir / run.id / plugin_id / f"{inputs_key}.json"
 
         if not filename.exists():
@@ -172,6 +175,9 @@ class RunCaches:
         value : Any
             The value to set.
         """
+        subset = getattr(run, "_sampling_filter_key", None)
+        if subset:
+            inputs_key = f"{inputs_key}-sampling-{subset}"
         filename = self.cache_dir / run.id / plugin_id / f"{inputs_key}.json"
         cache = Cache(filename, debug=self._debug, write_file=False)
         cache.set("outputs", value=value)

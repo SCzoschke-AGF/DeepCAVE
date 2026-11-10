@@ -39,6 +39,7 @@ from deepcave.layouts.general import GeneralLayout
 from deepcave.layouts.header import HeaderLayout
 from deepcave.layouts.not_found import NotFoundLayout
 from deepcave.layouts.notification import NotificationLayout
+from deepcave.layouts.optuna_metadata import optuna_metadata_page
 from deepcave.layouts.sidebar import SidebarLayout
 from deepcave.plugins import Plugin
 from deepcave.plugins.hyperparameter.search_space_state import (
@@ -61,7 +62,7 @@ PERSISTENT_ANALYSIS_CACHE_ID = "persistent-analysis-cache"
 PERSISTENT_ANALYSIS_STATE_ID = "persistent-analysis-state"
 PERSISTENT_ANALYSIS_PAGE_TYPE = "persistent-analysis-page"
 PERSISTENT_ANALYSIS_LOADING_ID = "persistent-analysis-loading"
-GENERAL_CONTAINER_ID = "general-page-container"
+STUDIES_CONTAINER_ID = "studies-page-container"
 PLANNED_SEARCH_SPACE_PERSISTENCE_ID = "planned-search-space-persistence-revision"
 
 
@@ -324,6 +325,7 @@ class MainLayout(Layout):
                 getattr(active_run, "latest_change", None),
                 len(getattr(active_run, "history", [])),
                 [[objective.name, objective.optimize] for objective in active_run.get_objectives()],
+                getattr(active_run, "_sampling_filter_key", None),
             ]
             context_changed = (
                 current.get("run_id") != active_run_id
@@ -337,7 +339,14 @@ class MainLayout(Layout):
 
             plugin = self.plugins[active_plugin_id]
             status = "mounted"
-            if plugin.check_run_compatibility(active_run):
+            if getattr(active_run, "_sampling_filter_key", None) and not active_run.history:
+                page_content = [
+                    html.H1(plugin.name),
+                    alert(
+                        "No trials match the sampling-method filter. Adjust the sidebar selection."
+                    ),
+                ]
+            elif plugin.check_run_compatibility(active_run):
                 page_content = plugin()
             else:
                 status = "error"
@@ -392,19 +401,19 @@ class MainLayout(Layout):
                         window.dispatchEvent(new Event("resize"));
                     }, 0);
                 }
-                const isGeneral = parts.length === 0;
+                const isStudies = parts.length === 0 || pluginId === "all_runs_overview";
                 return [
                     styles,
                     {display: isPersistentRoute && !hasActivePage ? "block" : "none"},
-                    {display: isGeneral ? "block" : "none"},
-                    {display: !isPersistentRoute && !isGeneral ? "block" : "none"},
+                    {display: isStudies ? "block" : "none"},
+                    {display: !isPersistentRoute && !isStudies ? "block" : "none"},
                 ];
             }
             """.replace("__PERSISTENT_ANALYSIS_IDS__", json.dumps(PERSISTENT_ANALYSIS_IDS)),
             [
                 Output({"type": PERSISTENT_ANALYSIS_PAGE_TYPE, "plugin": ALL}, "style"),
                 Output(PERSISTENT_ANALYSIS_LOADING_ID, "style"),
-                Output(GENERAL_CONTAINER_ID, "style"),
+                Output(STUDIES_CONTAINER_ID, "style"),
                 Output("content", "style"),
             ],
             Input("on-page-load", "pathname"),
@@ -434,7 +443,7 @@ class MainLayout(Layout):
             """
             persistent_plugin_id = _plugin_id_from_path(pathname)
             if (
-                persistent_plugin_id in PERSISTENT_ANALYSIS_IDS
+                persistent_plugin_id in (*PERSISTENT_ANALYSIS_IDS, "all_runs_overview")
                 and persistent_plugin_id in self.plugins
             ):
                 return no_update
@@ -445,6 +454,12 @@ class MainLayout(Layout):
             if paths[0] == "":
                 return no_update
             else:
+                if len(paths) == 3 and paths[:2] == ["runs", "optuna"]:
+                    return optuna_metadata_page(paths[2], run_handler, c.get("optuna_database"))
+                if paths[0] == "plugins" and len(paths) > 1:
+                    plugin = self.plugins.get(paths[1])
+                    if plugin is not None and not getattr(plugin, "requires_run", True):
+                        return plugin()
                 if not queue.ready():
                     return alert("At least one worker has to be enabled.")
                 if paths[0] == "plugins":
@@ -466,11 +481,27 @@ class MainLayout(Layout):
                                     "analysis. Select another run in the sidebar."
                                 ),
                             ]
+                        if (
+                            getattr(active_run, "_sampling_filter_key", None)
+                            and not active_run.history
+                            and plugin.id != "select_candidates"
+                        ):
+                            return [
+                                html.H1(plugin.name),
+                                alert(
+                                    "No trials match the sampling-method filter. "
+                                    "Adjust the sidebar selection."
+                                ),
+                            ]
                         return plugin()
 
             return self.not_found_layout(pathname)()
 
     def __call__(self) -> Component:  # noqa: D102
+        studies = self.plugins["all_runs_overview"](
+            database_controls=self.general_layout.database_controls(),
+            selected_studies=self.general_layout(),
+        )
         return html.Div(
             children=[
                 dcc.Interval(id="global-update", interval=config.REFRESH_RATE),
@@ -524,8 +555,8 @@ class MainLayout(Layout):
                                                     children=[],
                                                 ),
                                                 html.Div(
-                                                    self.general_layout(),
-                                                    id=GENERAL_CONTAINER_ID,
+                                                    studies,
+                                                    id=STUDIES_CONTAINER_ID,
                                                 ),
                                                 html.Div(id="content", style={"display": "none"}),
                                             ],

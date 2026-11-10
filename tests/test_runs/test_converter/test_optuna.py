@@ -190,7 +190,7 @@ def test_converter_promotes_only_complete_finite_scalar_user_attrs(tmp_path: Pat
 
     run = OptunaRun.from_path(_write_study(tmp_path / "run", study))
 
-    assert run.get_objective_names() == ["Objective0", "user_attr:score", "Time"]
+    assert run.get_objective_names() == ["Objective0", "score", "Time"]
     assert run.meta["user_attr_objectives"] == {"score": 1}
     assert run.history[0].costs[:2] == pytest.approx([0.4, 0.8])
     assert run.history[1].costs[:2] == pytest.approx([0.2, 0.9])
@@ -237,6 +237,26 @@ def test_converter_imports_fixed_numeric_parameters(
     assert parameter.meta["step"] == distribution.step
     assert run.get_config(run.history[0].config_id)[name] == value
     assert run.history[0].costs[0] == 0.4
+
+
+@pytest.mark.parametrize("log", [False, True])
+def test_converter_accepts_float_values_on_distribution_bounds(tmp_path: Path, log: bool) -> None:
+    # Sensitivity studies derive bounds from explicit configurations, so values sit on them.
+    distribution = FloatDistribution(0.11543320103588925, 0.3801287328212322, log=log)
+    study = optuna.create_study(direction="minimize")
+    for value in (distribution.low, distribution.high):
+        study.add_trial(
+            create_trial(
+                params={"colsample_bynode": value},
+                distributions={"colsample_bynode": distribution},
+                value=0.4,
+            )
+        )
+
+    run = OptunaRun.from_path(_write_study(tmp_path / "run", study))
+
+    values = [run.get_config(trial.config_id)["colsample_bynode"] for trial in run.history]
+    assert values == pytest.approx([distribution.low, distribution.high], rel=1e-9)
 
 
 def test_converter_retains_model_family(tmp_path: Path) -> None:

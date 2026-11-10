@@ -36,8 +36,8 @@ def test_options_use_stable_keys_and_hide_optuna_time() -> None:
     run = DummyRun()
 
     assert main_objective_options(run) == [
-        {"label": "Objective · Loss", "value": "objective:0"},
-        {"label": "User attr · accuracy", "value": "user_attr:accuracy"},
+        {"label": "Loss", "value": "objective:0"},
+        {"label": "accuracy", "value": "user_attr:accuracy"},
     ]
 
 

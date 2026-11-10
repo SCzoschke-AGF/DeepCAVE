@@ -49,8 +49,10 @@ def run(monkeypatch):
 
 def test_summary_registration_and_single_run_controls(run):
     plugins = Config().PLUGINS
-    assert [plugin.name for plugin in plugins["Summary"]] == ["Run Metadata", "Run Overview"]
-    plugin = plugins["Summary"][1]
+    assert [plugin.name for plugin in plugins["Summary"]] == [
+        "All Runs Overview", "Run Metadata", "Run Overview"
+    ]
+    plugin = plugins["Summary"][2]
     assert plugin.activate_run_selection and not plugin.allow_additional_runs
     plugin.check_runs_compatibility([run])
     inputs = plugin.load_inputs()

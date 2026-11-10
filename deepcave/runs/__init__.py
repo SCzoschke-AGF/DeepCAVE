@@ -91,6 +91,7 @@ class AbstractRun(ABC):
     """
 
     prefix: str
+    _sampling_filter_key: Optional[str] = None
 
     def __init__(self, name: str) -> None:
         self.name: str = name

@@ -1,0 +1,21 @@
+.sensitivity-workspace { color: #334155; }
+.sensitivity-workspace .analysis-card { position: relative; min-width: 0; background: #fff; }
+.sensitivity-workspace .analysis-card__header { position: static; padding: .65rem .75rem .3rem; }
+.sensitivity-summary { padding: .5rem 0; font-size: .85rem; font-variant-numeric: tabular-nums; }
+.sensitivity-note { color: #64748b; font-size: .78rem; margin: .4rem 0 .65rem; }
+.sensitivity-explorer { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: .75rem; }
+.sensitivity-detail-heading { display: flex; justify-content: space-between; align-items: center; gap: .5rem; padding: .6rem 0; font-size: .85rem; }
+.sensitivity-tabs .tab { padding: .55rem .65rem !important; font-size: .78rem; }
+.sensitivity-controls { padding: .5rem 0; }
+#sensitivity-context { flex: 1 1 0; min-width: 0; font-size: .85rem; }
+.sensitivity-reference-controls { padding: .75rem; margin-bottom: .75rem; border: 1px solid #e2e8f0; border-radius: .375rem; font-size: .85rem; }
+.sensitivity-reference-row { display: grid; grid-template-columns: minmax(10rem, 16rem) minmax(0, 1fr); align-items: center; gap: 1rem; padding: .5rem 0; }
+.sensitivity-reference-row > * { min-width: 0; }
+.sensitivity-reference-controls .VirtualizedSelectOption { white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
+.sensitivity-seed-grid { overflow: auto; max-height: 850px; }
+.sensitivity-seed-grid > div { min-width: 850px; }
+.sensitivity-controls .analysis-toolbar__item { min-width: 0 !important; max-width: 38rem; }
+.sensitivity-workspace .dash-table-container { font-variant-numeric: tabular-nums; }
+#sensitivity-table tr.sensitivity-hover td { box-shadow: inset 0 0 0 1px #64748b; background-color: #f1f5f9 !important; }
+@media (max-width: 1250px) { .sensitivity-explorer { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 640px) { .sensitivity-reference-row { grid-template-columns: minmax(0, 1fr); gap: .35rem; } }

@@ -31,14 +31,66 @@ def cid(name: str) -> str:
     return PREFIX + name
 
 
-def table_data(data: Dict[str, Any], metrics: List[str], states: List[str]) -> tuple:
+def compact_selector(name: str, label: str, placeholder: str) -> Any:
+    """Keep the existing options/value contract in a compact checkbox dropdown."""
+    return html.Div(
+        [
+            dbc.Label(label, id=cid(name + "-label")),
+            html.Details(
+                [
+                    html.Summary(
+                        html.Span(placeholder, id=cid(name + "-summary")),
+                        **{"aria-labelledby": cid(name + "-label") + " " + cid(name + "-summary")},
+                    ),
+                    html.Div(
+                        [
+                            html.Label(
+                                "Search " + label.lower(),
+                                htmlFor=cid(name + "-search"),
+                                className="candidate-selector-search-label",
+                            ),
+                            dcc.Input(
+                                id=cid(name + "-search"),
+                                type="search",
+                                placeholder="Search " + name + " …",
+                                className="candidate-selector-search",
+                            ),
+                            html.Div(
+                                [
+                                    html.Button("Select all", type="button", **{"data-action": "all"}),
+                                    html.Button("Clear all", type="button", **{"data-action": "clear"}),
+                                    html.Span(id=cid(name + "-count"), **{"aria-live": "polite"}),
+                                ],
+                                className="candidate-selector-actions",
+                            ),
+                            dcc.Checklist(
+                                id=cid(name),
+                                options=[],
+                                value=None if name == "objectives" else [],
+                                className="candidate-selector-options",
+                                labelStyle={"display": "flex"},
+                                persistence=name == "studies",
+                                persistence_type="session",
+                            ),
+                            html.Div("No matching options", className="candidate-selector-empty", hidden=True),
+                        ],
+                        className="candidate-selector-menu",
+                    ),
+                ],
+                className="candidate-selector",
+                **{"data-selector": name},
+            ),
+        ],
+        className="candidate-" + name,
+    )
+
+
+def table_data(data: Dict[str, Any], metrics: List[str]) -> tuple:
     """Flatten only the table view; the independent selection retains full trial records."""
     parameters = sorted({name for row in data.get("rows", []) for name in row["parameters"]})
     columns = [
         {"name": "Study", "id": "study_name", "type": "text"},
         {"name": "Trial", "id": "trial_number", "type": "numeric"},
-        {"name": "Trial ID", "id": "trial_id", "type": "numeric"},
-        {"name": "State", "id": "state", "type": "text"},
         {
             "name": "Duration (s)",
             "id": "duration",
@@ -67,7 +119,7 @@ def table_data(data: Dict[str, Any], metrics: List[str], states: List[str]) -> t
     numeric_parameters = {column["id"] for column in columns if column["type"] == "numeric"}
     rows = []
     for row in data.get("rows", []):
-        if row["state"] not in (states or []):
+        if row["state"] != "COMPLETE":
             continue
         flat = {
             key: row[key]
@@ -105,68 +157,29 @@ class SelectCandidates(Plugin):
             [
                 dcc.Store(id=cid("mounted"), data=True),
                 dcc.Store(id=cid("data")),
+                dcc.Store(id=cid("objective-context")),
+                dcc.Store(id=cid("visible-ids")),
+                dcc.Store(
+                    id=cid("presentation"),
+                    data={
+                        "scatter": scatter_figure([], None).to_plotly_json(),
+                        "numberFormat": Format(
+                            precision=6, scheme=Scheme.decimal_or_exponent
+                        ).to_plotly_json(),
+                    },
+                ),
+                dcc.Store(id=cid("table-source")),
                 dcc.Store(id=cid("selection"), storage_type="session", data={}),
                 dcc.Store(id=cid("event")),
                 dcc.Store(id=cid("highlighted")),
                 dcc.Store(id=cid("viewport")),
                 html.Div(
                     [
-                        html.Div(
-                            [
-                                dbc.Label("Table objectives", html_for=cid("objectives")),
-                                dcc.Dropdown(
-                                    id=cid("objectives"),
-                                    multi=True,
-                                    placeholder="Select objectives …",
-                                ),
-                            ],
-                            className="candidate-objectives",
-                        ),
-                        html.Div(
-                            [
-                                dbc.Label("Additional studies", html_for=cid("studies")),
-                                dcc.Dropdown(
-                                    id=cid("studies"),
-                                    multi=True,
-                                    value=[],
-                                    placeholder="Add loaded studies …",
-                                    persistence=True,
-                                    persistence_type="session",
-                                ),
-                            ],
-                            className="candidate-studies",
-                        ),
-                        html.Div(
-                            [
-                                dbc.Label("Trial states", html_for=cid("states")),
-                                dcc.Dropdown(
-                                    id=cid("states"),
-                                    multi=True,
-                                    options=[
-                                        {"label": state.title(), "value": state}
-                                        for state in (
-                                            "COMPLETE",
-                                            "PRUNED",
-                                            "FAIL",
-                                            "RUNNING",
-                                            "WAITING",
-                                        )
-                                    ],
-                                    value=["COMPLETE"],
-                                    persistence=True,
-                                    persistence_type="session",
-                                ),
-                            ],
-                            className="candidate-states",
-                        ),
+                        compact_selector("objectives", "Table objectives", "Select objectives …"),
+                        compact_selector("studies", "Additional studies", "Add loaded studies …"),
                     ],
                     className="analysis-toolbar candidate-toolbar",
                 ),
-                html.Div(
-                    "Charts use the central objective selected in the sidebar. Column filters apply to both explorer views.",
-                    className="candidate-hint",
-                ),
-                html.Div(id=cid("status"), role="status", className="candidate-hint"),
                 html.Div(
                     [
                         analysis_card(
@@ -178,7 +191,8 @@ class SelectCandidates(Plugin):
                                 row_selectable="multi",
                                 selected_rows=[],
                                 selected_row_ids=[],
-                                sort_action="native",
+                                sort_action="custom",
+                                sort_by=[],
                                 sort_mode="multi",
                                 filter_action="native",
                                 page_action="native",
@@ -216,17 +230,41 @@ class SelectCandidates(Plugin):
                             "Trial Duration × Objective",
                             html.Div(
                                 [
-                                    dbc.Switch(
-                                        id=cid("pareto"),
-                                        label="Show Pareto Frontier",
-                                        value=False,
-                                        className="candidate-pareto",
+                                    html.Div(
+                                        [
+                                            dbc.Switch(
+                                                id=cid("pareto"),
+                                                label="Show Pareto Frontier",
+                                                value=False,
+                                                className="candidate-plot-switch",
+                                            ),
+                                            dbc.Switch(
+                                                id=cid("elites"),
+                                                label="Show elites",
+                                                value=False,
+                                                className="candidate-plot-switch",
+                                            ),
+                                            dbc.Select(
+                                                id=cid("elite-fraction"),
+                                                value="0.05",
+                                                options=[
+                                                    {
+                                                        "label": f"Top {percent}%",
+                                                        "value": str(percent / 100),
+                                                    }
+                                                    for percent in (1, 5, 10, 20)
+                                                ],
+                                                style={"width": "110px"},
+                                            ),
+                                        ],
+                                        className="candidate-plot-controls",
                                     ),
                                     analysis_graph(
                                         cid("scatter"), 430, config.FIGURE_DOWNLOAD_SCALE
                                     ),
                                     html.Div(
-                                        "Click to toggle a trial. Box or lasso adds trials to the selection.",
+                                        "Click to toggle a trial. "
+                                        "Box or lasso adds trials to the selection.",
                                         className="candidate-hint",
                                     ),
                                 ]
@@ -277,7 +315,8 @@ class SelectCandidates(Plugin):
                                         placeholder="Choose axes …",
                                     ),
                                     html.Small(
-                                        "Remove axes to hide them; drag axes in the plot to reorder.",
+                                        "Remove axes to hide them; "
+                                        "drag axes in the plot to reorder.",
                                         className="candidate-hint",
                                     ),
                                 ],
@@ -303,13 +342,25 @@ class SelectCandidates(Plugin):
 
     @interactive
     def register_callbacks(self) -> None:
-        """Cache trial preparation; update selection locally without rebuilding source data."""
+        """Download trial data once; prepare table and scatter views locally in the browser."""
         from deepcave import app, rc, run_handler
+
+        for name in ("objectives", "studies"):
+            app.clientside_callback(
+                ClientsideFunction(namespace="candidateSelectors", function_name="summarize"),
+                Output(cid(name + "-summary"), "children"),
+                Output(cid(name + "-summary"), "title"),
+                Output(cid(name + "-summary"), "className"),
+                Output(cid(name + "-count"), "children"),
+                Input(cid(name), "options"),
+                Input(cid(name), "value"),
+                State(cid(name), "id"),
+            )
 
         @app.callback(
             Output(cid("data"), "data"),
             Output(cid("studies"), "options"),
-            Output(cid("status"), "children"),
+            Output(cid("objective-context"), "data"),
             Input(cid("mounted"), "data"),
             Input("global-run-selector", "value"),
             Input(cid("studies"), "value"),
@@ -332,10 +383,10 @@ class SelectCandidates(Plugin):
                 if source_id not in available:
                     continue
                 run = available[source_id]
-                prepared = rc.get(run, self.id, "trials-v1")
+                prepared = rc.get(run, self.id, "trials-v2")
                 if prepared is None:
                     prepared = candidate_data(run)
-                    rc.set(run, self.id, "trials-v1", value=prepared)
+                    rc.set(run, self.id, "trials-v2", value=prepared)
                 data["rows"].extend(prepared["rows"])
                 data["objectives"].update(prepared["objectives"])
                 if source_id == run_id:
@@ -343,72 +394,41 @@ class SelectCandidates(Plugin):
             # Loading the same source through two snapshot paths must not duplicate trials.
             data["rows"] = list({row["id"]: row for row in data["rows"]}.values())
             options = [{"label": run.name, "value": run.id} for run in runs if run.id != run_id]
-            return (
-                data,
-                options,
-                f"{len(data['rows']):,} trials in the current study context. Selection persists across context changes.",
-            )
+            return data, options, {"keymap": data["keymap"]}
 
-        @app.callback(
+        app.clientside_callback(
+            ClientsideFunction(namespace="candidateExplorer", function_name="objectives"),
             Output(cid("objectives"), "options"),
             Output(cid("objectives"), "value"),
             Input(cid("data"), "data"),
             State(cid("objectives"), "value"),
         )
-        def objective_columns(data: Any, current: Any) -> tuple:
-            objectives = (data or {}).get("objectives", {})
-            options = [{"label": info["label"], "value": key} for key, info in objectives.items()]
-            values = (
-                list(objectives)
-                if current is None
-                else [key for key in current if key in objectives]
-            )
-            return options, values
 
-        @app.callback(
-            Output(cid("table"), "data"),
+        app.clientside_callback(
+            ClientsideFunction(namespace="candidateExplorer", function_name="table"),
+            Output(cid("table-source"), "data"),
             Output(cid("table"), "columns"),
-            Output(cid("table"), "tooltip_data"),
             Input(cid("data"), "data"),
             Input(cid("objectives"), "value"),
-            Input(cid("states"), "value"),
+            State(cid("presentation"), "data"),
         )
-        def update_table(data: Any, metrics: Any, states: Any) -> tuple:
-            rows, columns = table_data(data or {}, metrics, states)
-            tooltips = [
-                {
-                    column["id"]: {"value": str(row.get(column["id"], "")), "type": "text"}
-                    for column in columns
-                }
-                for row in rows
-            ]
-            return rows, columns, tooltips
-
-        @app.callback(
-            Output(cid("scatter"), "figure"),
+        app.clientside_callback(
+            ClientsideFunction(namespace="candidateExplorer", function_name="visibleIds"),
+            Output(cid("visible-ids"), "data"),
             Input(cid("table"), "derived_virtual_row_ids"),
-            Input(cid("table"), "data"),
+            State(cid("visible-ids"), "data"),
+        )
+        app.clientside_callback(
+            ClientsideFunction(namespace="candidateExplorer", function_name="scatter"),
+            Output(cid("scatter"), "figure"),
+            Input(cid("visible-ids"), "data"),
             Input(cid("data"), "data"),
             Input("global-main-objective-state", "data"),
             Input(cid("pareto"), "value"),
+            Input(cid("elites"), "value"),
+            Input(cid("elite-fraction"), "value"),
+            State(cid("presentation"), "data"),
         )
-        def update_scatter(visible_ids: Any, table: Any, data: Any, state: Any, pareto: Any) -> Any:
-            data = data or {}
-            ids = set(
-                visible_ids if visible_ids is not None else [row["id"] for row in table or []]
-            )
-            objective = central_objective(data, state)
-            direction = (
-                (state or {}).get("direction")
-                if (objective or "").startswith("user_attr:")
-                else None
-            )
-            return scatter_figure(
-                [row for row in data.get("rows", []) if row["id"] in ids],
-                objective,
-                pareto,
-                direction,
-            )
 
         # The only writer of permanent selection also owns table checkbox projection.
         # Dash supports circular synchronization within one callback.
@@ -420,6 +440,9 @@ class SelectCandidates(Plugin):
                 Output(cid("table"), "selected_rows"),
                 Output(cid("table"), "active_cell"),
                 Output(cid("table"), "style_data_conditional"),
+                Output(cid("table"), "data"),
+                Output(cid("table"), "tooltip_data"),
+                Output(cid("table"), "page_current"),
             ],
             [
                 Input(cid("table"), "selected_row_ids"),
@@ -427,8 +450,9 @@ class SelectCandidates(Plugin):
                 Input(cid("event"), "data"),
                 Input({"type": "candidate-remove", "key": ALL}, "n_clicks"),
                 Input(cid("clear"), "n_clicks"),
-                Input(cid("table"), "data"),
+                Input(cid("table-source"), "data"),
                 Input(cid("data"), "data"),
+                Input(cid("table"), "sort_by"),
             ],
             State(cid("selection"), "data"),
         )
@@ -447,10 +471,8 @@ class SelectCandidates(Plugin):
             Output(cid("export"), "title"),
             Output(cid("export"), "aria-disabled"),
             Input(cid("selection"), "data"),
-            Input("global-main-objective-state", "data"),
-            Input(cid("data"), "data"),
         )
-        def update_collection(selection: Any, state: Any, data: Any) -> tuple:
+        def update_collection(selection: Any) -> tuple:
             rows = list((selection or {}).values())
             chips = [
                 html.Div(
@@ -459,13 +481,23 @@ class SelectCandidates(Plugin):
                             style={"backgroundColor": row["color"]}, className="candidate-swatch"
                         ),
                         html.Span(f"{row['study_name']} · Trial {row['trial_number']}"),
+                        dcc.Link(
+                            "Sensitivity",
+                            href=f"/plugins/sensitivity_analysis?trial={row['id']}",
+                            title=(
+                                "Inspect this trial's configuration and seed repetitions "
+                                "in the current study/group context"
+                            ),
+                        ),
                         html.Button(
                             "×",
                             id={"type": "candidate-remove", "key": row["id"]},
                             n_clicks=0,
                             title="Remove trial",
                             **{
-                                "aria-label": f"Remove {row['study_name']} trial {row['trial_number']}"
+                                "aria-label": (
+                                    f"Remove {row['study_name']} trial {row['trial_number']}"
+                                )
                             },
                         ),
                     ],
@@ -479,7 +511,7 @@ class SelectCandidates(Plugin):
             href, title = None, "Select trials to export."
             if rows:
                 try:
-                    content = selected_trials_toml(rows, central_objective(data or {}, state))
+                    content = selected_trials_toml(rows)
                     href = "data:application/toml;charset=utf-8," + quote(content, safe="")
                     title = f"Download {len(rows):,} selected trials as TOML"
                 except ValueError as error:
@@ -517,7 +549,7 @@ class SelectCandidates(Plugin):
             Input(cid("selection"), "data"),
             Input(cid("axes"), "value"),
             Input("global-main-objective-state", "data"),
-            Input(cid("data"), "data"),
+            Input(cid("objective-context"), "data"),
         )
         def update_parallel(selection: Any, axes: Any, state: Any, data: Any) -> tuple:
             figure, note = parallel_figure(

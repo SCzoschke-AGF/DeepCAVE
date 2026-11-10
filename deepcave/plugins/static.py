@@ -29,6 +29,7 @@ from abc import ABC
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import traceback
+from copy import copy
 from enum import Enum
 from functools import wraps
 from time import monotonic
@@ -136,6 +137,8 @@ def _processing_inputs_key(plugin: "StaticPlugin", inputs: Dict[str, Any]) -> st
         used_ids.add(input_id)
     if "_global_main_objective" in inputs:
         processing_inputs["_global_main_objective"] = inputs["_global_main_objective"]
+    if "_sampling_filter" in inputs:
+        processing_inputs["_sampling_filter"] = inputs["_sampling_filter"]
     if getattr(plugin, "processing_version", 0):
         processing_inputs["_processing_version"] = plugin.processing_version
     return string_to_hash(str(processing_inputs))
@@ -358,6 +361,7 @@ class StaticPlugin(Plugin, ABC):
                         "run_id": run.id,
                         "plugin_id": self.id,
                         "inputs_key": inputs_key,
+                        "sampling_filter_key": getattr(run, "_sampling_filter_key", None),
                         "link": link,
                     }
 
@@ -404,6 +408,9 @@ class StaticPlugin(Plugin, ABC):
 
                     self.logger.debug(f"Job {job_id} for run_id {job_meta['run_id']}.")
                     run = run_handler.get_run(job_run_id)
+                    # A finished job can belong to a subset selected before the user switched.
+                    run = copy(run)
+                    run._sampling_filter_key = job_meta.get("sampling_filter_key")
                     rc.set(run, job_plugin_id, job_inputs_key, job_run_outputs)
                     self.logger.debug(f"Job {job_id} cached.")
 

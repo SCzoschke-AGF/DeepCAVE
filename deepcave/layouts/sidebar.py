@@ -27,7 +27,7 @@ Callbacks are registered and handled.
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import dash_bootstrap_components as dbc
-from dash import ALL, dcc, html, no_update
+from dash import ALL, ctx, dcc, html, no_update
 from dash.dependencies import Input, Output, State
 from dash.development.base_component import Component
 from dash.exceptions import PreventUpdate
@@ -42,6 +42,7 @@ from deepcave.utils.global_objective import (
     is_user_attr_objective,
     main_objective_options,
 )
+from deepcave.utils.sampling import SAMPLING_METHODS_CACHE_KEY
 
 
 class SidebarLayout(Layout):
@@ -91,18 +92,14 @@ class SidebarLayout(Layout):
             """
             function(pathname, linkIds) {
                 const path = String(pathname || "").split("?")[0];
-                return [
-                    (linkIds || []).map(function(id) {
-                        return path === `/plugins/${id.plugin}` ? "nav-link active" : "nav-link";
-                    }),
-                    path === "/" ? "nav-link active" : "nav-link",
-                ];
+                return (linkIds || []).map(function(id) {
+                    const active = path === `/plugins/${id.plugin}` ||
+                        (path === "/" && id.plugin === "all_runs_overview");
+                    return active ? "nav-link active" : "nav-link";
+                });
             }
             """,
-            [
-                Output({"type": "navigation-link", "plugin": ALL}, "className"),
-                Output("general-navigation-link", "className"),
-            ],
+            Output({"type": "navigation-link", "plugin": ALL}, "className"),
             Input("on-page-load", "pathname"),
             State({"type": "navigation-link", "plugin": ALL}, "id"),
         )
@@ -153,10 +150,13 @@ class SidebarLayout(Layout):
         @app.callback(  # type: ignore
             Output("global-run-selection-trigger", "data"),
             Input("global-run-selector", "value"),
+            Input("global-sampling-filter-state", "data"),
             State("global-run-selection-trigger", "data"),
         )
-        def select_global_run(run_id: Optional[str], trigger: Optional[int]) -> int:
-            """Persist an explicit selection made in the sidebar."""
+        def select_global_run(
+            run_id: Optional[str], sampling_state: Any, trigger: Optional[int]
+        ) -> int:
+            """Persist the run and refresh analyses after a trial-subset change."""
             from deepcave import run_handler
 
             # dcc.Dropdown can emit a short-lived None while its options are reconciled.  It is
@@ -170,6 +170,57 @@ class SidebarLayout(Layout):
                 raise PreventUpdate()
 
             return (trigger or 0) + 1
+
+        @app.callback(  # type: ignore
+            Output("global-sampling-methods", "options"),
+            Output("global-sampling-methods", "value"),
+            Output("global-sampling-methods", "disabled"),
+            Output("global-sampling-filter-state", "data"),
+            Output("global-sampling-methods-help", "children"),
+            Input("global-update", "n_intervals"),
+            Input("general-sampler-attribute", "value"),
+            Input("global-sampling-methods", "value"),
+            State("global-sampling-methods", "options"),
+            State("global-sampling-filter-state", "data"),
+        )
+        def sampling_methods(
+            _tick: Any, _mapping: Any, chosen: Any, current_options: Any, current_state: Any
+        ) -> Any:
+            """Reuse the General mapping; retain the unfiltered choices while filtering."""
+            from deepcave import c, run_handler
+            from deepcave.runs.handler import OPTUNA_SAMPLER_ATTRIBUTE_CACHE_KEY
+
+            attribute = c.get(OPTUNA_SAMPLER_ATTRIBUTE_CACHE_KEY)
+            if ctx.triggered_id == "global-sampling-methods":
+                run_handler.set_sampling_methods(chosen)
+            values = c.get(SAMPLING_METHODS_CACHE_KEY) or []
+            options = run_handler.get_sampling_method_options()
+            known = {option["value"] for option in options}
+            previous = {option["value"]: option for option in current_options or []}
+            options += [
+                previous.get(value, {"label": "Unavailable method", "value": value})
+                for value in values
+                if value not in known
+            ]
+            state = {"attribute": attribute, "methods": values}
+            if (
+                state == current_state
+                and options == (current_options or [])
+                and values == (chosen or [])
+            ):
+                return (no_update,) * 5
+            help_text = (
+                "Choose Sampler under All Runs Overview → Selected Studies → Optuna metadata."
+                if not attribute
+                else ""
+            )
+            return (
+                options,
+                values,
+                not attribute or not options,
+                state if state != current_state else no_update,
+                help_text,
+            )
 
         @app.callback(  # type: ignore
             [
@@ -331,17 +382,6 @@ class SidebarLayout(Layout):
                 html.Div(
                     className="position-sticky pt-3",
                     children=[
-                        html.Ul(
-                            className="nav flex-column",
-                            children=[
-                                dcc.Link(
-                                    "General",
-                                    id="general-navigation-link",
-                                    className="nav-link",
-                                    href="/",
-                                )
-                            ],
-                        ),
                         html.Div(
                             [
                                 dbc.Label("Run", className="small text-muted mb-1"),
@@ -359,6 +399,36 @@ class SidebarLayout(Layout):
                                     persistence_type="local",
                                 ),
                                 dcc.Store(id="global-run-selection-trigger", data=0),
+                                html.Details(
+                                    [
+                                        html.Summary(
+                                            "Filters",
+                                            className="small text-muted mb-2",
+                                            style={"cursor": "pointer"},
+                                        ),
+                                        dbc.Label(
+                                            "Select trials by sampling method",
+                                            className="small text-muted mb-1",
+                                        ),
+                                        dcc.Dropdown(
+                                            id="global-sampling-methods",
+                                            multi=True,
+                                            options=[],
+                                            value=[],
+                                            disabled=True,
+                                            placeholder="All methods",
+                                            clearable=True,
+                                        ),
+                                        html.Small(
+                                            id="global-sampling-methods-help",
+                                            className="text-muted d-block mt-1",
+                                        ),
+                                        dcc.Store(id="global-sampling-filter-state"),
+                                    ],
+                                    id="global-trial-filters",
+                                    open=False,
+                                    className="pt-3",
+                                ),
                                 html.Div(
                                     [
                                         dbc.Label(

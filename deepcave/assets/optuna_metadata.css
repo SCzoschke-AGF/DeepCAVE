@@ -1,0 +1,43 @@
+.optuna-metadata-table {
+    width: 100%;
+    table-layout: fixed;
+    font-size: 14px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+}
+
+.optuna-metadata-table > :not(caption) > tr > * {
+    padding: 9px 12px;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    border-bottom-color: #edf0f3;
+}
+
+.optuna-metadata-table th:first-child {
+    width: 30%;
+}
+
+.optuna-metadata-table th {
+    font-weight: 500;
+    color: #526071;
+}
+
+.optuna-metadata-table thead th {
+    background: #f7f8fa;
+}
+
+.optuna-metadata-table--nested {
+    margin-bottom: 0;
+    font-size: inherit;
+    border: none;
+}
+
+.optuna-metadata-table--nested > tbody > tr:first-child > * {
+    padding-top: 0;
+}
+
+.optuna-metadata-table--nested > tbody > tr:last-child > * {
+    padding-bottom: 0;
+    border-bottom: none;
+}

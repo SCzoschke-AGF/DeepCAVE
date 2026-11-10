@@ -97,8 +97,8 @@ def test_dependency_inputs_discover_metrics_directions_and_clamp_n():
 
     assert dependency["x_metric"] == {
         "options": [
-            {"label": "Objective · Loss", "value": "objective:0"},
-            {"label": "User attr · score", "value": "user_attr:score"},
+            {"label": "Loss", "value": "objective:0"},
+            {"label": "score", "value": "user_attr:score"},
         ],
         "value": "objective:0",
     }

@@ -129,12 +129,15 @@ class Config:
         from deepcave.plugins.objective.cost_over_time import CostOverTime
         from deepcave.plugins.objective.multi_metrics_comparison import MultiMetricsComparison
         from deepcave.plugins.select_candidates import SelectCandidates
+        from deepcave.plugins.sensitivity_analysis import SensitivityAnalysis
+        from deepcave.plugins.summary.all_runs_overview import AllRunsOverview
         from deepcave.plugins.summary.overview import Overview
         from deepcave.plugins.summary.run_overview import RunOverview
 
         plugins: Dict[str, List[Any]] = {}
         plugins = {
             "Summary": [
+                AllRunsOverview(),
                 Overview(),
                 RunOverview(),
             ],
@@ -152,6 +155,7 @@ class Config:
             ],
             "Configuration Analyses": [
                 SelectCandidates(),
+                SensitivityAnalysis(),
                 ParameterDependencies(),
                 SearchSpaceCoverage(),
                 NearOptimalConfigurations(),

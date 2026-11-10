@@ -42,7 +42,7 @@ from ConfigSpace.hyperparameters import Hyperparameter
 from deepcave.runs import Status
 from deepcave.runs.objective import Objective
 from deepcave.runs.run import Run
-from deepcave.utils.hash import file_to_hash
+from deepcave.utils.hash import file_to_hash, string_to_hash
 from deepcave.utils.logs import get_logger
 
 logger = get_logger(__name__)
@@ -118,7 +118,9 @@ class OptunaRun(Run):
             return ""
 
         pickle_file = OptunaRun._get_pickle_file(self.path)
-        return file_to_hash(pickle_file)
+        source_hash = file_to_hash(pickle_file)
+        subset = getattr(self, "_sampling_filter_key", None)
+        return string_to_hash(f"{source_hash}:{subset}") if subset else source_hash
 
     @property
     def latest_change(self) -> Union[float, int]:
@@ -197,10 +199,16 @@ class OptunaRun(Run):
                     Constant(name=hp_name, value=hp.low, meta={"step": hp.step})
                 )
             elif isinstance(hp, FloatDistribution):
+                # ConfigSpace's normalisation can round values exactly on a bound out of range.
+                if hp.log:
+                    bounds = (hp.low * (1 - 1e-9), hp.high * (1 + 1e-9))
+                else:
+                    pad = (hp.high - hp.low) * 1e-9
+                    bounds = (hp.low - pad, hp.high + pad)
                 hyperparameters.append(
                     Float(
                         name=hp_name,
-                        bounds=(hp.low, hp.high),
+                        bounds=bounds,
                         distribution=Uniform(),
                         default=None,
                         log=hp.log,
@@ -268,7 +276,7 @@ class OptunaRun(Run):
 
         user_attr_objective_offset = len(obj_list)
         obj_list.extend(
-            Objective(f"user_attr:{name}", optimize="upper") for name in user_attr_objective_names
+            Objective(name, optimize="upper") for name in user_attr_objective_names
         )
         obj_list.append(Objective("Time"))
 
@@ -350,11 +358,7 @@ class OptunaRun(Run):
                         float(value) if value is not None and math.isfinite(value) else None
                         for value in (trial.values or [])
                     ],
-                    "user_attrs": {
-                        name: float(value)
-                        for name, value in trial.user_attrs.items()
-                        if _is_finite_numeric_user_attr(value)
-                    },
+                    "user_attrs": dict(trial.user_attrs),
                     "parameters": dict(trial.params),
                     "distributions": {
                         name: {
@@ -387,13 +391,13 @@ class OptunaRun(Run):
         for trial in supported_trials:
             try:
                 config = Configuration(configspace, trial.params)
-            except ValueError:
+            except ValueError as error:
                 raise ValueError(
                     f"Could not convert the configuration of trial {trial.number} to "
-                    f"a ConfigSpace configuration.\nThis might be due to the "
-                    f"configuration space containing conditionals or dynamic "
-                    f"hyperparameter value ranges, which are currently not supported."
-                )
+                    f"a ConfigSpace configuration ({type(error).__name__}: {error}).\n"
+                    f"This might be due to the configuration space containing conditionals "
+                    f"or dynamic hyperparameter value ranges, which are currently not supported."
+                ) from error
 
             if trial.state == TrialState.COMPLETE:
                 status = Status.SUCCESS

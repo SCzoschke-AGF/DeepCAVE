@@ -110,6 +110,7 @@ class Plugin(Layout, ABC):
     button_caption: str = "Process"
     processing_version: int = 0
     activate_run_selection: bool = False
+    requires_run: bool = True
     allow_additional_runs: bool = False
     main_objective_input: Optional[str] = None
     main_objective_input_type: Any = int
@@ -1247,9 +1248,15 @@ class Plugin(Layout, ABC):
                     if additional_run_id in valid_candidates:
                         selected_runs.append(valid_candidates.pop(additional_run_id))
 
-            return selected_runs
+        else:
+            selected_runs = self.all_runs
 
-        return self.all_runs
+        subsets = {run.id: getattr(run, "_sampling_filter_key", None) for run in selected_runs}
+        if any(subsets.values()):
+            inputs["_sampling_filter"] = subsets
+        else:
+            inputs.pop("_sampling_filter", None)
+        return selected_runs
 
     def apply_global_main_objective(
         self,

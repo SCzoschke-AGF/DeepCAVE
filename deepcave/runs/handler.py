@@ -38,8 +38,16 @@ from deepcave.runs.run import Run
 from deepcave.utils.cache import Cache
 from deepcave.utils.logs import get_logger
 from deepcave.utils.run_caches import RunCaches
+from deepcave.utils.sampling import (
+    SAMPLING_METHODS_CACHE_KEY,
+    filtered_run,
+    method_options,
+    sampling_signature,
+)
 
 OPTUNA_SAMPLER_ATTRIBUTE_CACHE_KEY = "optuna_sampler_attribute"
+MODEL_SEED_ATTRIBUTE_CACHE_KEY = "optuna_model_seed_attribute"
+DATA_SEED_ATTRIBUTE_CACHE_KEY = "optuna_data_seed_attribute"
 RUN_ABBREV_ATTRIBUTES_CACHE_KEY = "optuna_run_abbrev_attributes"
 RUN_ABBREV_AS_NAME_CACHE_KEY = "optuna_run_abbrev_as_name"
 
@@ -97,6 +105,7 @@ class RunHandler:
         # Internal state
         self.runs: Dict[str, AbstractRun] = {}  # run_name -> Run
         self.groups: Dict[str, Group] = {}  # group_name -> GroupedRun
+        self._sampling_views: Dict[str, tuple[AbstractRun, str, AbstractRun]] = {}
 
         # Read from cache and update
         self.c.read()
@@ -190,10 +199,45 @@ class RunHandler:
     def set_optuna_sampler_attribute(self, attribute: Optional[str]) -> None:
         """Persist the selection and apply it to all loaded Optuna runs."""
         with self._update_lock:
+            if self.c.get(OPTUNA_SAMPLER_ATTRIBUTE_CACHE_KEY) != attribute:
+                self.c.set(SAMPLING_METHODS_CACHE_KEY, value=[])
+                self._sampling_views = {}
             self.c.set(OPTUNA_SAMPLER_ATTRIBUTE_CACHE_KEY, value=attribute)
             for run in self.runs.values():
                 self._apply_optuna_sampler(run)
             self.update_groups()
+
+    def get_sampling_method_options(self) -> List[Dict]:
+        """List method values from unfiltered loaded studies using the General mapping."""
+        with self._update_lock:
+            self.update()
+            return method_options(
+                list(self.runs.values()), self.c.get(OPTUNA_SAMPLER_ATTRIBUTE_CACHE_KEY)
+            )
+
+    def set_sampling_methods(self, methods: Optional[List[str]]) -> None:
+        """Persist the global trial subset; an empty selection includes all trials."""
+        with self._update_lock:
+            values = sorted(set(methods or []))
+            if self.c.get(SAMPLING_METHODS_CACHE_KEY) != values:
+                self.c.set(SAMPLING_METHODS_CACHE_KEY, value=values)
+                self._sampling_views = {}
+
+    def _sampling_view(self, run: AbstractRun) -> AbstractRun:
+        """Provide the same trial subset to every analytical run consumer."""
+        attribute = self.c.get(OPTUNA_SAMPLER_ATTRIBUTE_CACHE_KEY)
+        methods = self.c.get(SAMPLING_METHODS_CACHE_KEY) or []
+        signature = sampling_signature(attribute, methods)
+        if signature is None:
+            return run
+        views = getattr(self, "_sampling_views", {})
+        cached = views.get(run.id)
+        if cached is not None and cached[0] is run and cached[1] == signature:
+            return cached[2]
+        view = filtered_run(run, attribute, methods)
+        views[run.id] = (run, signature, view)
+        self._sampling_views = views
+        return view
 
     def _apply_optuna_run_name(self, run: AbstractRun) -> None:
         """Set the display name without changing the study metadata or run identity."""
@@ -635,9 +679,11 @@ class RunHandler:
         """
         with self._update_lock:
             self.update()
-            return list(self.groups.values())
+            return [self._sampling_view(group) for group in self.groups.values()]
 
-    def get_runs(self, include_groups: bool = False) -> List[AbstractRun]:
+    def get_runs(
+        self, include_groups: bool = False, apply_filter: bool = True
+    ) -> List[AbstractRun]:
         """
         Return the runs from the internal cache.
 
@@ -648,6 +694,8 @@ class RunHandler:
         ----------
         include_groups : bool, optional
             Includes the groups, by default False.
+        apply_filter : bool, optional
+            Apply the global sampling-method subset, by default True.
 
         Returns
         -------
@@ -661,7 +709,7 @@ class RunHandler:
             if include_groups:
                 runs += list(self.groups.values())
 
-            return runs
+            return [self._sampling_view(run) for run in runs] if apply_filter else runs
 
     def is_run(self, path_name: str) -> bool:
         """

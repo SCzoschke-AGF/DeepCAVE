@@ -8,7 +8,36 @@ and the proportion of plottable trials that should be considered elite.
 The X and Y cards group each hyperparameter selection with its search range and bin count.
 The Elite card sets the elite proportion and resets both feature ranges.
 
-The full-width plot shows every successful trial without binning. Point colors encode the selected
+The upper-left heatmap shows approximate fANOVA interaction importances for all pairs of
+non-constant features. Click **Calculate** to run the same heuristic screening used in Importances:
+an 8 × 8 grid with 16 × 16 refinement of promising or numerically uncertain pairs and shifted-grid
+checks. It uses 10 trees and the highest budget, reusing the shared fANOVA model cache. Scores show
+the pure pair interaction after removing individual effects. Each pair appears once in the upper
+triangle as a rounded tile with its score in percent, matching the hover; the diagonal and lower
+triangle remain empty. A muted
+gray–green–yellow scale runs from low to high interaction relative to the largest displayed score.
+The currently selected feature pair has an outline. Hover
+details show the approximate importance and screening status. Click a cell to select its column as
+X and its row as Y for all three empirical plots. Changing the study or objective clears the
+heatmap; calculate again for the new selection. Feature, range and bin changes do not trigger
+screening. No exact pair integrations are performed for this heatmap.
+
+Below the empirical plots on the left, **Search space coverage** shows a dedicated density heatmap
+without a trial scatter. It follows the selected X and Y features, including selections made in the
+fANOVA heatmap, and uses each feature's bin count independently. The **20 × 20 bins** button sets
+both feature controls to the recommended 20 bins. While 20 × 20 is selected, the button shows the
+previous X × Y bin counts and restores them when clicked. Discrete support smaller than the requested bin
+count uses fewer cells. Cell colors indicate the number of successful trials and highlight empty
+cells; the only summary metric is **Empty cells**, shown as a percentage and count. Coverage always
+uses the full configured space, including unobserved values, independently of planned ranges.
+
+To its right, **Cell performance · Best trial** uses the same coverage grid and colors each cell
+by its best finite value of the selected objective, honoring minimization or maximization. Brighter
+colors indicate better values. Beige cells have no finite objective value. This view has no trial
+scatter or coverage summary metrics. Feature selections, bin changes and the 20 × 20 toggle apply
+to both plots; changing the objective updates the performance colors.
+
+The upper-right plot shows every successful trial without binning. Point colors encode the selected
 objective value, and the color direction follows the optimization direction. A switch in the plot
 header can instead color points by trial rank. The lower-left
 heatmap groups both hyperparameters into joint bins and displays elite enrichment relative to the

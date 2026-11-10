@@ -28,7 +28,7 @@ def _walk_components(component):
             yield from _walk_components(child)
 
 
-def test_optuna_study_dropdown_uses_full_study_names(monkeypatch, tmp_path):
+def test_optuna_discovery_keeps_full_study_names(monkeypatch, tmp_path):
     callbacks = []
 
     def register_callback(*_args, **_kwargs):
@@ -68,17 +68,11 @@ def test_optuna_study_dropdown_uses_full_study_names(monkeypatch, tmp_path):
 
     layout = object.__new__(general_module.GeneralLayout)
     layout._callback_discover_optuna_studies()
-    options, selected_study, message, class_name, discovery, placeholder, disabled = callbacks[0](
-        "optuna.db", str(tmp_path), None, None
-    )
+    message, class_name, discovery = callbacks[0]("optuna.db", str(tmp_path))
 
-    assert options == [{"label": long_study_name, "value": long_study_name}]
-    assert selected_study is None
     assert message == ""
     assert class_name == "d-none"
     assert discovery["studies"] == [long_study_name]
-    assert placeholder == "Select a study (1 available)"
-    assert disabled is False
 
 
 def test_group_layout_restores_relaxed_configspace_setting(monkeypatch):
@@ -153,26 +147,30 @@ def test_initial_run_management_callback_preserves_plugin_inputs(monkeypatch):
 
     layout = object.__new__(general_module.GeneralLayout)
     layout._callback_manage_run()
-    callbacks[0]([], [], None, [], [], None, None, 0)
+    monkeypatch.setattr(general_module, "ctx", SimpleNamespace(triggered_id=None))
+    callbacks[0]([], [], None, [], 0, [])
 
     assert writes == []
 
 
-def test_general_page_only_exposes_optuna_loading(general_callbacks):
+def test_database_controls_omit_the_old_study_selection(general_callbacks):
     general_module, general_layout, _callbacks = general_callbacks
-    layout = general_layout()
+    layout = general_layout.database_controls()
 
     card = next(component for component in layout if isinstance(component, general_module.dbc.Card))
     card_ids = {getattr(component, "id", None) for component in _walk_components(card)}
     assert {
         "general-optuna-database-input",
         "general-optuna-browse-button",
-        "general-optuna-study-dropdown",
-        "general-optuna-load-button",
         "general-optuna-database-status",
+        "all-runs-status",
     } <= card_ids
     all_components = [component for child in layout for component in _walk_components(child)]
+    loading = next(component for component in all_components if isinstance(component, general_module.dcc.Loading))
+    assert loading.target_components == {"all-runs-status": "children"}
     all_ids = {getattr(component, "id", None) for component in all_components}
+    assert "general-optuna-study-dropdown" not in all_ids
+    assert "general-optuna-load-button" not in all_ids
     assert "general-working-directory-input" not in all_ids
     assert "general-available-runs-container" not in all_ids
     assert "general-converter-label" not in all_ids
@@ -193,7 +191,6 @@ def test_general_page_only_exposes_optuna_loading(general_callbacks):
     ]
     assert [[child.id for child in row.children] for row in rows] == [
         ["general-optuna-database-input", "general-optuna-browse-button"],
-        ["general-optuna-study-dropdown", "general-optuna-load-button"],
     ]
 
 
@@ -214,7 +211,9 @@ def general_callbacks(monkeypatch):
     monkeypatch.setattr(module, "app", SimpleNamespace(callback=register_callback))
     monkeypatch.setattr(module, "c", Cache())
     monkeypatch.setattr(
-        module, "run_handler", SimpleNamespace(get_working_directory=lambda: Path.cwd())
+        module, "run_handler", SimpleNamespace(
+            get_working_directory=lambda: Path.cwd(), get_selected_run_paths=lambda: []
+        )
     )
     layout = object.__new__(module.GeneralLayout)
     return module, layout, callbacks
@@ -232,25 +231,18 @@ def test_database_and_studies_are_restored_after_reload(general_callbacks, monke
     database = _database(tmp_path / "optuna.db", ["first", "second"])
     layout._callback_discover_optuna_studies()
     discover = callbacks[0]
-    discover(database.name, str(tmp_path), None, None)
+    discover(database.name, str(tmp_path))
 
     # Initial discovery with an empty input must not erase the remembered database.
-    discover("", str(tmp_path), None, None)
+    discover("", str(tmp_path))
     layout._callback_browse_optuna_database()
     monkeypatch.setattr(module, "ctx", SimpleNamespace(triggered_id=None))
     opened, _directory, _entries, restored, error = callbacks[1](None, None, None, None, [], "")
     assert opened is False
     assert restored == str(database)
     assert error == ""
-    options, selected, _message, _class, _discovery, _placeholder, disabled = discover(
-        restored, str(tmp_path), None, None
-    )
-    assert options == [
-        {"label": "first", "value": "first"},
-        {"label": "second", "value": "second"},
-    ]
-    assert selected is None
-    assert disabled is False
+    _message, _class, discovery = discover(restored, str(tmp_path))
+    assert discovery["studies"] == ["first", "second"]
 
 
 def test_database_restore_without_a_saved_path(general_callbacks, monkeypatch):
@@ -306,6 +298,7 @@ def test_selected_run_table_uses_real_metadata_and_preserves_remove_targets(
             get_run_name=lambda path: names[path],
             get_selected_run_paths=lambda: selected.copy(),
             remove_run=lambda path: selected.remove(path),
+            update_groups=Mock(),
         ),
     )
     layout._callback_display_selected_runs()
@@ -351,8 +344,11 @@ def test_selected_run_table_uses_real_metadata_and_preserves_remove_targets(
     assert reordered.children[1].children[0].children[1].children.children == "0_xgboost_batch-42"
 
     layout._callback_manage_run()
-    result = callbacks[1]([], [None, 1, None], None, [], paths, None, None, 0)
-    assert result[2] == [paths[0], paths[2]]
+    monkeypatch.setattr(module, "ctx", SimpleNamespace(
+        triggered_id={"type": "general-dynamic-remove-run", "index": 1}
+    ))
+    result = callbacks[1]([None, 1, None], [], None, paths, 0, paths)
+    assert result[1] == [paths[0], paths[2]]
 
 
 @pytest.mark.parametrize("saved", [None, False, True])
@@ -451,6 +447,10 @@ def test_run_abbrev_attributes_preserve_order_and_saved_selection(general_callba
     )
     assert setting.multi is True
     assert setting.value == ["model", "dataset"]
+    assert setting.options == [
+        {"label": "model", "value": "model"},
+        {"label": "dataset", "value": "dataset"},
+    ]
     layout._callback_metadata_attribute(component_id, cache_key, multi=True)
     monkeypatch.setattr(module, "ctx", SimpleNamespace(triggered_id=None))
     options, selected = callbacks[0]([], [])
@@ -471,6 +471,8 @@ def test_sampler_attribute_setting_lists_keys_and_restores_selection(
     module, layout, callbacks = general_callbacks
     assert module.OPTUNA_METADATA_FIELDS == (
         ("Sampler", module.SAMPLER_ATTRIBUTE_ID, module.OPTUNA_SAMPLER_ATTRIBUTE_CACHE_KEY),
+        ("Model Seed", module.MODEL_SEED_ATTRIBUTE_ID, module.MODEL_SEED_ATTRIBUTE_CACHE_KEY),
+        ("Data Seed", module.DATA_SEED_ATTRIBUTE_ID, module.DATA_SEED_ATTRIBUTE_CACHE_KEY),
     )
     _label, component_id, cache_key = module.OPTUNA_METADATA_FIELDS[0]
     run = SimpleNamespace(
@@ -495,6 +497,7 @@ def test_sampler_attribute_setting_lists_keys_and_restores_selection(
         if getattr(component, "id", None) == component_id
     )
     assert setting.value == "trial:sampler"
+    assert setting.options == [{"label": "Trial: sampler", "value": "trial:sampler"}]
     assert setting.clearable is True
     layout._callback_metadata_attribute(component_id, cache_key)
     monkeypatch.setattr(module, "ctx", SimpleNamespace(triggered_id=None))
@@ -519,6 +522,46 @@ def test_sampler_attribute_setting_lists_keys_and_restores_selection(
     assert [call.args for call in mapping.call_args_list] == [(None,), ("study:sampler",)]
 
 
+@pytest.mark.parametrize("field", [1, 2])
+def test_seed_metadata_uses_existing_scoped_mapping_and_persistence(
+    general_callbacks, monkeypatch, field
+):
+    module, layout, callbacks = general_callbacks
+    _, component_id, cache_key = module.OPTUNA_METADATA_FIELDS[field]
+    monkeypatch.setattr(
+        module,
+        "run_handler",
+        SimpleNamespace(
+            get_working_directory=lambda: Path.cwd(),
+            runs={
+                "a": SimpleNamespace(
+                    get_meta=lambda: {"optuna_user_attrs": {"seed": 1}},
+                    history=[SimpleNamespace(additional={"user_attrs": {"custom_seed": 2}})],
+                )
+            },
+        ),
+    )
+    module.c.set(cache_key, value="trial:custom_seed")
+    setting = next(
+        component
+        for child in layout()
+        for component in _walk_components(child)
+        if getattr(component, "id", None) == component_id
+    )
+    assert setting.value == "trial:custom_seed" and setting.clearable
+    assert setting.options == [{"label": "Trial: custom_seed", "value": "trial:custom_seed"}]
+    layout._callback_metadata_attribute(component_id, cache_key)
+    monkeypatch.setattr(module, "ctx", SimpleNamespace(triggered_id=None))
+    options, value = callbacks[0]([], None)
+    assert value == "trial:custom_seed"
+    assert {option["value"] for option in options} == {"study:seed", "trial:custom_seed"}
+    monkeypatch.setattr(module, "ctx", SimpleNamespace(triggered_id=component_id))
+    callbacks[0]([], "study:seed")
+    assert module.c.get(cache_key) == "study:seed"
+    callbacks[0]([], None)
+    assert module.c.get(cache_key) is None
+
+
 @pytest.mark.parametrize("paths, count", [([], "0 runs"), (None, "0 runs"), (["/run"], "1 run")])
 def test_selected_run_table_empty_state_and_count(general_callbacks, monkeypatch, paths, count):
     module, layout, callbacks = general_callbacks
@@ -534,7 +577,7 @@ def test_selected_run_table_empty_state_and_count(general_callbacks, monkeypatch
         assert empty_cell.colSpan == 6
 
 
-def test_database_change_resets_study_even_if_both_databases_contain_it(
+def test_database_change_discovers_the_new_studies(
     general_callbacks, tmp_path
 ):
     _module, layout, callbacks = general_callbacks
@@ -543,14 +586,9 @@ def test_database_change_resets_study_even_if_both_databases_contain_it(
     first = _database(tmp_path / "first.db", ["shared", "first-only"])
     second = _database(tmp_path / "second.sqlite3", ["shared"])
 
-    discovery = discover(str(first), str(tmp_path), None, None)[4]
-    assert discover(str(first), str(tmp_path), "shared", discovery)[1] == "shared"
-    changed = discover(str(second), str(tmp_path), "shared", discovery)
-    assert changed[0] == [{"label": "shared", "value": "shared"}]
-    assert changed[1] is None
-    assert changed[6] is False
-    # A textual path change also clears a selection when it resolves to the same file.
-    assert discover(first.name, str(tmp_path), "shared", discovery)[1] is None
+    assert discover(str(first), str(tmp_path))[2]["studies"] == ["first-only", "shared"]
+    assert discover(str(second), str(tmp_path))[2]["studies"] == ["shared"]
+    assert discover(first.name, str(tmp_path))[2]["database"] == str(first)
 
 
 @pytest.mark.parametrize(
@@ -585,15 +623,10 @@ def test_database_errors_are_shown_next_to_the_selector(
     elif kind == "uri":
         database = f"sqlite:///{database}"
 
-    options, study, message, class_name, discovery, _placeholder, disabled = callbacks[0](
-        str(database), str(tmp_path), "old-study", None
-    )
-    assert options == []
-    assert study is None
+    message, class_name, discovery = callbacks[0](str(database), str(tmp_path))
     assert expected in message
     assert "text-danger" in class_name or "text-warning" in class_name
     assert discovery["error"] == message
-    assert disabled is True
 
 
 def test_empty_database_input_clears_discovery_without_an_initial_error(
@@ -601,8 +634,8 @@ def test_empty_database_input_clears_discovery_without_an_initial_error(
 ):
     _module, layout, callbacks = general_callbacks
     layout._callback_discover_optuna_studies()
-    result = callbacks[0]("", str(tmp_path), "old-study", {"database": "old.db"})
-    assert result == ([], None, "", "d-none", None, "Select a study", True)
+    result = callbacks[0]("", str(tmp_path))
+    assert result == ("", "d-none", None)
 
 
 def test_browser_navigates_and_selects_sqlite_without_changing_the_working_directory(
@@ -696,24 +729,6 @@ def test_browser_handles_manual_navigation_cancellation_and_permissions(
         assert result[1] == str(tmp_path)
 
 
-def test_load_button_rejects_stale_discovery_and_preserves_refresh(general_callbacks, tmp_path):
-    module, layout, callbacks = general_callbacks
-    layout._callback_update_optuna_button()
-    update = callbacks[0]
-    database = _database(tmp_path / "study.db", ["study"])
-    other = _database(tmp_path / "other.db", ["study"])
-    discovery = {"database": str(database), "input": str(database), "studies": ["study"]}
-    assert update(str(other), "study", str(tmp_path), 0, discovery) == ("Load Study", True)
-    assert update(database.name, "study", str(tmp_path), 0, discovery) == ("Load Study", True)
-    assert update(str(database), None, str(tmp_path), 0, discovery) == ("Load Study", True)
-    assert update(str(database), "study", str(tmp_path), 0, discovery) == ("Load Study", False)
-
-    snapshot = module.get_optuna_snapshot_path(database, "study", tmp_path)
-    snapshot.mkdir(parents=True)
-    (snapshot / module.SNAPSHOT_FILENAME).touch()
-    assert update(str(database), "study", str(tmp_path), 1, discovery) == ("Refresh Study", False)
-
-
 def test_loading_multiple_studies_preserves_existing_runs_and_database_selection(
     general_callbacks, monkeypatch, tmp_path
 ):
@@ -752,16 +767,148 @@ def test_loading_multiple_studies_preserves_existing_runs_and_database_selection
     )
     monkeypatch.setattr(module, "create_optuna_snapshot", snapshot)
 
-    first = load([], [], 1, [], selected_runs.copy(), str(database), "first", 0)
-    second = load([], [], 1, [], selected_runs.copy(), str(database), "second", first[3])
-    assert second[2] == [
-        "/existing-run",
-        str(module.get_optuna_snapshot_path(database, "first", tmp_path)),
-        str(module.get_optuna_snapshot_path(database, "second", tmp_path)),
+    monkeypatch.setattr(module, "ctx", SimpleNamespace(
+        triggered_id="all-runs-table", triggered_prop_ids={"all-runs-table.selected_rows": "all-runs-table"}
+    ))
+    from deepcave.utils.optuna import get_optuna_snapshot_path
+
+    rows = [
+        {"id": str(get_optuna_snapshot_path(database, name, tmp_path)),
+         "database": str(database), "study_name": name, "run": name}
+        for name in ["first", "second"]
     ]
-    assert second[3] == 2
+    first = load([], [0], rows, [], 0, selected_runs.copy())
+    second = load([], [0, 1], rows, [], first[2], selected_runs.copy())
+    assert second[1] == [
+        "/existing-run",
+        rows[0]["id"],
+        rows[1]["id"],
+    ]
+    assert second[2] == 2
     assert groups == {"existing-group": ["/existing-run"]}
     assert [call.args for call in snapshot.call_args_list] == [
         (database, "first", tmp_path),
         (database, "second", tmp_path),
     ]
+
+
+def test_overview_refresh_restores_checkboxes_without_selecting_or_removing_studies(
+    general_callbacks, monkeypatch
+):
+    module, layout, callbacks = general_callbacks
+    handler = SimpleNamespace(
+        get_selected_run_paths=lambda: ["/selected", "/other-database"],
+        add_run=Mock(), remove_run=Mock(),
+    )
+    monkeypatch.setattr(module, "run_handler", handler)
+    monkeypatch.setattr(module, "ctx", SimpleNamespace(
+        triggered_id="all-runs-table", triggered_prop_ids={"all-runs-table.data": "all-runs-table"}
+    ))
+    layout._callback_manage_run()
+    result = callbacks[0]([], [], [{"id": "/new"}, {"id": "/selected"}], [], 0, [])
+    assert result[1] == ["/selected", "/other-database"]
+    assert result[3] == [1]
+    handler.add_run.assert_not_called()
+    handler.remove_run.assert_not_called()
+
+
+def test_unchecking_a_study_preserves_selections_outside_the_overview(general_callbacks, monkeypatch):
+    module, layout, callbacks = general_callbacks
+    paths = ["/first", "/second", "/other-database"]
+    handler = SimpleNamespace(
+        get_selected_run_paths=lambda: paths.copy(),
+        remove_run=lambda path: paths.remove(path), update_groups=Mock(),
+    )
+    monkeypatch.setattr(module, "run_handler", handler)
+    monkeypatch.setattr(module, "ctx", SimpleNamespace(
+        triggered_id="all-runs-table", triggered_prop_ids={"all-runs-table.selected_rows": "all-runs-table"}
+    ))
+    layout._callback_manage_run()
+    result = callbacks[0](
+        [], [1], [{"id": "/first"}, {"id": "/second"}], [], 0, paths.copy()
+    )
+    assert result[1] == ["/second", "/other-database"]
+    assert result[2] == 1
+
+
+def test_group_filter_selection_uses_displayed_rows_and_retains_hidden_studies(
+    general_callbacks, monkeypatch
+):
+    from deepcave.plugins.summary.all_runs_overview import group_filter_rows
+
+    module, layout, callbacks = general_callbacks
+    paths = ["/hidden"]
+    add_run = Mock(side_effect=lambda path: paths.append(path) or True)
+    handler = SimpleNamespace(
+        get_selected_run_paths=lambda: paths.copy(),
+        add_run=add_run,
+        remove_run=Mock(),
+        update_groups=Mock(),
+    )
+    monkeypatch.setattr(module, "run_handler", handler)
+    monkeypatch.setattr(
+        module,
+        "ctx",
+        SimpleNamespace(
+            triggered_id="all-runs-table",
+            triggered_prop_ids={"all-runs-table.selected_rows": "all-runs-table"},
+        ),
+    )
+    layout._callback_manage_run()
+    data = {
+        "columns": [{"id": "successful", "type": "numeric"}],
+        "rows": [
+            {"id": "/hidden", "family": "a", "successful": 1},
+            {"id": "/winner", "family": "a", "successful": 2},
+            {"id": "/other", "family": "b", "successful": 3},
+        ],
+    }
+    visible = group_filter_rows(data, True, ["family"], "successful", "max")
+    result = callbacks[0]([], [0], visible, [], 0, paths.copy())
+    assert result[1] == ["/hidden", "/winner"]
+    add_run.assert_called_once_with("/winner")
+    monkeypatch.setattr(
+        module,
+        "ctx",
+        SimpleNamespace(
+            triggered_id="all-runs-table",
+            triggered_prop_ids={"all-runs-table.data": "all-runs-table"},
+        ),
+    )
+    restored = callbacks[0]([], [0], data["rows"], [], 1, paths.copy())
+    assert restored[3] == [0, 1]
+    handler.remove_run.assert_not_called()
+
+
+@pytest.mark.parametrize("busy", [False, True])
+def test_failed_study_import_does_not_leave_its_checkbox_selected(
+    general_callbacks, monkeypatch, tmp_path, busy
+):
+    module, layout, callbacks = general_callbacks
+    database = _database(tmp_path / "study.db", ["study"])
+    handler = SimpleNamespace(
+        get_selected_run_paths=lambda: [], get_working_directory=lambda: tmp_path, add_run=Mock()
+    )
+    monkeypatch.setattr(module, "run_handler", handler)
+    monkeypatch.setattr(
+        module,
+        "ctx",
+        SimpleNamespace(
+            triggered_id="all-runs-table",
+            triggered_prop_ids={"all-runs-table.selected_rows": "all-runs-table"},
+        ),
+    )
+    monkeypatch.setattr(module, "queue", SimpleNamespace(has_active_jobs_for_run=lambda _: busy))
+    monkeypatch.setattr(module, "notification", SimpleNamespace(update=Mock()))
+    snapshot = Mock(side_effect=ValueError("No completed trials"))
+    monkeypatch.setattr(module, "create_optuna_snapshot", snapshot)
+    layout.logger = Mock()
+    layout._callback_manage_run()
+    result = callbacks[0](
+        [], [0], [{"id": "/study", "database": str(database), "study_name": "study"}],
+        [], 0, [],
+    )
+    assert result[3] == []
+    handler.add_run.assert_not_called()
+    assert snapshot.call_count == (0 if busy else 1)
+    assert module.notification.update.call_count == 1

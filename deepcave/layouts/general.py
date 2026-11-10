@@ -39,6 +39,8 @@ from deepcave.layouts import Layout
 from deepcave.runs import NotMergeableError, Status
 from deepcave.runs.converters.optuna import OptunaRun
 from deepcave.runs.handler import (
+    DATA_SEED_ATTRIBUTE_CACHE_KEY,
+    MODEL_SEED_ATTRIBUTE_CACHE_KEY,
     OPTUNA_SAMPLER_ATTRIBUTE_CACHE_KEY,
     RUN_ABBREV_AS_NAME_CACHE_KEY,
     RUN_ABBREV_ATTRIBUTES_CACHE_KEY,
@@ -47,9 +49,7 @@ from deepcave.runs.handler import (
 from deepcave.utils.hash import string_to_hash
 from deepcave.utils.layout import help_button
 from deepcave.utils.optuna import (
-    SNAPSHOT_FILENAME,
     create_optuna_snapshot,
-    get_optuna_snapshot_path,
     list_optuna_studies,
     resolve_optuna_database,
 )
@@ -60,7 +60,14 @@ CACHE_CLEARED_TRIGGER_ID = "general-cache-cleared-trigger"
 SAMPLER_ATTRIBUTE_ID = "general-sampler-attribute"
 RUN_ABBREV_ATTRIBUTES_ID = "general-run-abbrev-attributes"
 RUN_ABBREV_AS_NAME_ID = "general-run-abbrev-as-name"
-OPTUNA_METADATA_FIELDS = (("Sampler", SAMPLER_ATTRIBUTE_ID, OPTUNA_SAMPLER_ATTRIBUTE_CACHE_KEY),)
+MODEL_SEED_ATTRIBUTE_ID = "general-model-seed-attribute"
+DATA_SEED_ATTRIBUTE_ID = "general-data-seed-attribute"
+SCOPED_METADATA_IDS = {SAMPLER_ATTRIBUTE_ID, MODEL_SEED_ATTRIBUTE_ID, DATA_SEED_ATTRIBUTE_ID}
+OPTUNA_METADATA_FIELDS = (
+    ("Sampler", SAMPLER_ATTRIBUTE_ID, OPTUNA_SAMPLER_ATTRIBUTE_CACHE_KEY),
+    ("Model Seed", MODEL_SEED_ATTRIBUTE_ID, MODEL_SEED_ATTRIBUTE_CACHE_KEY),
+    ("Data Seed", DATA_SEED_ATTRIBUTE_ID, DATA_SEED_ATTRIBUTE_CACHE_KEY),
+)
 SQLITE_EXTENSIONS = {".db", ".sqlite", ".sqlite3"}
 
 
@@ -78,7 +85,6 @@ class GeneralLayout(Layout):
         """Register if there were any callbacks."""
         self._callback_browse_optuna_database()
         self._callback_discover_optuna_studies()
-        self._callback_update_optuna_button()
         for _label, component_id, cache_key in OPTUNA_METADATA_FIELDS:
             self._callback_metadata_attribute(component_id, cache_key)
         self._callback_metadata_attribute(
@@ -178,32 +184,23 @@ class GeneralLayout(Layout):
     def _callback_discover_optuna_studies(self) -> None:
         """Discover studies whenever the SQLite database path changes."""
         outputs = [
-            Output("general-optuna-study-dropdown", "options"),
-            Output("general-optuna-study-dropdown", "value"),
             Output("general-optuna-database-status", "children"),
             Output("general-optuna-database-status", "className"),
             Output(OPTUNA_DISCOVERY_STORE_ID, "data"),
-            Output("general-optuna-study-dropdown", "placeholder"),
-            Output("general-optuna-study-dropdown", "disabled"),
         ]
         inputs = [
             Input("general-optuna-database-input", "value"),
             Input("general-working-directory", "data"),
-            State("general-optuna-study-dropdown", "value"),
-            State(OPTUNA_DISCOVERY_STORE_ID, "data"),
         ]
 
         @app.callback(outputs, inputs)  # type: ignore
         def callback(
             database_value: str,
             working_dir: str,
-            selected_study: Optional[str],
-            previous_discovery: Any,
         ):
-            """Populate the study dropdown from a local Optuna database."""
-            placeholder = "Select a study"
+            """Validate the database and trigger loading its studies into the overview."""
             if not database_value or not database_value.strip() or working_dir is None:
-                return [], None, "", "d-none", None, placeholder, True
+                return "", "d-none", None
 
             try:
                 database = resolve_optuna_database(database_value, Path(working_dir))
@@ -215,13 +212,9 @@ class GeneralLayout(Layout):
                     "error": str(exception),
                 }
                 return (
-                    [],
-                    None,
                     str(exception),
                     "small text-danger mt-1",
                     discovery,
-                    placeholder,
-                    True,
                 )
 
             c.set("optuna_database", value=str(database))
@@ -229,22 +222,7 @@ class GeneralLayout(Layout):
             if len(study_names) == 0:
                 message = "No Optuna studies found in this database."
                 discovery = {"database": str(database), "studies": [], "error": message}
-                return [], None, message, "small text-warning mt-1", discovery, placeholder, True
-
-            options = [
-                {
-                    "label": study_name,
-                    "value": study_name,
-                }
-                for study_name in study_names
-            ]
-            if (
-                not isinstance(previous_discovery, dict)
-                or previous_discovery.get("database") != str(database)
-                or previous_discovery.get("input") != database_value
-                or selected_study not in study_names
-            ):
-                selected_study = None
+                return message, "small text-warning mt-1", discovery
 
             discovery = {
                 "database": str(database),
@@ -252,55 +230,7 @@ class GeneralLayout(Layout):
                 "studies": study_names,
                 "error": None,
             }
-            placeholder = f"Select a study ({len(study_names)} available)"
-            return options, selected_study, "", "d-none", discovery, placeholder, False
-
-    def _callback_update_optuna_button(self) -> None:
-        """Update the Optuna import button based on the selected snapshot."""
-        outputs = [
-            Output("general-optuna-load-button", "children"),
-            Output("general-optuna-load-button", "disabled"),
-        ]
-        inputs = [
-            Input("general-optuna-database-input", "value"),
-            Input("general-optuna-study-dropdown", "value"),
-            Input("general-working-directory", "data"),
-            Input("general-optuna-import-trigger", "data"),
-            Input(OPTUNA_DISCOVERY_STORE_ID, "data"),
-        ]
-
-        @app.callback(outputs, inputs)  # type: ignore
-        def callback(
-            database_value: str,
-            study_name: Optional[str],
-            working_dir: str,
-            _optuna_import_trigger: int,
-            discovery: Any,
-        ):
-            """Choose the load or refresh state for the import button."""
-            if database_value is None or study_name is None or working_dir is None:
-                return "Load Study", True
-
-            try:
-                database = resolve_optuna_database(database_value, Path(working_dir))
-                discovered_database = (
-                    discovery.get("database") if isinstance(discovery, dict) else None
-                )
-                study_names = discovery.get("studies", []) if isinstance(discovery, dict) else []
-                if (
-                    str(database) != discovered_database
-                    or discovery.get("input") != database_value
-                    or study_name not in study_names
-                ):
-                    return "Load Study", True
-                run_path = get_optuna_snapshot_path(database, study_name, Path(working_dir))
-            except Exception:
-                return "Load Study", True
-
-            if (run_path / SNAPSHOT_FILENAME).is_file():
-                return "Refresh Study", False
-
-            return "Load Study", False
+            return "", "d-none", discovery
 
     def _callback_metadata_attribute(
         self, component_id: str, cache_key: str, multi: bool = False
@@ -334,7 +264,7 @@ class GeneralLayout(Layout):
                 for run in run_handler.runs.values()
                 for name in run.get_meta().get("optuna_user_attrs", {})
             }
-            if component_id == SAMPLER_ATTRIBUTE_ID:
+            if component_id in SCOPED_METADATA_IDS:
                 attributes = {f"study:{name}" for name in attributes}
                 attributes.update(
                     f"trial:{name}"
@@ -351,7 +281,7 @@ class GeneralLayout(Layout):
                 {
                     "label": (
                         name.replace("study:", "Study: ", 1).replace("trial:", "Trial: ", 1)
-                        if component_id == SAMPLER_ATTRIBUTE_ID
+                        if component_id in SCOPED_METADATA_IDS
                         else name
                     ),
                     "value": name,
@@ -517,122 +447,90 @@ class GeneralLayout(Layout):
             return table, f"{count} {'run' if count == 1 else 'runs'}"
 
     def _callback_manage_run(self) -> None:
-        """Manage runs, including adding and removing them."""
+        """Keep the overview checkboxes and the selected studies in sync."""
         outputs = [
-            Output({"type": "general-dynamic-add-run", "index": ALL}, "n_clicks"),
             Output({"type": "general-dynamic-remove-run", "index": ALL}, "n_clicks"),
             Output("general-selected-runs", "data"),
             Output("general-optuna-import-trigger", "data"),
-            Output("general-optuna-load-button", "n_clicks"),
+            Output("all-runs-table", "selected_rows"),
         ]
 
         inputs = [
-            Input({"type": "general-dynamic-add-run", "index": ALL}, "n_clicks"),
             Input({"type": "general-dynamic-remove-run", "index": ALL}, "n_clicks"),
-            Input("general-optuna-load-button", "n_clicks"),
+            Input("all-runs-table", "selected_rows"),
+            Input("all-runs-table", "data"),
         ]
 
         states = [
-            State({"type": "general-dynamic-available-run-path", "index": ALL}, "data"),
             State({"type": "general-dynamic-selected-run-path", "index": ALL}, "data"),
-            State("general-optuna-database-input", "value"),
-            State("general-optuna-study-dropdown", "value"),
             State("general-optuna-import-trigger", "data"),
+            State("general-selected-runs", "data"),
         ]
 
         @app.callback(outputs, inputs, states)  # type: ignore
         def callback(
-            add_n_clicks,
             remove_n_clicks,
-            optuna_n_clicks,
-            available_run_paths,
+            selected_rows,
+            rows,
             selected_run_paths,
-            database_value,
-            study_name,
             optuna_import_trigger,
+            previous_paths,
         ):
-            """Add and remove runs."""
-            runs_changed = False
-
-            # Add run path
-            for n_click, run_path in zip(add_n_clicks, available_run_paths):
-                if n_click is not None:
-                    success = run_handler.add_run(run_path)
-                    if not success:
-                        notification.update("The run could not be added.")
-                    else:
-                        runs_changed = True
-
-            # Remove run path
-            for n_click, run_path in zip(remove_n_clicks, selected_run_paths):
-                if n_click is not None:
+            """Import newly checked studies; data refreshes only restore existing selections."""
+            rows = rows or []
+            before = list(run_handler.get_selected_run_paths())
+            if (
+                ctx.triggered_id == "all-runs-table"
+                and "all-runs-table.selected_rows" in ctx.triggered_prop_ids
+                and "all-runs-table.data" not in ctx.triggered_prop_ids
+            ):
+                chosen = {
+                    rows[index]["id"] for index in selected_rows or [] if 0 <= index < len(rows)
+                }
+                for row in rows:
+                    run_path = row["id"]
+                    if run_path in before and run_path not in chosen:
+                        run_handler.remove_run(run_path)
+                    elif run_path in chosen and run_path not in before:
+                        try:
+                            if row.get("database") and row.get("study_name"):
+                                database = resolve_optuna_database(
+                                    row["database"], run_handler.get_working_directory()
+                                )
+                                run_id = string_to_hash(f"{OptunaRun.prefix}:{run_path}")
+                                if queue.has_active_jobs_for_run(run_id):
+                                    raise ValueError(
+                                        "The Optuna run still has pending or running jobs. "
+                                        "Wait for them or cancel them before loading it."
+                                    )
+                                create_optuna_snapshot(
+                                    database, row["study_name"], run_handler.get_working_directory()
+                                )
+                                queue.delete_inactive_jobs_for_run(run_id)
+                            if not run_handler.add_run(run_path):
+                                notification.update(
+                                    f'The study "{row["run"]}" could not be loaded.'
+                                )
+                        except Exception as exception:
+                            self.logger.exception("Could not select study.")
+                            notification.update(str(exception))
+            elif isinstance(ctx.triggered_id, dict):
+                for n_click, run_path in zip(remove_n_clicks, selected_run_paths):
+                    if not n_click:
+                        continue
                     run_handler.remove_run(run_path)
-                    runs_changed = True
-
-            if optuna_n_clicks is not None:
-                try:
-                    if database_value is None or study_name is None:
-                        raise ValueError("Select a SQLite database and an Optuna study first.")
-
-                    working_dir = run_handler.get_working_directory()
-                    database = resolve_optuna_database(database_value, working_dir)
-                    # Discovery is a UI snapshot. Validate against the source immediately before
-                    # the mutating import so a changed SQLite/WAL cannot make it stale.
-                    if study_name not in list_optuna_studies(database):
-                        raise ValueError(f'Optuna study "{study_name}" no longer exists.')
-                    target_path = get_optuna_snapshot_path(database, study_name, working_dir)
-                    target_path_str = str(target_path)
-                    run_id = string_to_hash(f"{OptunaRun.prefix}:{target_path}")
-
-                    if queue.has_active_jobs_for_run(run_id):
-                        notification.update(
-                            "The Optuna run still has pending or running jobs. "
-                            "Wait for them or cancel them before refreshing.",
-                            "warning",
-                        )
-                    else:
-                        result = create_optuna_snapshot(database, study_name, working_dir)
-                        queue.delete_inactive_jobs_for_run(run_id)
-
-                        if target_path_str in run_handler.get_selected_run_paths():
-                            if target_path_str in run_handler.runs:
-                                run_handler.update()
-                                success = target_path_str in run_handler.runs
-                            else:
-                                success = run_handler.update_runs()
-                        else:
-                            success = run_handler.add_run(target_path_str)
-
-                        if success:
-                            run_handler.update_groups()
-                            runs_changed = True
-                            optuna_import_trigger = (optuna_import_trigger or 0) + 1
-                            action = "refreshed" if result.refreshed else "loaded"
-                            notification.update(
-                                f'Optuna study "{study_name}" {action}: '
-                                f"{result.imported_trials} trials imported, "
-                                f"{result.skipped_trials} unfinished trials skipped.",
-                                "success",
-                            )
-                        else:
-                            notification.update("The imported Optuna run could not be selected.")
-                except Exception as exception:
-                    self.logger.exception("Could not import Optuna study.")
-                    notification.update(str(exception))
-
-            # Reset clicks
-            add_n_clicks = [None for _ in add_n_clicks]
-            remove_n_clicks = [None for _ in remove_n_clicks]
-
-            if runs_changed:
+            paths = list(run_handler.get_selected_run_paths())
+            if paths != before:
+                run_handler.update_groups()
                 c.set("last_inputs", value={})
+                optuna_import_trigger = (optuna_import_trigger or 0) + 1
+            checked = [index for index, row in enumerate(rows) if row["id"] in paths]
 
             return (
-                add_n_clicks,
-                remove_n_clicks,
-                run_handler.get_selected_run_paths(),
-                optuna_import_trigger or 0,
-                None,
+                [None for _ in remove_n_clicks],
+                paths if paths != previous_paths else no_update,
+                optuna_import_trigger if paths != before else no_update,
+                checked if checked != (selected_rows or []) else no_update,
             )
 
     def _callback_display_groups(self) -> None:
@@ -897,16 +795,13 @@ class GeneralLayout(Layout):
 
             return None, revision or 0
 
-    def __call__(self) -> List[Component]:  # noqa: D102
+    def database_controls(self) -> List[Component]:
+        """Render the database picker shared by both study tabs, without a study dropdown."""
         return [
-            html.H1("General"),
             dcc.Store(
                 id="general-working-directory", data=str(run_handler.get_working_directory())
             ),
-            dcc.Store(id="general-optuna-import-trigger", data=0),
             dcc.Store(id=OPTUNA_DISCOVERY_STORE_ID, data=None),
-            dcc.Store(id=GROUP_HYDRATION_STORE_ID, data=None),
-            dcc.Store(id=CACHE_CLEARED_TRIGGER_ID, data=0),
             dbc.Card(
                 [
                     dbc.CardBody(
@@ -942,26 +837,18 @@ class GeneralLayout(Layout):
                                 className="d-none",
                                 role="status",
                             ),
-                            dbc.Label(
-                                "Study", html_for="general-optuna-study-dropdown", className="mt-2"
-                            ),
                             html.Div(
                                 [
-                                    dcc.Dropdown(
-                                        id="general-optuna-study-dropdown",
-                                        options=[],
-                                        placeholder="Select a study",
-                                        disabled=True,
-                                        style={"flex": "1", "minWidth": 0},
-                                    ),
                                     dbc.Button(
-                                        "Load Study",
-                                        id="general-optuna-load-button",
-                                        color="primary",
-                                        disabled=True,
+                                        "Load all runs", id="all-runs-load", n_clicks=0,
+                                        color="primary", className="text-nowrap",
+                                    ),
+                                    dcc.Loading(
+                                        html.Div(id="all-runs-status", className="small text-muted", role="status"),
+                                        target_components={"all-runs-status": "children"},
                                     ),
                                 ],
-                                className="general-optuna-row",
+                                className="d-flex align-items-center gap-3 mt-2",
                             ),
                         ]
                     ),
@@ -1000,7 +887,15 @@ class GeneralLayout(Layout):
                 is_open=False,
                 size="lg",
             ),
-            dcc.Store(id="general-selected-runs", data={}),
+        ]
+
+    def __call__(self) -> List[Component]:
+        """Render selected-study management inside All Runs Overview."""
+        return [
+            dcc.Store(id="general-optuna-import-trigger", data=0),
+            dcc.Store(id=GROUP_HYDRATION_STORE_ID, data=None),
+            dcc.Store(id=CACHE_CLEARED_TRIGGER_ID, data=0),
+            dcc.Store(id="general-selected-runs", data=[]),
             dcc.Store(id="general-group-trigger", data=0),
             dbc.Card(
                 dbc.CardBody(
@@ -1121,7 +1016,16 @@ class GeneralLayout(Layout):
                                     dbc.Col(
                                         dcc.Dropdown(
                                             id=component_id,
-                                            options=[],
+                                            options=[
+                                                {
+                                                    "label": attribute.replace(
+                                                        "study:", "Study: ", 1
+                                                    ).replace("trial:", "Trial: ", 1),
+                                                    "value": attribute,
+                                                }
+                                                for attribute in [c.get(cache_key)]
+                                                if attribute
+                                            ],
                                             value=c.get(cache_key),
                                             placeholder="None",
                                             clearable=True,
@@ -1168,7 +1072,10 @@ class GeneralLayout(Layout):
                         ),
                         dcc.Dropdown(
                             id=RUN_ABBREV_ATTRIBUTES_ID,
-                            options=[],
+                            options=[
+                                {"label": attribute, "value": attribute}
+                                for attribute in c.get(RUN_ABBREV_ATTRIBUTES_CACHE_KEY) or []
+                            ],
                             value=c.get(RUN_ABBREV_ATTRIBUTES_CACHE_KEY) or [],
                             multi=True,
                             clearable=True,

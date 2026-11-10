@@ -21,8 +21,9 @@ from playwright.sync_api import sync_playwright
 from werkzeug.serving import make_server
 
 import deepcave
-from deepcave.plugins.select_candidates import SelectCandidates
+from deepcave.plugins.select_candidates import SelectCandidates, table_data
 from deepcave.runs.converters.optuna import OptunaRun
+from deepcave.utils.candidates import candidate_data, central_objective, scatter_figure
 
 try:
     import tomllib
@@ -30,7 +31,64 @@ except ImportError:
     import tomli as tomllib
 
 
-def main():
+def check_local_explorer(page, runs):
+    """Compare browser calculations against Python for ties, directions and missing values."""
+    from copy import deepcopy
+
+    from dash.dash_table.Format import Format, Scheme
+    from plotly.utils import PlotlyJSONEncoder
+
+    data = candidate_data(runs[0])
+    data["rows"].extend(candidate_data(runs[1])["rows"])
+    data["rows"][0]["parameters"]["optional"] = None
+    data["rows"][1]["parameters"]["optional"] = True
+    presentation = {
+        "scatter": scatter_figure([], None).to_plotly_json(),
+        "numberFormat": Format(precision=6, scheme=Scheme.decimal_or_exponent).to_plotly_json(),
+    }
+    expected_rows, expected_columns = table_data(data, list(data["objectives"]))
+    expected_columns = json.loads(json.dumps(expected_columns, cls=PlotlyJSONEncoder))
+    actual, columns = page.evaluate(
+        "args => window.dash_clientside.candidateExplorer.table(...args)",
+        [data, list(data["objectives"]), presentation],
+    )
+    assert actual["rows"] == expected_rows
+    assert columns == expected_columns
+    for direction, elites, visible, mixed in [
+        ("upper", False, None, False),
+        ("lower", False, None, False),
+        ("upper", True, None, False),
+        ("lower", True, None, False),
+        ("upper", True, [], False),
+        ("upper", True, [data["rows"][0]["id"]], False),
+        ("upper", True, None, True),
+    ]:
+        sample = deepcopy(data)
+        for i, row in enumerate(sample["rows"]):
+            row["metric_info"] = deepcopy(row["metric_info"])
+            row["duration"] = [0, 1, 1, 2, 0, None, -1, 3][i]
+            row["metrics"]["metric:Objective0"] = [5, 3, 3, 3, 6, 7, 8, None][i]
+            row["metric_info"]["metric:Objective0"]["optimize"] = (
+                "lower" if mixed and i == 0 else direction
+            )
+        state = {"value": "objective:0", "direction": direction}
+        objective = central_objective(sample, state)
+        rows = [row for row in sample["rows"] if visible is None or row["id"] in visible]
+        expected = json.loads(scatter_figure(
+            rows, objective, True, show_elites=elites, elite_fraction=0.5
+        ).to_json())
+        actual = page.evaluate(
+            "args => window.dash_clientside.candidateExplorer.scatter(...args)",
+            [visible, sample, state, True, elites, 0.5, presentation],
+        )
+        assert actual["data"] == expected["data"]
+        for axis in ("xaxis", "yaxis"):
+            assert actual["layout"][axis] == expected["layout"][axis]
+        assert actual["layout"].get("annotations", []) == expected["layout"].get("annotations", [])
+        assert json.loads(actual["layout"]["uirevision"]) == json.loads(expected["layout"]["uirevision"])
+
+
+def main(selectors_only=False):
     """Check bidirectional selection, persistence, hover, axes and the TOML download."""
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
     with tempfile.TemporaryDirectory(prefix="candidate-smoke-") as directory:
@@ -107,6 +165,64 @@ def main():
                 page.wait_for_function(
                     "document.querySelector('#select-candidates-scatter .js-plotly-plot')?.data?.[0]?.x?.length === 4"
                 )
+                check_local_explorer(page, runs)
+                objectives = page.locator(".candidate-objectives .candidate-selector")
+                studies_menu = page.locator(".candidate-studies .candidate-selector")
+                summary = objectives.locator("summary")
+                page.wait_for_function(
+                    "document.querySelector('#select-candidates-objectives-summary').textContent === '2 objectives selected'"
+                )
+                assert summary.bounding_box()["height"] == studies_menu.locator("summary").bounding_box()["height"] == 36
+                summary.click()
+                checks = objectives.locator('input[type="checkbox"]')
+                assert checks.count() == 2
+                checks.first.uncheck()
+                assert objectives.get_attribute("open") is not None
+                page.wait_for_function(
+                    "document.querySelector('#select-candidates-objectives-summary').textContent === 'score'"
+                )
+                search = objectives.locator('input[type="search"]')
+                search.fill("not-an-objective")
+                assert objectives.get_by_text("No matching options", exact=True).is_visible()
+                assert objectives.locator('.candidate-selector-options label:visible').count() == 0
+                objectives.get_by_role("button", name="Select all", exact=True).click()
+                page.wait_for_function(
+                    "document.querySelector('#select-candidates-objectives-summary').textContent === '2 objectives selected'"
+                )
+                search.fill("score")
+                assert objectives.locator('.candidate-selector-options label:visible').count() == 1
+                objectives.get_by_role("button", name="Clear all", exact=True).click()
+                page.wait_for_function(
+                    "document.querySelector('#select-candidates-objectives-summary').textContent === 'Select objectives …'"
+                )
+                search.fill("")
+                assert objectives.locator('input[type="checkbox"]:checked').count() == 0
+                objectives.get_by_role("button", name="Select all", exact=True).click()
+                page.wait_for_function(
+                    "document.querySelectorAll('#select-candidates-objectives input:checked').length === 2"
+                )
+                search.focus()
+                page.keyboard.press("Escape")
+                assert objectives.get_attribute("open") is None
+                assert summary.evaluate("el => el === document.activeElement")
+                studies_menu.locator("summary").click()
+                studies_menu.locator('input[type="checkbox"]').first.check()
+                page.wait_for_function(
+                    "document.querySelectorAll('#select-candidates-table td[data-dash-column=trial_number]').length === 8"
+                )
+                assert studies_menu.get_attribute("open") is not None
+                studies_menu.get_by_role("button", name="Clear all", exact=True).click()
+                page.wait_for_function(
+                    "document.querySelectorAll('#select-candidates-table td[data-dash-column=trial_number]').length === 4"
+                )
+                page.locator("#select-candidates-count").click()
+                assert studies_menu.get_attribute("open") is None
+                if selectors_only:
+                    assert not errors, errors
+                    page.screenshot(path="/tmp/deepcave-candidate-selectors.png", full_page=True)
+                    browser.close()
+                    print(json.dumps({"result": "passed", "checks": "compact selectors, search, checkboxes, bulk actions, studies, keyboard, field heights"}))
+                    return
                 page.evaluate(
                     "() => { window.candidateEvents = []; document.querySelector('#select-candidates-scatter .js-plotly-plot').on('plotly_selected', e => window.candidateEvents.push(e?.points?.map(p => p.customdata?.[2]))); }"
                 )
@@ -154,6 +270,52 @@ def main():
                         [x, y],
                     )
 
+                # Pin selections even when sorting and selecting from another page.
+                page.evaluate(
+                    "window.dash_clientside.set_props('select-candidates-table', {page_size: 2, page_current: 1})"
+                )
+                plot_event("plotly_click", [3])
+                count(1)
+                page.wait_for_function(
+                    "document.querySelector('#select-candidates-table td[data-dash-column=trial_number]')?.textContent === '3'"
+                )
+                page.wait_for_function("""() => {
+                    const cell = document.querySelector('#select-candidates-table td[data-dash-column=trial_number]');
+                    const selected = Object.values(JSON.parse(sessionStorage.getItem('select-candidates-selection')))[0];
+                    const probe = document.createElement('span');
+                    probe.style.color = selected.color;
+                    document.body.appendChild(probe);
+                    const matches = getComputedStyle(cell).color === getComputedStyle(probe).color;
+                    probe.remove();
+                    return matches;
+                }""")
+                page.evaluate(
+                    "window.dash_clientside.set_props('select-candidates-table', {sort_by: [{column_id: 'duration', direction: 'asc'}], page_size: 20})"
+                )
+                page.wait_for_function(
+                    "Array.from(document.querySelectorAll('#select-candidates-table td[data-dash-column=trial_number]')).map(n => n.textContent).join(',') === '3,0,1,2'"
+                )
+                plot_event("plotly_click", [1])
+                count(2)
+                page.wait_for_function(
+                    "Array.from(document.querySelectorAll('#select-candidates-table td[data-dash-column=trial_number]')).map(n => n.textContent).join(',') === '1,3,0,2'"
+                )
+                page.locator(
+                    "#select-candidates-table td[data-dash-column=trial_number]"
+                ).first.locator("xpath=..").locator("input[type=checkbox]").click()
+                count(1)
+                page.wait_for_function(
+                    "Array.from(document.querySelectorAll('#select-candidates-table td[data-dash-column=trial_number]')).map(n => n.textContent).join(',') === '3,0,1,2'"
+                )
+                page.locator("#select-candidates-clear").click()
+                count(0)
+                page.wait_for_function(
+                    "Array.from(document.querySelectorAll('#select-candidates-table td[data-dash-column=trial_number]')).map(n => n.textContent).join(',') === '0,1,2,3'"
+                )
+                page.evaluate(
+                    "window.dash_clientside.set_props('select-candidates-table', {sort_by: []})"
+                )
+
                 first = page.locator(
                     '#select-candidates-table td[data-dash-column="trial_number"]'
                 ).first
@@ -168,7 +330,7 @@ def main():
                 count(2)
                 page.mouse.move(0, 0)
                 page.wait_for_function(
-                    "document.querySelector('#select-candidates-scatter .js-plotly-plot').data[0].marker.size[1] === 9"
+                    "document.querySelector('#select-candidates-scatter .js-plotly-plot').data[0].marker.size[1] === 11"
                 )
                 plot_event("plotly_click", [1])
                 count(1)
@@ -240,10 +402,21 @@ def main():
                 page.wait_for_function(
                     "document.querySelector('#select-candidates-parallel .js-plotly-plot').data[0].dimensions.length === 3"
                 )
+                page.wait_for_load_state("networkidle")
+                requests = []
+                page.on("request", lambda request: requests.append(request.url)
+                        if request.method == "POST" else None)
                 page.locator("#select-candidates-pareto").check()
                 page.wait_for_function(
                     "document.querySelector('#select-candidates-scatter .js-plotly-plot').data.length === 2"
                 )
+                assert not requests, requests  # Pareto toggles must stay entirely in the browser.
+                page.locator("#select-candidates-elites").check()
+                page.wait_for_function(
+                    "document.querySelector('#select-candidates-scatter .js-plotly-plot').data[0].customdata.some(row => row[4])"
+                )
+                assert not requests, requests
+                page.locator("#select-candidates-elites").uncheck()
 
                 # Filtering and central objective changes preserve the independent selection.
                 page.locator(
@@ -297,9 +470,12 @@ def main():
                     runs[1].id,
                 )
                 page.wait_for_function(
-                    "document.querySelector('#select-candidates-status').textContent.startsWith('4 trials') && document.querySelector('#select-candidates-table td[data-dash-column=study_name]')?.textContent === 'study-1'"
+                    "document.querySelector('#select-candidates-table td[data-dash-column=study_name]')?.textContent === 'study-1'"
                 )
                 count(4)
+                page.wait_for_function(
+                    "document.querySelector('#select-candidates-scatter .js-plotly-plot').data[0]?.customdata?.[0]?.[1] === 'study-1'"
+                )
                 plot_event("plotly_click", [0])
                 count(5)
                 page.wait_for_function(
@@ -307,11 +483,8 @@ def main():
                 )
                 href = page.locator("#select-candidates-export").get_attribute("href")
                 exported = tomllib.loads(unquote(href.split(",", 1)[1]))
-                assert {row["study_name"] for row in exported["selected_trials"]} == {
-                    "study-0",
-                    "study-1",
-                }
-                assert len(exported["selected_trials"]) == 5
+                assert all(set(params) == {"rate", "model"} for params in exported["trials"])
+                assert len(exported["trials"]) == 5
                 assert (
                     page.evaluate(
                         "() => new Set(Object.values(JSON.parse(sessionStorage.getItem('select-candidates-selection'))).map(row => row.color)).size"

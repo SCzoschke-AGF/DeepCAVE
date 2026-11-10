@@ -1304,6 +1304,21 @@ table.table.exclude-head tbody {
     text-align: center;
 }
 
+.planner-profile-toggle {
+    padding: 0;
+    border: 0;
+    font: inherit;
+    color: inherit;
+    vertical-align: baseline;
+    text-decoration: none;
+}
+
+.planner-profile-toggle.active,
+.planner-profile-toggle:hover {
+    color: #315a9b;
+    text-decoration: underline;
+}
+
 .planner-q90-profile-container {
     position: relative;
     min-width: 0;
@@ -1966,7 +1981,7 @@ table.table.exclude-head tbody {
 }
 
 .two-dimensional-trials-card {
-    grid-column: 1 / -1;
+    grid-column: auto;
 }
 
 .two-dimensional-planning-actions {

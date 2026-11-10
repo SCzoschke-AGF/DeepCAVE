@@ -9,7 +9,7 @@ Then run::
 
     .venv/bin/python -m tests.browser_navigation_smoke http://127.0.0.1:8061
 
-The browser probe covers General, 1-D Analyses, 2-D Analyses and HPO Planner. It intentionally
+The browser probe covers All Runs Overview, 1-D Analyses, 2-D Analyses and HPO Planner. It intentionally
 does not import, refresh, or clear a study while measuring. By default it fails above 100 ms warm
 navigation p95, 150 ms visible search-space commit, or 1000 ms background autosave. Override the
 limits with ``DEEPCAVE_MAX_WARM_P95_MS``, ``DEEPCAVE_MAX_COMMIT_MS`` and
@@ -141,9 +141,9 @@ def main() -> None:
         )
 
         page.goto(base_url, wait_until="domcontentloaded")
-        page.locator("#general-page-container").wait_for(state="visible")
+        page.locator("#studies-page-container").wait_for(state="visible")
         page.evaluate(
-            "document.querySelector('#general-page-container').dataset.smokeIdentity = 'stable'"
+            "document.querySelector('#studies-page-container').dataset.smokeIdentity = 'stable'"
         )
 
         cold: Dict[str, float] = {}
@@ -167,7 +167,7 @@ def main() -> None:
         bound.wait_for()
         assert abs(float(bound.input_value()) - proposal) <= max(1e-8, abs(proposal) * 1e-8)
         page.evaluate(
-            "document.querySelector('#general-page-container').dataset.smokeIdentity = 'stable'"
+            "document.querySelector('#studies-page-container').dataset.smokeIdentity = 'stable'"
         )
 
         _navigate(page, ROUTES[1])
@@ -187,7 +187,7 @@ def main() -> None:
             warm.append(_navigate(page, route_cycle[index % len(route_cycle)]))
 
         _navigate(page, "/")
-        assert page.locator("#general-page-container").get_attribute("data-smoke-identity") == (
+        assert page.locator("#studies-page-container").get_attribute("data-smoke-identity") == (
             "stable"
         )
         assert page.locator(".persistent-analysis-page").count() <= len(ROUTES)

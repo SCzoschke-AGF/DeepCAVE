@@ -122,13 +122,14 @@ INCLUDED_TRIAL_COLOR = "#52B788"
 EXCLUDED_TRIAL_COLOR = "#DC3545"
 INSIGHT_BIN_COUNT = 10
 INSIGHT_Q90_COLOR = "#FF7F0E"
+INSIGHT_BEST_COLOR = "#B279A2"
 INSIGHT_MEDIAN_COLOR = "#43A047"
 INSIGHT_TOP_TRIAL_COLOR = "#27364A"
 INSIGHT_ELITE_BAR_OPACITY = 0.65
 INSIGHT_TOP_TRIAL_RUG_Y = -0.12
 INSIGHT_TOP_TRIAL_STEM_Y = -0.07
 INSIGHT_X_TITLE_Y = -0.22
-CACHE_SCHEMA_VERSION = 10
+CACHE_SCHEMA_VERSION = 11
 
 USER_ATTR_PREFIX = "user_attr:"
 
@@ -151,6 +152,8 @@ SPREAD_MODE_ID = "hpo-planning-spread-mode"
 SPREAD_SCATTER_ID = "hpo-planning-spread-scatter"
 TOP_TRIAL_COUNT_ID = "hpo-planning-top-trial-count"
 INSIGHTS_STORE_ID = "hpo-planning-insights"
+PROFILE_Q90_ID = "hpo-planning-profile-q90"
+PROFILE_BEST_ID = "hpo-planning-profile-best"
 INSIGHT_SELECTION_STORE_ID = "hpo-planning-insight-selection"
 INSIGHT_MODAL_ID = "hpo-planning-insight-modal"
 INSIGHT_MODAL_TITLE_ID = "hpo-planning-insight-modal-title"
@@ -561,12 +564,16 @@ def _parameter_insights(
         active_count = len(active_rows)
         medians = []
         q90_values = []
+        best_values = []
         trial_counts = []
         for rows in grouped_rows:
             values = pd.Series([row[1] for row in rows], dtype=float)
             trial_count = len(rows)
             medians.append(None if values.empty else float(values.median()))
             q90_values.append(None if values.empty else float(values.quantile(0.90)))
+            best_values.append(
+                None if values.empty else float(values.min() if optimize == "lower" else values.max())
+            )
             trial_counts.append(trial_count)
 
         elite_groups = []
@@ -623,6 +630,7 @@ def _parameter_insights(
                 "x_positions": x_positions,
                 "median": medians,
                 "q90": q90_values,
+                "best": best_values,
                 "trial_counts": trial_counts,
                 "elite_groups": elite_groups,
                 "top_trials": top_trials,
@@ -770,12 +778,13 @@ def _parameter_top_trial_count(value: Any) -> int:
         return DEFAULT_PARAMETER_TOP_TRIAL_COUNT
 
 
-def _q90_profile_figure(insight: Dict[str, Any]) -> go.Figure:
-    """Return a compact q90 profile using the shared parameter-bin summary."""
+def _q90_profile_figure(insight: Dict[str, Any], metric: str = "q90") -> go.Figure:
+    """Return a compact objective profile using the shared parameter-bin summary."""
     labels = insight["labels"]
     x_positions = insight.get("x_positions")
     x_values = x_positions if x_positions is not None else labels
-    q90_values = insight["q90"]
+    q90_values = insight[metric]
+    color = INSIGHT_BEST_COLOR if metric == "best" else INSIGHT_Q90_COLOR
     available_q90 = [float(value) for value in q90_values if value is not None]
     mean_q90 = float(np.mean(available_q90)) if available_q90 else None
     figure = go.Figure()
@@ -783,11 +792,11 @@ def _q90_profile_figure(insight: Dict[str, Any]) -> go.Figure:
         go.Scatter(
             x=x_values,
             y=q90_values,
-            name="q90",
+            name=metric,
             mode="lines+markers",
             connectgaps=False,
-            line={"color": INSIGHT_Q90_COLOR, "width": 1.5},
-            marker={"color": INSIGHT_Q90_COLOR, "size": 5},
+            line={"color": color, "width": 1.5},
+            marker={"color": color, "size": 5},
             hoverinfo="skip",
         )
     )
@@ -795,7 +804,7 @@ def _q90_profile_figure(insight: Dict[str, Any]) -> go.Figure:
         go.Scatter(
             x=x_values,
             y=[mean_q90] * len(labels),
-            name="mean q90",
+            name=f"mean {metric}",
             mode="lines",
             connectgaps=False,
             line={"color": "#94A3B8", "width": 1.25, "dash": "dash"},
@@ -860,7 +869,7 @@ def _q90_profile(
     selection: Optional[Dict[str, Any]] = None,
 ) -> Component:
     """Render a compact q90 profile without exposing trial-level data to the browser."""
-    graph_id = {"type": "hpo-planner-q90-profile", "index": insight["index"]}
+    graph_id = {"type": "hpo-planner-q90-profile", "index": insight["index"], "context": ""}
     if parameter is None or selection is None:
         return dcc.Graph(
             id=graph_id,
@@ -1788,7 +1797,28 @@ def _planner_layout(
                         [
                             html.Div("Parameter"),
                             html.Div("Position in current search space"),
-                            html.Div("Objective - q90 Profile"),
+                            html.Div(
+                                [
+                                    "Objective - ",
+                                    dbc.Button(
+                                        "q90",
+                                        id=PROFILE_Q90_ID,
+                                        color="link",
+                                        active=True,
+                                        n_clicks=0,
+                                        className="planner-profile-toggle",
+                                    ),
+                                    " · ",
+                                    dbc.Button(
+                                        "best",
+                                        id=PROFILE_BEST_ID,
+                                        color="link",
+                                        active=False,
+                                        n_clicks=0,
+                                        className="planner-profile-toggle",
+                                    ),
+                                ]
+                            ),
                         ],
                         className="planner-table-header",
                     ),
@@ -2395,6 +2425,30 @@ class HPOPlanning(DynamicPlugin):
         super().register_callbacks()
         from deepcave import app
 
+        @app.callback(  # type: ignore
+            Output({"type": "hpo-planner-q90-profile", "index": ALL, "context": ALL}, "figure"),
+            Output(PROFILE_Q90_ID, "active"),
+            Output(PROFILE_BEST_ID, "active"),
+            Input(PROFILE_Q90_ID, "n_clicks"),
+            Input(PROFILE_BEST_ID, "n_clicks"),
+            State(INSIGHTS_STORE_ID, "data"),
+            State({"type": "hpo-planner-q90-profile", "index": ALL, "context": ALL}, "id"),
+            prevent_initial_call=True,
+        )
+        def switch_objective_profiles(
+            _q90_clicks: int,
+            _best_clicks: int,
+            insights: List[Dict[str, Any]],
+            graph_ids: List[Dict[str, Any]],
+        ) -> Any:
+            metric = "best" if ctx.triggered_id == PROFILE_BEST_ID else "q90"
+            lookup = {insight["index"]: insight for insight in insights}
+            return (
+                [_q90_profile_figure(lookup[graph_id["index"]], metric) for graph_id in graph_ids],
+                metric == "q90",
+                metric == "best",
+            )
+
         # The central browser reducer owns the range value and its expandable domain. Keep the
         # dependent overlays in a separate, local view callback so a commit does not rebuild rows
         # or wait for the server-side coverage update.
@@ -2716,8 +2770,8 @@ class HPOPlanning(DynamicPlugin):
             "objective_id": {
                 "options": get_select_options(
                     [
-                        *[f"Objective · {objective.name}" for objective in objectives],
-                        *[f"User attr · {name}" for name in user_attr_names],
+                        *[objective.name for objective in objectives],
+                        *user_attr_names,
                     ],
                     [*objective_ids, *user_attr_values],
                 ),

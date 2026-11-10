@@ -34,6 +34,27 @@ you can try out some examples by exploring the ``logs`` directory inside the Dee
 For example, if you navigate to ``logs/DeepCAVE``, you can view the run ``mnist_pytorch`` if you hit
 the ``+`` button left to it.
 
+Filter Optuna trials by sampling method
+--------------------------------------
+
+Under **General → Optuna metadata (connect your user attributes)**, map **Sampler**
+to your trial attribute, for example **Trial: sampling_method**. The sidebar's
+**Sampling methods** field then offers the distinct values found in loaded studies.
+Select one or several methods to restrict the trials used by analyses. For example,
+select only Bayesian optimization, or select random/grid methods to exclude it.
+Clear the selection to include all trials again.
+
+Trials without the mapped attribute are available as **Missing metadata**. They are
+included when no filter is selected and otherwise only when that option is selected.
+Study-level sampler mappings are also supported and select whole source studies.
+The subset applies to individual studies, groups, Sensitivity Analysis and the candidate
+explorer. Existing collected candidates remain in the session collection. Analyses with
+an Apply/Process button still use that button to compute their results.
+
+The filter is persisted with the other application settings. Changing the Sampler
+mapping clears the method selection. Filtered views retain original trial/configuration
+identities and leave imported studies unchanged; cached results are kept separate.
+
 More Options
 ------------
 
